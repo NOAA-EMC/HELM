@@ -162,7 +162,14 @@ endif()
 # fresh clones without --recurse-submodules).
 # ##############################################################################
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ArborX/CMakeLists.txt")
+# Resolution order: system package (HPC/spack installs ship ArborXConfig.cmake),
+# then the vendored copy, then FetchContent. AXIS uses the ArborX v2 API
+# (dimension-templated ArborX::Box), so require version >= 2.
+find_package(ArborX 2.1 QUIET)
+
+if(TARGET ArborX::ArborX)
+    message(STATUS "AXIS: ArborX ${ArborX_VERSION} found via find_package (${ArborX_DIR})")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ArborX/CMakeLists.txt")
     add_subdirectory(third_party/ArborX EXCLUDE_FROM_ALL)
 else()
     include(FetchContent)
