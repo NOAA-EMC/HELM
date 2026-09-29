@@ -590,7 +590,7 @@ def create_axis_mesh(ds: xr.Dataset, method: str | None = None) -> axis_py.Mesh:
 class Geometry:
     """Base abstract class representing any physical coordinate layout in AXIS."""
 
-    def to_mesh(self, method: str | None = None) -> axis_py.Mesh:
+    def to_mesh(self) -> axis_py.Mesh:
         """Convert this geometry to a unified C++ UnstructuredMesh."""
         raise NotImplementedError()
 
@@ -602,10 +602,10 @@ class XarrayGeometry(Geometry):
         self.ds = ds
         self.method = method
 
-    def to_mesh(self, method: str | None = None) -> axis_py.Mesh:
+    def to_mesh(self) -> axis_py.Mesh:
         # Keep 100% of existing, verified auto-detection and triangulation/centering logic!
         ds_normalized = self.ds.to_dataset(name="_tmp_data") if isinstance(self.ds, xr.DataArray) else self.ds
-        return create_axis_mesh(ds_normalized, method or self.method)
+        return create_axis_mesh(ds_normalized, self.method)
 
 
 class RectilinearGrid(Geometry):
@@ -617,7 +617,7 @@ class RectilinearGrid(Geometry):
         self.lons = np.asarray(lons, dtype=np.float64)
         self.lats = np.asarray(lats, dtype=np.float64)
 
-    def to_mesh(self, method: str | None = None) -> axis_py.Mesh:
+    def to_mesh(self) -> axis_py.Mesh:
         return _make_regular_mesh_from_centers(self.lons, self.lats)
 
 
@@ -631,7 +631,7 @@ class CurvilinearGrid(Geometry):
         self.lats = np.asarray(lats, dtype=np.float64)
         self.proj_string = proj_string
 
-    def to_mesh(self, method: str | None = None) -> axis_py.Mesh:
+    def to_mesh(self) -> axis_py.Mesh:
         if self.proj_string:
             return axis_py.make_projected_mesh(
                 self.lons.shape[1],
@@ -661,7 +661,7 @@ class UnstructuredMesh(Geometry):
         self.offsets = np.asarray(connectivity_offsets, dtype=np.int64)
         self.indices = np.asarray(connectivity_indices, dtype=np.int64)
 
-    def to_mesh(self, method: str | None = None) -> axis_py.Mesh:
+    def to_mesh(self) -> axis_py.Mesh:
         return axis_py.make_ugrid_mesh(self.coords, self.offsets, self.indices)
 
 
@@ -673,7 +673,7 @@ class RuleGeometry(Geometry):
     def __init__(self, config: dict):
         self.config = config
 
-    def to_mesh(self, method: str | None = None) -> axis_py.Mesh:
+    def to_mesh(self) -> axis_py.Mesh:
         return axis_py.generate_mesh_from_rules(self.config)
 
 
