@@ -22,13 +22,16 @@
 
 #include <Kokkos_Core.hpp>
 #include <algorithm>
+#include <array>
 #include <axis/ingest/grid_descriptor.hpp>
 #include <axis/topology/named_grid_registry.hpp>
 #include <axis/topology/projection_builder.hpp>
 #include <cctype>
 #include <cmath>
+#include <map>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace axis::topology {
@@ -130,6 +133,62 @@ std::size_t regular_total_nodes(int N) {
     return static_cast<std::size_t>(2 * N) * static_cast<std::size_t>(4 * N);
 }
 
+/// Unit vector for cubed-sphere tile-local gnomonic coordinates (a, b) on tile
+/// `tile` (1-based), shared by the mesh generator and the cell-center query so
+/// the two can never drift apart.
+///
+/// FV3 convention: tile 1 centre lon 0, 2 -> 90, 3 -> 180, 4 -> 270,
+/// 5 = north-pole cap, 6 = south-pole cap. `a` increases eastward, `b`
+/// northward, both in radians within [-pi/4, pi/4].
+inline std::array<double, 3> cs_tile_vec(int tile, double a, double b) {
+    const double ta = std::tan(a);
+    const double tb = std::tan(b);
+    double x, y, z;
+    switch (tile) {
+        case 1:
+            x = 1.0;
+            y = ta;
+            z = tb;
+            break;
+        case 2:
+            x = -ta;
+            y = 1.0;
+            z = tb;
+            break;
+        case 3:
+            x = -1.0;
+            y = -ta;
+            z = tb;
+            break;
+        case 4:
+            x = ta;
+            y = -1.0;
+            z = tb;
+            break;
+        case 5:
+            x = -tb;
+            y = ta;
+            z = 1.0;
+            break;
+        default:
+            x = tb;
+            y = ta;
+            z = -1.0;
+            break;  // tile 6
+    }
+    const double r = std::sqrt(x * x + y * y + z * z);
+    return std::array<double, 3>{x / r, y / r, z / r};
+}
+
+/// Convert a unit vector to (lon, lat) degrees, lon wrapped to [0, 360).
+inline std::array<double, 2> cs_unit_to_lonlat(const std::array<double, 3> &v) {
+    constexpr double kPi = 3.14159265358979323846;
+    constexpr double kR2D = 180.0 / kPi;
+    double lon = std::atan2(v[1], v[0]) * kR2D;
+    if (lon < 0.0) lon += 360.0;
+    return std::array<double, 2>{lon, std::asin(v[2]) * kR2D};
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Cell count computation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -208,7 +267,12 @@ UnstructuredMesh<MemorySpace> generate_regular_gaussian(int N) {
         for (int i = 0; i < n_lon; ++i) {
             int i_next = (i + 1) % n_lon;
 
-            // Quad: top-left, top-right, bottom-right, bottom-left
+            // Quad, CCW viewed from outside the sphere (engine convention for
+            // conservative clipping): bottom-left, bottom-right, top-right,
+            // top-left. Rows run north (j) to south (j+1), so "bottom" is the
+            // next (more southern) row. Winding matters: SphericalClipper /
+            // PlanarClipper derive each clip half-plane's inside-normal from
+            // the clip-ring order, which must be CCW (see generate_regular_grid).
             // top = current row (j), bottom = next row (j+1)
             std::size_t tl = row_start + static_cast<std::size_t>(i);
             std::size_t tr = row_start + static_cast<std::size_t>(i_next);
@@ -216,10 +280,10 @@ UnstructuredMesh<MemorySpace> generate_regular_gaussian(int N) {
             std::size_t bl = next_row_start + static_cast<std::size_t>(i);
 
             std::size_t base = cell_idx * 4;
-            h_indices(base + 0) = static_cast<index_t>(tl);
-            h_indices(base + 1) = static_cast<index_t>(tr);
-            h_indices(base + 2) = static_cast<index_t>(br);
-            h_indices(base + 3) = static_cast<index_t>(bl);
+            h_indices(base + 0) = static_cast<index_t>(bl);
+            h_indices(base + 1) = static_cast<index_t>(br);
+            h_indices(base + 2) = static_cast<index_t>(tr);
+            h_indices(base + 3) = static_cast<index_t>(tl);
             ++cell_idx;
         }
     }
@@ -331,17 +395,20 @@ UnstructuredMesh<MemorySpace> generate_octahedral_gaussian(int N) {
             int bot_i = static_cast<int>(std::floor(frac_bot * nlon_bot)) % nlon_bot;
             int bot_i_next = static_cast<int>(std::floor(frac_bot_next * nlon_bot)) % nlon_bot;
 
-            // Quad: top-left, top-right, bottom-right, bottom-left
+            // Quad, CCW viewed from outside the sphere (engine convention for
+            // conservative clipping): bottom-left, bottom-right, top-right,
+            // top-left. Rows run north (j) to south (j+1). See the note in
+            // generate_regular_gaussian on winding.
             std::size_t tl = top_start + static_cast<std::size_t>(top_i);
             std::size_t tr = top_start + static_cast<std::size_t>(top_i_next);
             std::size_t br = bot_start + static_cast<std::size_t>(bot_i_next);
             std::size_t bl = bot_start + static_cast<std::size_t>(bot_i);
 
             std::size_t base = cell_idx * 4;
-            h_indices(base + 0) = static_cast<index_t>(tl);
-            h_indices(base + 1) = static_cast<index_t>(tr);
-            h_indices(base + 2) = static_cast<index_t>(br);
-            h_indices(base + 3) = static_cast<index_t>(bl);
+            h_indices(base + 0) = static_cast<index_t>(bl);
+            h_indices(base + 1) = static_cast<index_t>(br);
+            h_indices(base + 2) = static_cast<index_t>(tr);
+            h_indices(base + 3) = static_cast<index_t>(tl);
             ++cell_idx;
         }
     }
@@ -618,6 +685,109 @@ inline UnstructuredMesh<MemorySpace> generate_noaa_grib_grid(int number) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Cubed-sphere (gnomonic-equidistant) grid generation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// @brief Generate a gnomonic-equidistant cubed-sphere mesh, 6 tiles × N×N cells.
+///
+/// FV3-style convention: tile-local coordinates (a, b) ∈ [−45°, +45°]² are
+/// equidistant in the gnomonic (tan) projection, so cell edges are great-circle
+/// arcs and cell centers follow v ∝ (±1, ±tan a, ±tan b) per tile. The six
+/// tiles are:
+///   tile 1: ( 1,  ta, tb)   center lon   0°
+///   tile 2: (−ta,  1, tb)   center lon  90°
+///   tile 3: (−1, −ta, tb)   center lon 180°
+///   tile 4: ( ta, −1, tb)   center lon 270°
+///   tile 5: (−tb, ta,  1)   north-pole cap
+///   tile 6: ( tb, ta, −1)   south-pole cap
+/// with ta = tan(a), tb = tan(b), normalized to the unit sphere. Each tile's
+/// a-axis increases eastward and b-axis northward, so cells wound
+/// (n00, n10, n11, n01) are counter-clockwise viewed from outside.
+///
+/// Edge and corner nodes shared between tiles are deduplicated via exact
+/// (quantized) coordinate hashing, giving 6·N² + 2 nodes and 6·N² cells.
+/// Generation is deterministic: identical names produce bitwise-identical
+/// coordinates in fixed iteration order.
+template <class MemorySpace>
+inline UnstructuredMesh<MemorySpace> generate_cubed_sphere(int N) {
+    const auto n = static_cast<std::size_t>(N);
+    const std::size_t n_cells_per_tile = n * n;
+    const std::size_t n_cells = 6 * n_cells_per_tile;
+    const std::size_t max_nodes = 6 * (n + 1) * (n + 1);  // before dedup
+
+    const double pi = 3.14159265358979323846;
+    const double quarter = pi / 4.0;
+    const double delta = (pi / 2.0) / static_cast<double>(N);  // tile-local spacing (rad)
+
+    // Unit vector for tile-local coords (a, b) on tile t (1-based). Delegates to
+    // the shared helper so cell centers and node coordinates can never drift.
+    auto tile_vec = [](int tile, double a, double b) { return cs_tile_vec(tile, a, b); };
+
+    // Quantized key for node deduplication (shared edge/corner nodes).
+    auto node_key = [](const std::array<double, 3> &v) {
+        auto q = [](double c) { return static_cast<long long>(std::llround(c * 1.0e12)); };
+        return std::make_tuple(q(v[0]), q(v[1]), q(v[2]));
+    };
+
+    std::map<std::tuple<long long, long long, long long>, std::size_t> node_map;
+    std::vector<double> node_lon, node_lat;
+    node_lon.reserve(max_nodes);
+    node_lat.reserve(max_nodes);
+
+    // Local (i, j) node index within tile t; deduplicated globally.
+    auto local_node = [&](int tile, std::size_t i, std::size_t j) -> index_t {
+        const double a = -quarter + static_cast<double>(i) * delta;
+        const double b = -quarter + static_cast<double>(j) * delta;
+        auto v = tile_vec(tile, a, b);
+        auto key = node_key(v);
+        auto it = node_map.find(key);
+        if (it != node_map.end()) return static_cast<index_t>(it->second);
+        const auto idx = node_lon.size();
+        double lon = std::atan2(v[1], v[0]) * 180.0 / pi;
+        if (lon < 0.0) lon += 360.0;
+        node_lon.push_back(lon);
+        node_lat.push_back(std::asin(v[2]) * 180.0 / pi);
+        node_map.emplace(key, idx);
+        return static_cast<index_t>(idx);
+    };
+
+    Kokkos::View<index_t *, Kokkos::HostSpace> h_offsets("cs_offsets", n_cells + 1);
+    Kokkos::View<index_t *, Kokkos::HostSpace> h_indices("cs_indices", n_cells * 4);
+    h_offsets(0) = 0;
+
+    for (std::size_t cell = 0; cell < n_cells; ++cell) {
+        const std::size_t t = cell / n_cells_per_tile;
+        const std::size_t rem = cell % n_cells_per_tile;
+        const std::size_t j = rem / n;
+        const std::size_t i = rem % n;
+
+        const index_t n00 = local_node(static_cast<int>(t) + 1, i, j);
+        const index_t n10 = local_node(static_cast<int>(t) + 1, i + 1, j);
+        const index_t n11 = local_node(static_cast<int>(t) + 1, i + 1, j + 1);
+        const index_t n01 = local_node(static_cast<int>(t) + 1, i, j + 1);
+
+        h_offsets(cell + 1) = h_offsets(cell) + 4;
+        h_indices(cell * 4 + 0) = n00;
+        h_indices(cell * 4 + 1) = n10;
+        h_indices(cell * 4 + 2) = n11;
+        h_indices(cell * 4 + 3) = n01;
+    }
+
+    const std::size_t n_nodes = node_lon.size();
+    Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace> h_coords("cs_coords", n_nodes, 2);
+    for (std::size_t k = 0; k < n_nodes; ++k) {
+        h_coords(k, 0) = node_lon[k];
+        h_coords(k, 1) = node_lat[k];
+    }
+
+    auto node_coords = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_coords);
+    auto conn_offsets = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_offsets);
+    auto conn_indices = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_indices);
+
+    return UnstructuredMesh<MemorySpace>(std::move(node_coords), std::move(conn_offsets), std::move(conn_indices), CoordinateSystem::SphericalDeg);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // NamedGridRegistry public interface
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -669,9 +839,9 @@ NamedGridRegistry::ParsedName NamedGridRegistry::parse(const std::string &name) 
     char family = static_cast<char>(std::toupper(static_cast<unsigned char>(name[0])));
 
     // Validate family
-    if (family != 'O' && family != 'F' && family != 'N' && family != 'R') {
+    if (family != 'O' && family != 'F' && family != 'N' && family != 'R' && family != 'C') {
         throw std::invalid_argument("NamedGridRegistry::parse: unknown grid family '" + std::string(1, name[0]) + "' in name \"" + name +
-                                    "\"; registered families are O, F, N, R, and grid<num>");
+                                    "\"; registered families are O, F, N, C, R, and grid<num>");
     }
 
     // Parse number
@@ -714,7 +884,208 @@ bool NamedGridRegistry::is_registered(const std::string &name) noexcept {
 }
 
 std::vector<char> NamedGridRegistry::registered_families() {
-    return {'F', 'G', 'N', 'O', 'R'};  // sorted
+    return {'C', 'F', 'G', 'N', 'O', 'R'};  // sorted
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cell-order layout descriptors + analytic cell centers
+//
+// Both mirror the generators above EXACTLY (same iteration order, same
+// formulas), so a client can reshape a flat ncol result into (lat, lon) or
+// (tile, j, i) coordinates that agree with the engine mesh to the bit.
+// ─────────────────────────────────────────────────────────────────────────────
+
+NamedGridRegistry::Layout NamedGridRegistry::layout(const std::string &name) {
+    ParsedName parsed = parse(name);
+    Layout L;
+    L.family = parsed.family;
+    L.number = parsed.number;
+    const int N = parsed.number;
+    switch (parsed.family) {
+        case 'F':
+            // Cells fill (2N-1) latitude rings x 4N columns, north to south.
+            L.ni = static_cast<std::size_t>(4 * N);
+            L.nj = static_cast<std::size_t>(2 * N - 1);
+            L.row_uniform_lon = true;
+            break;
+        case 'R':
+            // generate_regular_grid(4N-1, 2N-1, ...): cells fill (nj, ni), south to north.
+            L.ni = static_cast<std::size_t>(4 * N - 1);
+            L.nj = static_cast<std::size_t>(2 * N - 1);
+            L.row_uniform_lon = true;
+            break;
+        case 'C':
+            L.ni = static_cast<std::size_t>(N);
+            L.nj = static_cast<std::size_t>(N);
+            L.n_tiles = 6;
+            break;
+        case 'O':
+        case 'N':
+            // Reduced Gaussian: per-ring cell counts vary => no rectangular layout.
+            break;
+        case 'G': {
+            for (std::size_t idx = 0; idx < NOAA_GRIB_GRIDS_COUNT; ++idx) {
+                const auto &def = NOAA_GRIB_GRIDS[idx];
+                if (def.number != N) continue;
+                L.ni = def.ni;
+                L.nj = def.nj;
+                L.projected = def.proj_string != nullptr;
+                if (L.projected) {
+                    L.proj_string = def.proj_string;
+                } else {
+                    L.row_uniform_lon = true;
+                }
+                return L;
+            }
+            throw std::invalid_argument("NamedGridRegistry::layout: unregistered NOAA GRIB grid number " +
+                                        std::to_string(N));
+        }
+        default:
+            throw std::invalid_argument("NamedGridRegistry::layout: unknown family '" +
+                                        std::string(1, parsed.family) + "'");
+    }
+    return L;
+}
+
+std::vector<double> NamedGridRegistry::cell_centers(const std::string &name) {
+    ParsedName parsed = parse(name);
+    const int N = parsed.number;
+    constexpr double kPi = 3.14159265358979323846;
+    std::vector<double> out;
+
+    switch (parsed.family) {
+        case 'F': {
+            const int n_lon = 4 * N;
+            const std::vector<double> lats = compute_gaussian_latitudes(N);
+            const std::size_t nj = static_cast<std::size_t>(2 * N - 1);
+            out.resize(2 * nj * static_cast<std::size_t>(n_lon));
+            const double dlon = 360.0 / static_cast<double>(n_lon);
+            for (std::size_t j = 0; j < nj; ++j) {
+                const double lat_c = 0.5 * (lats[j] + lats[j + 1]);
+                for (int i = 0; i < n_lon; ++i) {
+                    const std::size_t c = j * static_cast<std::size_t>(n_lon) + static_cast<std::size_t>(i);
+                    out[2 * c] = (static_cast<double>(i) + 0.5) * dlon;
+                    out[2 * c + 1] = lat_c;
+                }
+            }
+            break;
+        }
+        case 'R': {
+            const std::size_t ni = static_cast<std::size_t>(4 * N - 1);
+            const std::size_t nj = static_cast<std::size_t>(2 * N - 1);
+            const double dlon = 360.0 / static_cast<double>(ni + 1);
+            const double dlat = 180.0 / static_cast<double>(nj + 1);
+            const double lon_start = -180.0;
+            const double lat_start = -90.0 + 0.5 * dlat;
+            out.resize(2 * ni * nj);
+            for (std::size_t j = 0; j < nj; ++j) {
+                for (std::size_t i = 0; i < ni; ++i) {
+                    const std::size_t c = j * ni + i;
+                    out[2 * c] = lon_start + (static_cast<double>(i) + 0.5) * dlon;
+                    out[2 * c + 1] = lat_start + (static_cast<double>(j) + 0.5) * dlat;
+                }
+            }
+            break;
+        }
+        case 'C': {
+            const std::size_t n = static_cast<std::size_t>(N);
+            const double quarter = kPi / 4.0;
+            const double delta = (kPi / 2.0) / static_cast<double>(N);
+            out.resize(2 * 6 * n * n);
+            std::size_t c = 0;
+            for (std::size_t t = 0; t < 6; ++t) {
+                for (std::size_t j = 0; j < n; ++j) {
+                    for (std::size_t i = 0; i < n; ++i, ++c) {
+                        const double a = -quarter + (static_cast<double>(i) + 0.5) * delta;
+                        const double b = -quarter + (static_cast<double>(j) + 0.5) * delta;
+                        const auto ll = cs_unit_to_lonlat(cs_tile_vec(static_cast<int>(t) + 1, a, b));
+                        out[2 * c] = ll[0];
+                        out[2 * c + 1] = ll[1];
+                    }
+                }
+            }
+            break;
+        }
+        case 'O':
+        case 'N': {
+            const int n_lat = 2 * N;
+            const std::vector<int> nlons = octahedral_nlons(N);
+            const std::vector<double> lats = compute_gaussian_latitudes(N);
+            out.resize(2 * reduced_total_cells(nlons));
+            std::size_t cell = 0;
+            for (int j = 0; j < n_lat - 1; ++j) {
+                const int nlon_top = nlons[static_cast<std::size_t>(j)];
+                const int nlon_bot = nlons[static_cast<std::size_t>(j + 1)];
+                const int n_ring = std::max(nlon_top, nlon_bot);
+                const double lat_c = 0.5 * (lats[static_cast<std::size_t>(j)] + lats[static_cast<std::size_t>(j + 1)]);
+                // Corner node longitude for cell index c (or c+1) on a row: mirrors the
+                // generator's proportional mapping floor(c / n_ring * nlon) % nlon.
+                auto node_lon = [&](int c_i, int nlon) {
+                    const int idx = static_cast<int>(std::floor(static_cast<double>(c_i) / static_cast<double>(n_ring) *
+                                                                static_cast<double>(nlon))) %
+                                    nlon;
+                    return static_cast<double>(idx) * (360.0 / static_cast<double>(nlon));
+                };
+                for (int c = 0; c < n_ring; ++c, ++cell) {
+                    const double tl = node_lon(c, nlon_top);
+                    const double tr = node_lon(c + 1, nlon_top);
+                    const double bl = node_lon(c, nlon_bot);
+                    const double br = node_lon(c + 1, nlon_bot);
+                    // Circular mean longitude (safe across the dateline wrap).
+                    const double sr = std::sin(tl * kPi / 180.0) + std::sin(tr * kPi / 180.0) +
+                                      std::sin(bl * kPi / 180.0) + std::sin(br * kPi / 180.0);
+                    const double cr = std::cos(tl * kPi / 180.0) + std::cos(tr * kPi / 180.0) +
+                                      std::cos(bl * kPi / 180.0) + std::cos(br * kPi / 180.0);
+                    double lon = std::atan2(sr, cr) * 180.0 / kPi;
+                    if (lon < 0.0) lon += 360.0;
+                    out[2 * cell] = lon;
+                    out[2 * cell + 1] = lat_c;
+                }
+            }
+            break;
+        }
+        case 'G': {
+            for (std::size_t idx = 0; idx < NOAA_GRIB_GRIDS_COUNT; ++idx) {
+                const auto &def = NOAA_GRIB_GRIDS[idx];
+                if (def.number != N) continue;
+                const std::size_t ni = def.ni;
+                const std::size_t nj = def.nj;
+                out.resize(2 * ni * nj);
+                if (def.proj_string != nullptr) {
+                    // Projected grids: centers are projection-space (x, y) metres,
+                    // matching ProjectionBuilder's cell ordering (i + j*ni).
+                    const double min_x = def.lon_start;
+                    const double max_x = def.dlon;
+                    const double min_y = def.lat_start;
+                    const double max_y = def.dlat;
+                    const double dx = (max_x - min_x) / static_cast<double>(ni - 1);
+                    const double dy = (max_y - min_y) / static_cast<double>(nj - 1);
+                    for (std::size_t j = 0; j < nj; ++j) {
+                        for (std::size_t i = 0; i < ni; ++i) {
+                            const std::size_t c = j * ni + i;
+                            out[2 * c] = min_x + static_cast<double>(i) * dx;
+                            out[2 * c + 1] = min_y + static_cast<double>(j) * dy;
+                        }
+                    }
+                } else {
+                    for (std::size_t j = 0; j < nj; ++j) {
+                        for (std::size_t i = 0; i < ni; ++i) {
+                            const std::size_t c = j * ni + i;
+                            out[2 * c] = def.lon_start + (static_cast<double>(i) + 0.5) * def.dlon;
+                            out[2 * c + 1] = def.lat_start + (static_cast<double>(j) + 0.5) * def.dlat;
+                        }
+                    }
+                }
+                return out;
+            }
+            throw std::invalid_argument("NamedGridRegistry::cell_centers: unregistered NOAA GRIB grid number " +
+                                        std::to_string(N));
+        }
+        default:
+            throw std::invalid_argument("NamedGridRegistry::cell_centers: unknown family '" +
+                                        std::string(1, parsed.family) + "'");
+    }
+    return out;
 }
 
 // Explicit instantiation of generate for HostSpace
@@ -732,6 +1103,8 @@ UnstructuredMesh<Kokkos::HostSpace> NamedGridRegistry::generate<Kokkos::HostSpac
             return generate_octahedral_gaussian<Kokkos::HostSpace>(parsed.number);
         case 'F':
             return generate_regular_gaussian<Kokkos::HostSpace>(parsed.number);
+        case 'C':
+            return generate_cubed_sphere<Kokkos::HostSpace>(parsed.number);
         case 'R': {
             // R: like F but regular lat spacing
             const int N = parsed.number;

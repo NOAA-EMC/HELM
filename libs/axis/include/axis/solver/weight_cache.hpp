@@ -24,6 +24,12 @@
 ///   frac_b[n_dst×8]
 ///   area_a[n_src×8]
 ///   area_b[n_dst×8]
+///   unmapped_mask[n_dst×4]   — present iff header pad[0] != 0
+///
+/// The header pad byte pad[0] encodes the unmapped-mask presence flag
+/// (0 = absent — blob is byte-identical to the original layout; 1 = present).
+/// Format version stays 1: maskless blobs are unchanged and mask-bearing
+/// blobs are self-describing.
 ///
 /// Header-only (template) since it is parameterized on MemorySpace.
 /// Uses Kokkos mirror views to transfer device data to/from host buffers.
@@ -77,8 +83,9 @@ struct WeightCache {
         const std::size_t n_src = m.n_src();
         const std::size_t n_dst = m.n_dst();
         const std::size_t nnz = m.nnz();
+        const bool has_mask = m.has_unmapped_mask();
 
-        const std::size_t required = compute_blob_size(n_src, n_dst, nnz);
+        const std::size_t required = compute_blob_size(n_src, n_dst, nnz, has_mask);
 
         // Query mode: return required size
         if (buf == nullptr) {
@@ -93,7 +100,7 @@ struct WeightCache {
         auto *dst = static_cast<uint8_t *>(buf);
 
         // ── Write header ─────────────────────────────────────────────────────
-        write_header(dst, n_src, n_dst, nnz);
+        write_header(dst, n_src, n_dst, nnz, has_mask);
         dst += HEADER_SIZE;
 
         // ── Create host mirrors of the matrix views ──────────────────────────
@@ -134,6 +141,13 @@ struct WeightCache {
         std::memcpy(dst, h_area_b.data(), n_dst * sizeof(double));
         dst += n_dst * sizeof(double);
 
+        // unmapped_mask [n_dst × 4] — only when the flag is set
+        if (has_mask) {
+            auto h_mask = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, m.unmapped_mask_view());
+            std::memcpy(dst, h_mask.data(), n_dst * sizeof(int32_t));
+            dst += n_dst * sizeof(int32_t);
+        }
+
         return required;
     }
 
@@ -170,6 +184,7 @@ struct WeightCache {
         uint32_t magic{};
         uint32_t version{};
         uint8_t endian{};
+        uint8_t mask_flag{};
         uint64_t n_src{};
         uint64_t n_dst{};
         uint64_t nnz{};
@@ -181,7 +196,11 @@ struct WeightCache {
         src += sizeof(uint32_t);
 
         endian = *src;
-        src += 8;  // endian(1) + pad(7)
+        src += 1;
+        // pad[7]: byte 0 is the unmapped-mask presence flag (0 = no mask);
+        // legacy blobs zero-filled all 7 pad bytes and carry no mask.
+        mask_flag = *src;
+        src += 7;  // remaining pad bytes
 
         std::memcpy(&n_src, src, sizeof(uint64_t));
         src += sizeof(uint64_t);
@@ -218,8 +237,9 @@ struct WeightCache {
         }
 
         // Validate total blob size
+        const bool has_mask = (mask_flag != 0);
         const std::size_t expected_size =
-            compute_blob_size(static_cast<std::size_t>(n_src), static_cast<std::size_t>(n_dst), static_cast<std::size_t>(nnz));
+            compute_blob_size(static_cast<std::size_t>(n_src), static_cast<std::size_t>(n_dst), static_cast<std::size_t>(nnz), has_mask);
 
         if (buf_size < expected_size) {
             throw std::runtime_error(
@@ -266,6 +286,13 @@ struct WeightCache {
         std::memcpy(h_area_b.data(), src, n_dst * sizeof(double));
         src += n_dst * sizeof(double);
 
+        // unmapped_mask [n_dst × 4] — only when the flag is set
+        Kokkos::View<int *, Kokkos::HostSpace> h_unmapped_mask("weight_cache::unmapped_mask", has_mask ? n_dst : 0);
+        if (has_mask) {
+            std::memcpy(h_unmapped_mask.data(), src, n_dst * sizeof(int32_t));
+            src += n_dst * sizeof(int32_t);
+        }
+
         // ── Deep-copy to target MemorySpace and construct matrix ─────────────
         Kokkos::View<double *, MS> factor_list("factor_list", nnz);
         Kokkos::View<index_t *, MS> factor_row("factor_row", nnz);
@@ -283,8 +310,16 @@ struct WeightCache {
         Kokkos::deep_copy(area_a, h_area_a);
         Kokkos::deep_copy(area_b, h_area_b);
 
-        return InterpolationMatrix<MS>(std::move(factor_list), std::move(factor_row), std::move(factor_col), std::move(frac_a), std::move(frac_b),
+        InterpolationMatrix<MS> matrix(std::move(factor_list), std::move(factor_row), std::move(factor_col), std::move(frac_a), std::move(frac_b),
                                        std::move(area_a), std::move(area_b), static_cast<std::size_t>(n_src), static_cast<std::size_t>(n_dst));
+
+        if (has_mask) {
+            Kokkos::View<int *, MS> unmapped_mask("unmapped_mask", n_dst);
+            Kokkos::deep_copy(unmapped_mask, h_unmapped_mask);
+            matrix.set_unmapped_mask(std::move(unmapped_mask));
+        }
+
+        return matrix;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -292,14 +327,16 @@ struct WeightCache {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Compute the total blob size for given matrix dimensions.
-    static constexpr std::size_t compute_blob_size(std::size_t n_src, std::size_t n_dst, std::size_t nnz) noexcept {
-        return HEADER_SIZE + nnz * sizeof(double)  // factor_list
-               + nnz * sizeof(index_t)             // factor_row
-               + nnz * sizeof(index_t)             // factor_col
-               + n_src * sizeof(double)            // frac_a
-               + n_dst * sizeof(double)            // frac_b
-               + n_src * sizeof(double)            // area_a
-               + n_dst * sizeof(double);           // area_b
+    /// @param has_mask true when an n_dst-sized int32 unmapped mask follows area_b.
+    static constexpr std::size_t compute_blob_size(std::size_t n_src, std::size_t n_dst, std::size_t nnz, bool has_mask = false) noexcept {
+        const std::size_t base = HEADER_SIZE + nnz * sizeof(double)  // factor_list
+                                 + nnz * sizeof(index_t)             // factor_row
+                                 + nnz * sizeof(index_t)             // factor_col
+                                 + n_src * sizeof(double)            // frac_a
+                                 + n_dst * sizeof(double)            // frac_b
+                                 + n_src * sizeof(double)            // area_a
+                                 + n_dst * sizeof(double);           // area_b
+        return base + (has_mask ? n_dst * sizeof(int32_t) : 0);
     }
 
    private:
@@ -311,7 +348,8 @@ struct WeightCache {
     }
 
     /// Write the 40-byte header to the buffer.
-    static void write_header(uint8_t *dst, std::size_t n_src, std::size_t n_dst, std::size_t nnz) noexcept {
+    /// @param has_mask when true, pad[0] records the unmapped-mask presence flag.
+    static void write_header(uint8_t *dst, std::size_t n_src, std::size_t n_dst, std::size_t nnz, bool has_mask = false) noexcept {
         // magic [4]
         const uint32_t magic = MAGIC;
         std::memcpy(dst, &magic, sizeof(uint32_t));
@@ -327,9 +365,11 @@ struct WeightCache {
         *dst = endian;
         dst += 1;
 
-        // pad [7] — zero-fill
-        std::memset(dst, 0, 7);
-        dst += 7;
+        // pad [7] — byte 0 is the unmapped-mask flag, rest zero-filled
+        *dst = has_mask ? 1 : 0;
+        dst += 1;
+        std::memset(dst, 0, 6);
+        dst += 6;
 
         // n_src [8]
         const uint64_t ns = static_cast<uint64_t>(n_src);

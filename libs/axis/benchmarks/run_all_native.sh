@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rerun every README benchmark table natively on macOS (arm64, Apple Silicon).
 # Uses the axis-benchmark-env conda env (single libomp) and the build-macos
-# axis_py .so (copied into python/axis/). Great-circle and cartesian passes
+# _core .so (copied into python/axis/). Great-circle and cartesian passes
 # run separately so conservative rows in each table fill independently.
 set -uo pipefail
 cd "$(dirname "$0")/.."

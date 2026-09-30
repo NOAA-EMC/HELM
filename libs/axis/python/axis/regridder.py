@@ -1,5 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
+"""Fit-once / call-many horizontal regridding (FR-009…FR-019).
+
+``Regridder`` compiles source→target weights eagerly in the constructor
+(R2) and applies them to xarray, NumPy, or Dask-backed fields. There is no
+unfitted state: construction either succeeds with weights ready, or raises
+(fail-fast, FR-010).
+"""
+
+from __future__ import annotations
+
 import logging
+import os
 import time
 import uuid
 from typing import Any, cast
@@ -7,568 +18,583 @@ from typing import Any, cast
 import numpy as np
 import xarray as xr
 
-from . import axis_py
-from .core import _apply_weights_core, _setup_worker_cache
-from .grid import (
-    CurvilinearGrid,
-    Geometry,
-    RectilinearGrid,
-    UnstructuredMesh,
-    _get_mesh_info,
-)
+from . import _core
+from .core import _apply_weights_core
+from .errors import AxisConfigError, AxisShapeError, AxisUnmappedError
+from .grid import Grid
+from .types import TRIANGULATED_METHODS, GridFamily, LineType, Method, Norm, Unmapped
 
-# Client-side cache on the driver node to avoid redundant worker cache syncs
-_DRIVER_CACHE: dict[Any, Any] = {}
 logger = logging.getLogger("axis")
 
+# method string / enum -> engine Method
+_METHOD_MAP: dict[Method, Any] = {
+    Method.BILINEAR: _core.Method.Bilinear,
+    Method.BICUBIC: _core.Method.Bicubic,
+    Method.PATCH: _core.Method.Patch,
+    Method.NEAREST: _core.Method.NearestNeighbor,
+    Method.CONSERVATIVE: _core.Method.Conservative,
+    Method.CONSERVATIVE_2ND: _core.Method.Conservative2ndOrder,
+}
 
-class Regridder:
+_ALL_METHODS = frozenset(_METHOD_MAP)
+_UNSTRUCTURED_LOCAL = frozenset({Method.BILINEAR, Method.NEAREST, Method.CONSERVATIVE, Method.CONSERVATIVE_2ND})
+_POINTS_METHODS = frozenset({Method.BILINEAR, Method.NEAREST})
+
+# Support matrix (data-model.md §2): which methods a family supports as a
+# *source* and as a *target*. A pairing is fit-able iff the method is allowed
+# on both ends; otherwise AxisConfigError is raised at construction (FR-010).
+_SOURCE_OK: dict[GridFamily, frozenset[Method]] = {
+    GridFamily.RECTILINEAR: _ALL_METHODS,
+    GridFamily.CURVILINEAR: _ALL_METHODS,
+    GridFamily.CUBED_SPHERE: _ALL_METHODS,
+    GridFamily.UGRID: _UNSTRUCTURED_LOCAL,
+    GridFamily.ICON: _UNSTRUCTURED_LOCAL,
+    GridFamily.POINTS: _POINTS_METHODS,
+}
+_TARGET_OK = _SOURCE_OK
+
+
+def _as_method(method: Method | str) -> Method:
+    try:
+        return Method(str(method).lower())
+    except ValueError:
+        raise AxisConfigError(f"unknown method {method!r}; choose from {', '.join(m.value for m in Method)}") from None
+
+
+def _as_norm(norm: Norm | str) -> Norm:
+    try:
+        return Norm(str(norm).lower().replace("-", "_"))
+    except ValueError:
+        raise AxisConfigError(f"unknown norm {norm!r}; choose from {', '.join(n.value for n in Norm)}") from None
+
+
+def _as_unmapped(unmapped: Unmapped | str) -> Unmapped:
+    try:
+        return Unmapped(str(unmapped).lower())
+    except ValueError:
+        raise AxisConfigError(f"unknown unmapped policy {unmapped!r}; choose from {', '.join(u.value for u in Unmapped)}") from None
+
+
+def _as_line_type(line_type: LineType | str) -> str:
+    try:
+        return str(LineType(str(line_type).lower().replace("-", "_")).value)
+    except ValueError:
+        raise AxisConfigError(f"unknown line_type {line_type!r}; choose from {', '.join(t.value for t in LineType)}") from None
+
+
+def _as_grid(obj: Any) -> Grid:
+    """Wrap any accepted source/target descriptor into a Grid."""
+    if isinstance(obj, Grid):
+        return obj
+    return Grid(obj)
+
+
+class _Applier:
+    """Picklable SpMV functor: the payload Dask ships to each worker.
+
+    Holds plain arrays plus the serialized weight blob, reconstructing the
+    engine ``Matrix`` lazily and caching it per worker (R10). Keeping this a
+    module-level class — rather than a closure over the live Matrix — is what
+    makes the dask path work under the process scheduler.
     """
-    Exascale-ready spatial regridder wrapping AXIS's compiled Kokkos-parallel engine.
 
-    Seamlessly supports NumPy eager arrays, xarray Datasets/DataArrays, and Dask
-    distributed lazy arrays.
-    """
-
-    source_grid_ds: xr.Dataset | None
-    target_grid_ds: xr.Dataset | None
+    __slots__ = ("bytes", "dims_source", "shape_target", "skipna", "na_thres", "total_weights", "unmapped_mask", "key")
 
     def __init__(
         self,
-        ds_in: Geometry | xr.Dataset | dict | None = None,
-        ds_out: Geometry | xr.Dataset | dict | None = None,
-        method: str = "bilinear",
-        periodic: bool = False,
-        unmapped: str = "ignore",
-        skipna: bool = False,
-        na_thres: float = 1.0,
-        line_type: str = "great_circle",
-        weights_file: str | None = None,
-        src_mask: np.ndarray | xr.DataArray | None = None,
-        dst_mask: np.ndarray | xr.DataArray | None = None,
-        norm_type: str = "fracarea",
-    ):
-        """
-        Initialize the regridder by generating spatial interpolation weights in C++,
-        or by reloading pre-computed weights from a file.
-        """
-        self.method = method
-        self.periodic = periodic
-        self.unmapped = unmapped
-        self.line_type = line_type
+        *,
+        blob: bytes,
+        dims_source: tuple[str, ...],
+        shape_target: tuple[int, ...],
+        skipna: bool,
+        na_thres: float,
+        total_weights: np.ndarray | None,
+        unmapped_mask: np.ndarray | None,
+        key: str,
+    ) -> None:
+        self.bytes = blob
+        self.dims_source = dims_source
+        self.shape_target = shape_target
         self.skipna = skipna
         self.na_thres = na_thres
-        self.norm_type = norm_type
-        self._uid = str(uuid.uuid4())
-        self._weights_matrix: axis_py.Matrix | None = None
-        self._serialized_weights: bytes | None = None
-        self._total_weights: np.ndarray | None = None
+        self.total_weights = total_weights
+        self.unmapped_mask = unmapped_mask
+        self.key = key
 
-        self._method_map = {
-            "bilinear": axis_py.Method.Bilinear,
-            "nearest": axis_py.Method.NearestNeighbor,
-            "bicubic": axis_py.Method.Bicubic,
-            "patch": axis_py.Method.Patch,
-            "conservative": axis_py.Method.Conservative,
-            "conservative1storder": axis_py.Method.Conservative,
-            "conservative2nd": axis_py.Method.Conservative2ndOrder,
-            "conservative2ndorder": axis_py.Method.Conservative2ndOrder,
-        }
+    def _matrix(self) -> _core.Matrix:
+        from .core import _WORKER_CACHE
 
-        self._line_type_map = {
-            "great_circle": axis_py.LineType.GreatCircle,
-            "cartesian": axis_py.LineType.Cartesian,
-        }
+        mat = _WORKER_CACHE.get(self.key)
+        if mat is None:
+            # Lazy in-process provisioning (local schedulers, or a worker that
+            # missed the driver's one-time client.run sync): idempotent —
+            # parses once and records the sync counter (FR-033).
+            from .distributed import install_weights
 
-        if weights_file is not None:
-            # Load pre-computed weights from file, completely bypassing weight generation
-            with open(weights_file, "rb") as f:
-                self._serialized_weights = f.read()
-            self._weights_matrix = axis_py.Matrix.from_bytes(self._serialized_weights)
+            install_weights(self.key, self.bytes)
+            mat = _WORKER_CACHE[self.key]
+        return cast(_core.Matrix, mat)
 
-            if ds_in is not None and ds_out is not None:
-                self._src_geom = ds_in if isinstance(ds_in, Geometry) else None
-                self._dst_geom = ds_out if isinstance(ds_out, Geometry) else None
-                from .grid import _get_mesh_info
+    def __call__(self, block: np.ndarray) -> np.ndarray:
+        out = _apply_weights_core(
+            block,
+            self._matrix(),
+            self.dims_source,
+            self.shape_target,
+            skipna=self.skipna,
+            total_weights=self.total_weights,
+            na_thres=self.na_thres,
+        )
+        mask = self.unmapped_mask
+        if mask is not None:
+            bad = np.asarray(mask).astype(bool)
+            if bad.any():
+                out = np.array(out, copy=True)
+                out[..., bad.reshape(self.shape_target)] = np.nan
+        return out
 
-                if isinstance(ds_in, (xr.Dataset, xr.DataArray)):
-                    _, _, self._shape_source, self._dims_source, self._is_unstructured_src = _get_mesh_info(ds_in)
-                    self.source_grid_ds = ds_in
-                if isinstance(ds_out, (xr.Dataset, xr.DataArray)):
-                    _, _, self._shape_target, self._dims_target, _ = _get_mesh_info(ds_out)
-                    self.target_grid_ds = ds_out
-        else:
-            if ds_in is not None and ds_out is not None:
-                self.fit(ds_in, ds_out, src_mask=src_mask, dst_mask=dst_mask)
 
-    def fit(
+class Regridder:
+    """A fitted source→target weight operator (read-only after construction).
+
+    Example:
+        >>> rg = axis.Regridder(source_grid, target_grid, "conservative")
+        >>> out = rg(tas_da)          # DataArray | Dataset | ndarray | dask
+    """
+
+    def __init__(
         self,
-        src: Geometry | xr.Dataset | dict,
-        dst: Geometry | xr.Dataset | dict,
+        source: Grid | xr.Dataset | xr.DataArray | dict[str, Any] | str,
+        target: Grid | xr.Dataset | xr.DataArray | dict[str, Any] | str,
+        method: Method | str = "bilinear",
+        *,
+        norm: Norm | str = "frac_area",
+        unmapped: Unmapped | str = "nan",
+        skipna: bool = False,
+        na_thres: float = 1.0,
+        periodic: bool | None = None,
+        line_type: LineType | str | None = None,
         src_mask: np.ndarray | xr.DataArray | None = None,
         dst_mask: np.ndarray | xr.DataArray | None = None,
-    ) -> "Regridder":
-        """
-        Generate spatial interpolation weights (SpMV matrices) from source to destination.
-        """
-        t0 = time.perf_counter()
-        logger.info("AXIS: Initiating high-performance weight matrix generation...")
+    ) -> None:
+        self.source = _as_grid(source)
+        self.target = _as_grid(target)
+        self.method = _as_method(method)
+        self.norm = _as_norm(norm)
+        self.unmapped = _as_unmapped(unmapped)
+        self.skipna = bool(skipna)
+        self.na_thres = float(na_thres)
+        self.periodic = self.source.periodic and self.target.periodic if periodic is None else bool(periodic)
+        self.line_type = self.source.line_type if line_type is None else _as_line_type(line_type)
+        self._matrix: _core.Matrix | None = None
+        self._bytes: bytes | None = None
+        self._uid = str(uuid.uuid4())
+        self._total_weights: np.ndarray | None = None
+        self._unmapped_mask: np.ndarray | None = None
+        self._fitted = False
+        self._dims_source = self.source.dims
+        self._dims_target = self.target.dims
+        self._shape_source = self.source.shape
+        self._shape_target = self.target.shape
+        self._n_src = self.source.n_cells
+        self._n_dst = self.target.n_cells
+        self._fit(src_mask, dst_mask)
 
-        from .grid import GridFactory
+    # ─── fail-fast pairing validation (FR-010) ──────────────────────────────
 
-        # 1. Normalize source and target geometries
-        if isinstance(src, Geometry):
-            self._src_geom = src
-        elif isinstance(src, (xr.Dataset, xr.DataArray)):
-            self._src_geom = GridFactory.from_xarray(src, method=self.method)
-        elif isinstance(src, dict):
-            lons = np.asarray(src.get("lon") if src.get("lon") is not None else src.get("lons"))
-            lats = np.asarray(src.get("lat") if src.get("lat") is not None else src.get("lats"))
-            if lons.ndim == 1:
-                self._src_geom = RectilinearGrid(lons, lats)
-            else:
-                self._src_geom = CurvilinearGrid(lons, lats)
-        else:
-            raise TypeError(f"Unsupported source geometry container: {type(src)}")
-
-        if isinstance(dst, Geometry):
-            self._dst_geom = dst
-        elif isinstance(dst, (xr.Dataset, xr.DataArray)):
-            self._dst_geom = GridFactory.from_xarray(dst, method=self.method)
-        elif isinstance(dst, dict):
-            lons = np.asarray(dst.get("lon") if dst.get("lon") is not None else dst.get("lons"))
-            lats = np.asarray(dst.get("lat") if dst.get("lat") is not None else dst.get("lats"))
-            if lons.ndim == 1:
-                self._dst_geom = RectilinearGrid(lons, lats)
-            else:
-                self._dst_geom = CurvilinearGrid(lons, lats)
-        else:
-            raise TypeError(f"Unsupported target geometry container: {type(dst)}")
-
-        # 2. Re-extract dimensions and shapes
-        if isinstance(src, (xr.Dataset, xr.DataArray)):
-            _, _, self._shape_source, self._dims_source, self._is_unstructured_src = _get_mesh_info(src, self.method)
-            self.source_grid_ds = src
-        else:
-            if isinstance(self._src_geom, RectilinearGrid):
-                self._shape_source = (len(self._src_geom.lats), len(self._src_geom.lons))
-                self._dims_source = ("lat", "lon")
-            elif isinstance(self._src_geom, CurvilinearGrid):
-                self._shape_source = self._src_geom.lons.shape
-                self._dims_source = ("y", "x")
-            else:
-                self._shape_source = (len(cast(UnstructuredMesh, self._src_geom).coords),)
-                self._dims_source = ("ncol",)
-            self._is_unstructured_src = not hasattr(self._src_geom, "lons")
-            self.source_grid_ds = None
-
-        if isinstance(dst, (xr.Dataset, xr.DataArray)):
-            _, _, self._shape_target, self._dims_target, _ = _get_mesh_info(dst, self.method)
-            self.target_grid_ds = dst
-        else:
-            if isinstance(self._dst_geom, RectilinearGrid):
-                self._shape_target = (len(self._dst_geom.lats), len(self._dst_geom.lons))
-                self._dims_target = ("lat", "lon")
-            elif isinstance(self._dst_geom, CurvilinearGrid):
-                self._shape_target = self._dst_geom.lons.shape
-                self._dims_target = ("y", "x")
-            else:
-                self._shape_target = (len(cast(UnstructuredMesh, self._dst_geom).coords),)
-                self._dims_target = ("ncol",)
-            self.target_grid_ds = None
-
-        # 3. Compile weight mapping
-        src_mesh = self._src_geom.to_mesh()
-        dst_mesh = self._dst_geom.to_mesh()
-
-        method_lower = self.method.lower()
-        if method_lower not in self._method_map:
-            raise ValueError(f"Unknown interpolation method: {self.method}. Choose from {list(self._method_map.keys())}")
-        self._axis_method = self._method_map[method_lower]
-
-        line_type_lower = self.line_type.lower()
-        if line_type_lower not in self._line_type_map:
-            raise ValueError(f"Unknown line type: {self.line_type}. Choose from {list(self._line_type_map.keys())}")
-        self._axis_line_type = self._line_type_map[line_type_lower]
-
-        norm_map = {
-            "dstarea": axis_py.NormType.DstArea,
-            "fracarea": axis_py.NormType.FracArea,
-        }
-        axis_norm = norm_map.get(self.norm_type.lower(), axis_py.NormType.FracArea)
-
-        config = {
-            "method": self._axis_method,
-            "periodic": self.periodic,
-            "line_type": self._axis_line_type,
-            "norm_type": axis_norm,
-            "unmapped": axis_py.UnmappedAction.Ignore if self.unmapped == "ignore" else axis_py.UnmappedAction.Error,
-        }
-
-        # Inject masks if provided
-        if src_mask is not None:
-            config["src_mask"] = np.asarray(src_mask, dtype=np.int32)
-        if dst_mask is not None:
-            config["dst_mask"] = np.asarray(dst_mask, dtype=np.int32)
-
-        self._weights_matrix = axis_py.generate_weights(src_mesh, dst_mesh, config)
-        self._serialized_weights = self._weights_matrix.to_bytes()
-
-        # Compute total weights sum for NaN-aware re-normalization
-        if self.skipna:
-            self._total_weights = np.array(
-                axis_py.apply_weights(self._weights_matrix, np.ones(self._weights_matrix.n_src))
-            ).flatten()
-        else:
-            self._total_weights = None
-
-        elapsed = time.perf_counter() - t0
-        logger.info(
-            f"AXIS: Weight generation compiled successfully in {elapsed:.4f} seconds. "
-            f"Mapped: {self._weights_matrix.n_src} source nodes -> {self._weights_matrix.n_dst} target nodes. "
-            f"Weight database size: {len(self._serialized_weights) / (1024 * 1024):.3f} MB."
-        )
-
-        return self
-
-    def __repr__(self) -> str:
-        """
-        Return a rich textual summary of the Regridder's properties and compiled weights database.
-        """
-        if self._weights_matrix is None:
-            return f"<axis.Regridder (unfit, method={self.method})>"
-
-        n_src = self._weights_matrix.n_src
-        n_dst = self._weights_matrix.n_dst
-        serialized_size = len(self._serialized_weights) if self._serialized_weights else 0
-        size_mb = serialized_size / (1024 * 1024)
-
-        return (
-            f"axis.Regridder\n"
-            f"  Interpolation Method : {self.method}\n"
-            f"  Source Grid Shape    : {self._shape_source} ({n_src} elements)\n"
-            f"  Target Grid Shape    : {self._shape_target} ({n_dst} elements)\n"
-            f"  Periodic Boundaries  : {self.periodic}\n"
-            f"  Great Circle Lines   : {self.line_type == 'great_circle'}\n"
-            f"  Weight Database Size : {size_mb:.3f} MB"
-        )
-
-    def to_file(self, filename: str) -> None:
-        """
-        Save the compiled sparse regridding weights to a binary file for future reuse.
-        """
-        if self._serialized_weights is None:
-            raise RuntimeError("Cannot save weights: Regridder has not been compiled or fit.")
-        with open(filename, "wb") as f:
-            f.write(self._serialized_weights)
-
-    def to_esmf(self, filename: str) -> None:
-        """
-        Save the compiled sparse regridding weights to an ESMF/SCRIP-compliant NetCDF file.
-        """
-        if self._weights_matrix is None:
-            raise RuntimeError("Cannot save weights: Regridder has not been compiled or fit.")
-        if not hasattr(axis_py, "write_esmf"):
-            raise RuntimeError("ESMF weight export is unavailable. AXIS was compiled without NetCDF support.")
-        axis_py.write_esmf(filename, self._weights_matrix)
-
-    @classmethod
-    def from_esmf(cls, filename: str, src_grid: xr.Dataset, dst_grid: xr.Dataset, skipna: bool = False) -> "Regridder":
-        """
-        Load a Regridder instance from an ESMF-compliant NetCDF weight file.
-        """
-        if not hasattr(axis_py, "read_esmf"):
-            raise RuntimeError("ESMF weight import is unavailable. AXIS was compiled without NetCDF support.")
-
-        regridder = cls.__new__(cls)
-        regridder.method = "esmf"
-        regridder.periodic = False
-        regridder.unmapped = "ignore"
-        regridder.line_type = "great_circle"
-        regridder.skipna = skipna
-        regridder.na_thres = 1.0
-        regridder.norm_type = "fracarea"
-        regridder._uid = str(uuid.uuid4())
-
-        regridder._weights_matrix = axis_py.read_esmf(filename)
-        regridder._serialized_weights = None
-
-        # Extract coordinate information and dimensions
-        _, _, regridder._shape_source, regridder._dims_source, regridder._is_unstructured_src = _get_mesh_info(src_grid)
-        _, _, regridder._shape_target, regridder._dims_target, _ = _get_mesh_info(dst_grid)
-
-        # Save original datasets for coordinate matching
-        regridder.source_grid_ds = src_grid
-        regridder.target_grid_ds = dst_grid
-
-        # Compute total weights sum for NaN-aware re-normalization
-        if skipna:
-            import numpy as np
-
-            regridder._total_weights = np.array(
-                axis_py.apply_weights(regridder._weights_matrix, np.ones(regridder._weights_matrix.n_src))
-            ).flatten()
-        else:
-            regridder._total_weights = None
-
-        return regridder
-
-    def transform(
-        self,
-        obj: xr.DataArray | xr.Dataset | np.ndarray,
-        keep_attrs: bool = True,
-    ) -> xr.DataArray | xr.Dataset | np.ndarray:
-        """
-        Apply spatial remapping to the input object (NumPy array, xarray.DataArray, or xarray.Dataset).
-        """
-
-        if not isinstance(obj, (xr.Dataset, xr.DataArray, np.ndarray)) and not hasattr(obj, "__array__"):
-            raise TypeError("Input object must be an xarray.DataArray, xarray.Dataset, or numpy.ndarray")
-
-        if self._weights_matrix is None:
-            raise RuntimeError("Regridder must be fit to grids before calling transform().")
-
-        res: xr.DataArray | xr.Dataset | np.ndarray
-        if isinstance(obj, (xr.Dataset, xr.DataArray)):
-            if isinstance(obj, xr.Dataset):
-                res = self._regrid_dataset(obj)
-            else:
-                res = self._regrid_dataarray(obj)
-            if keep_attrs:
-                res.attrs = {**obj.attrs, **res.attrs}
-            return res
-        else:
-            arr = np.asarray(obj)
-            original_shape = arr.shape
-
-            target_spatial_shape = self._shape_target
-
-            n_spatial = self._weights_matrix.n_src
-
-            # Case A: 1D flat spatial array
-            if arr.ndim == 1 and len(arr) == n_spatial:
-                res = np.array(axis_py.apply_weights(self._weights_matrix, arr))
-                if len(target_spatial_shape) > 1:
-                    return res.reshape(target_spatial_shape)
-                return res
-
-            # Case B: Standard 2D spatial grid matching source shape
-            if arr.ndim == len(self._shape_source) and arr.shape == self._shape_source:
-                res = np.array(axis_py.apply_weights(self._weights_matrix, arr.ravel()))
-                return res.reshape(target_spatial_shape)
-
-            # Case C: Multidimensional array (other_dims..., spatial_dims...)
-            n_spatial_dims = len(self._shape_source)
-            spatial_shape = original_shape[-n_spatial_dims:]
-            other_dims_shape = original_shape[:-n_spatial_dims]
-
-            assert int(np.prod(spatial_shape)) == n_spatial, (
-                f"Trailing dimensions {spatial_shape} must match source spatial size {n_spatial}"
+    def _validate_pairing(self) -> None:
+        m = self.method
+        if m not in _SOURCE_OK[self.source.family]:
+            raise AxisConfigError(
+                f"method {m.value!r} cannot run from a {self.source.family.value} source; "
+                f"supported source methods: {sorted(x.value for x in _SOURCE_OK[self.source.family])}"
+            )
+        if m not in _TARGET_OK[self.target.family]:
+            raise AxisConfigError(
+                f"method {m.value!r} cannot target a {self.target.family.value} grid; "
+                f"supported target methods: {sorted(x.value for x in _TARGET_OK[self.target.family])}"
             )
 
-            n_other = int(np.prod(other_dims_shape)) if other_dims_shape else 1
-            flat_data = arr.reshape(n_other, n_spatial)
-            flat_data_t = np.asfortranarray(flat_data.T)
+    @staticmethod
+    def _mesh_variant(grid: Grid, method: Method) -> str:
+        """Polygon families need fan-triangulation for the local-stencil
+        methods (bilinear/bicubic/patch); conservative/nearest use raw
+        polygons. Every other family has a single canonical mesh."""
+        if grid.family in (GridFamily.UGRID, GridFamily.ICON) and method in TRIANGULATED_METHODS:
+            return "tri"
+        return "poly"
 
-            result_t = axis_py.batch_apply(self._weights_matrix, flat_data_t)
-            result = result_t.T
+    # ─── eager fit (R2) ──────────────────────────────────────────────────────
 
-            new_shape = other_dims_shape + target_spatial_shape
-            return result.reshape(new_shape).astype(arr.dtype, copy=False)
+    def _fit(self, src_mask: np.ndarray | xr.DataArray | None, dst_mask: np.ndarray | xr.DataArray | None) -> None:
+        self._validate_pairing()
 
-    def __call__(
-        self,
-        obj: xr.DataArray | xr.Dataset | np.ndarray,
-        keep_attrs: bool = True,
-    ) -> xr.DataArray | xr.Dataset | np.ndarray:
-        """
-        Apply spatial remapping. Transparently handles NumPy, xarray, and remote Dask blocks.
-        """
+        src_cell_mask = None
+        if src_mask is not None:
+            src_cell_mask = np.asarray(src_mask.data if isinstance(src_mask, xr.DataArray) else src_mask).ravel()
+            if src_cell_mask.size != self._n_src:
+                raise AxisShapeError(f"src_mask has {src_cell_mask.size} entries, source grid has {self._n_src} cells")
+        dst_mask_arr = None
+        if dst_mask is not None:
+            dst_mask_arr = np.asarray(dst_mask.data if isinstance(dst_mask, xr.DataArray) else dst_mask).ravel().astype(np.int32)
+            if dst_mask_arr.size != self._n_dst:
+                raise AxisShapeError(f"dst_mask has {dst_mask_arr.size} entries, target grid has {self._n_dst} cells")
+
+        src_mesh = self.source.to_mesh(self._mesh_variant(self.source, self.method), src_cell_mask)
+        dst_mesh = self.target.to_mesh(self._mesh_variant(self.target, self.method))
+
+        config: dict[str, Any] = {
+            "method": _METHOD_MAP[self.method],
+            "periodic": self.periodic,
+            "line_type": _core.LineType.GreatCircle if self.line_type == "great_circle" else _core.LineType.Cartesian,
+            "norm_type": _core.NormType.DstArea if self.norm is Norm.DST_AREA else _core.NormType.FracArea,
+            # "nan" and "mask" both keep unmapped rows valid in the weights; the
+            # difference is applied on output (NaN fill vs masked array).
+            "unmapped": "error" if self.unmapped is Unmapped.ERROR else "mask",
+        }
+        if dst_mask_arr is not None:
+            config["dst_mask"] = dst_mask_arr
+
+        t0 = time.perf_counter()
+        try:
+            self._matrix = _core.generate_weights(src_mesh, dst_mesh, config)
+        except RuntimeError as exc:
+            if "unmapped" in str(exc).lower():
+                raise AxisUnmappedError(str(exc)) from None
+            raise
+        self._bytes = self._matrix.to_bytes()
+        from .distributed import weights_fingerprint
+
+        self._fingerprint = weights_fingerprint(self._bytes)
+        if self._matrix.has_unmapped_mask:
+            self._unmapped_mask = np.asarray(self._matrix.unmapped_mask())
+        if self.skipna:
+            self._total_weights = np.array(_core.apply_weights(self._matrix, np.ones(self._n_src, dtype=np.float64))).ravel()
+        self._fitted = True
+        logger.info(
+            "AXIS: fit %s %s%s->%s%s (%d->%d), nnz=%d, %.3f MB in %.3fs",
+            self.method.value,
+            self.source.family.value,
+            self._shape_source,
+            self.target.family.value,
+            self._shape_target,
+            self._n_src,
+            self._n_dst,
+            self.nnz,
+            len(self._bytes) / (1024 * 1024),
+            time.perf_counter() - t0,
+        )
+
+    # ─── introspection (FR-019) ──────────────────────────────────────────────
+
+    @property
+    def nnz(self) -> int:
+        return int(self._matrix.nnz) if self._matrix is not None else 0
+
+    @property
+    def fitted(self) -> bool:
+        return self._fitted
+
+    def summary(self) -> str:
+        size_mb = len(self._bytes) / (1024 * 1024) if self._bytes else 0.0
+        return (
+            f"axis.Regridder(method={self.method.value!r}, "
+            f"{self.source.family.value}{self._shape_source} -> {self.target.family.value}{self._shape_target}, "
+            f"src={self._n_src} dst={self._n_dst} nnz={self.nnz}, weights={size_mb:.3f} MB, "
+            f"norm={self.norm.value!r}, unmapped={self.unmapped.value!r}, periodic={self.periodic}, "
+            f"line_type={self.line_type!r}, skipna={self.skipna})"
+        )
+
+    def __repr__(self) -> str:
+        if self._matrix is None:
+            return f"<axis.Regridder (unfit, method={self.method.value!r})>"
+        return self.summary()
+
+    # ─── call (FR-013…FR-018) ────────────────────────────────────────────────
+
+    def __call__(self, obj: Any, *, keep_attrs: bool = True) -> Any:
         return self.transform(obj, keep_attrs=keep_attrs)
 
-    def _regrid_dataset(self, ds: xr.Dataset) -> xr.Dataset:
-        """Remap all spatial variables inside a Dataset."""
-        regridded_vars = {}
-        for var in ds.data_vars:
-            da = ds[var]
-            if all(dim in da.dims for dim in self._dims_source):
-                regridded_vars[var] = self._regrid_dataarray(da)
-            else:
-                regridded_vars[var] = da
+    regrid = __call__
 
-        res = xr.Dataset(regridded_vars)
-        # Inherit non-spatial global coordinates
-        for c in ds.coords:
-            if c not in res.coords and set(ds[c].dims).intersection(set(self._dims_source)) == set():
+    def transform(self, obj: Any, *, keep_attrs: bool = True) -> Any:
+        if not self._fitted or self._matrix is None:  # pragma: no cover
+            raise RuntimeError("Regridder is not fitted")
+        if isinstance(obj, xr.Dataset):
+            ds_out = self._regrid_dataset(obj)
+            ds_out.attrs = {**obj.attrs, **ds_out.attrs} if keep_attrs else {}
+            return ds_out
+        if isinstance(obj, xr.DataArray):
+            da_out = self._regrid_dataarray(obj)
+            da_out.attrs = {**obj.attrs, **da_out.attrs} if keep_attrs else {}
+            return da_out
+        if isinstance(obj, np.ndarray) or hasattr(obj, "__array__"):
+            return self._regrid_ndarray(np.asarray(obj))
+        raise TypeError(f"Regridder input must be DataArray/Dataset/ndarray, got {type(obj).__name__}")
+
+    def _applier(self) -> _Applier:
+        from .distributed import worker_key
+
+        blob = self._bytes
+        if blob is None:  # pragma: no cover
+            raise RuntimeError("Regridder is not fitted")
+        return _Applier(
+            blob=blob,
+            dims_source=self._dims_source,
+            shape_target=self._shape_target,
+            skipna=self.skipna,
+            na_thres=self.na_thres,
+            total_weights=self._total_weights,
+            unmapped_mask=None if self.unmapped is Unmapped.ERROR else self._unmapped_mask,
+            key=worker_key(self._uid, blob),
+        )
+
+    def _provision_distributed(self, applier_key: str) -> None:
+        """One-time worker sync of the weight blob to an active cluster (FR-032).
+
+        No-op unless a distributed client is running in this process; the
+        driver-side guard makes repeat calls free. Local schedulers skip this
+        and rely on the applier's lazy in-process install (FR-033).
+        """
+        import sys
+
+        dist = sys.modules.get("distributed") or sys.modules.get("dask.distributed")
+        if dist is None:
+            return
+        try:
+            client = dist.get_client()
+        except Exception:
+            return
+        if client is None:  # pragma: no cover
+            return
+        from .distributed import provision_worker
+
+        if self._bytes is not None:
+            provision_worker(client, applier_key, self._bytes)
+
+    def _apply_numpy(self, block: np.ndarray) -> np.ndarray:
+        return self._applier()(block)
+
+    def _regrid_ndarray(self, arr: np.ndarray) -> np.ndarray:
+        n_sd = len(self._shape_source)
+        if arr.ndim == 1 and arr.size == self._n_src:
+            return self._apply_numpy(arr.reshape((1, self._n_src))).reshape(self._shape_target)
+        if arr.ndim < n_sd:
+            raise AxisShapeError(f"input has {arr.ndim} dims, fewer than the {n_sd} source spatial dims {self._dims_source}")
+        trailing = arr.shape[-n_sd:]
+        if int(np.prod(trailing)) != self._n_src:
+            raise AxisShapeError(f"trailing dims {trailing} do not match source grid {self._shape_source} ({self._n_src} cells)")
+        return self._apply_numpy(arr)
+
+    def _regrid_dataarray(self, da: xr.DataArray) -> xr.DataArray:
+        for d, n in zip(self._dims_source, self._shape_source, strict=False):
+            if d not in da.dims:
+                raise AxisShapeError(f"input is missing source dimension {d!r} (has {da.dims})")
+            if da.sizes[d] != n:
+                raise AxisShapeError(f"source dim {d!r} size {da.sizes[d]} != grid size {n}")
+
+        # Source and target can share dim names at different sizes; route the
+        # output through temporary names, then rename back (xarray requires
+        # exclude_dims to change a core dim's size in-place).
+        temp_dims = [f"{d}__axis" for d in self._dims_target]
+        applier = self._applier()
+        self._provision_distributed(applier.key)
+        out = xr.apply_ufunc(
+            applier,
+            da,
+            input_core_dims=[list(self._dims_source)],
+            output_core_dims=[temp_dims],
+            vectorize=False,
+            dask="parallelized",
+            output_dtypes=[da.dtype],
+            dask_gufunc_kwargs={"output_sizes": dict(zip(temp_dims, self._shape_target, strict=False)), "allow_rechunk": True},
+        )
+        out = out.rename(dict(zip(temp_dims, self._dims_target, strict=False)))
+        out = self._attach_coords(out)
+        if self.unmapped is Unmapped.MASK and self._unmapped_mask is not None:
+            bad = np.asarray(self._unmapped_mask).astype(bool)
+            if bad.any():
+                # Unmapped cells are already NaN-filled by the applier; "mask"
+                # additionally marks them with a boolean ``unmapped`` coord on
+                # the target dims (xarray strips numpy masked arrays, so the
+                # invalid-mark rides as a coordinate).
+                spatial = bad.reshape(self._shape_target)
+                shape = (1,) * (out.ndim - len(self._shape_target)) + self._shape_target
+                out = out.assign_coords(unmapped=(tuple(self._dims_target), np.broadcast_to(spatial, shape).copy()))
+        return out
+
+    def _regrid_dataset(self, ds: xr.Dataset) -> xr.Dataset:
+        out_vars: dict[str, Any] = {}
+        for name in ds.data_vars:
+            da = ds[name]
+            if all(d in da.dims for d in self._dims_source):
+                out_vars[str(name)] = self._regrid_dataarray(da)
+            else:
+                out_vars[str(name)] = da
+        res = xr.Dataset(out_vars)
+        for c in ds.coords:  # carry non-spatial coords through
+            if c not in res.coords and not set(ds[c].dims) & set(self._dims_source):
                 res = res.assign_coords({c: ds[c]})
         return res
 
-    def _regrid_dataarray(self, da_in: xr.DataArray) -> xr.DataArray:
-        """Remap a single DataArray, including Dask-lazy execution paths."""
-        # Detect if input array is backed by Dask
-        is_dask = hasattr(da_in.data, "dask")
+    def _attach_coords(self, out: xr.DataArray) -> xr.DataArray:
+        attach = {}
+        for name, (dims, values) in _grid_coords(self.target).items():
+            if all(d in out.dims for d in dims) and np.asarray(values).shape == tuple(out.sizes[d] for d in dims):
+                attach[name] = (dims, values)
+        return out.assign_coords(attach) if attach else out
 
-        input_core_dims = list(self._dims_source)
-        temp_output_core_dims = [f"{d}_regridded" for d in self._dims_target]
+    # ─── serialization (FR-027…FR-029) ───────────────────────────────────────
 
-        weights_arg: axis_py.Matrix | str | None = self._weights_matrix
-        total_weights_arg: np.ndarray | str | None = self._total_weights
-        weights_key_arg = None
+    def _settings(self) -> dict[str, Any]:
+        return {
+            "method": self.method.value,
+            "norm": self.norm.value,
+            "unmapped": self.unmapped.value,
+            "skipna": self.skipna,
+            "na_thres": self.na_thres,
+            "periodic": self.periodic,
+            "line_type": self.line_type,
+        }
 
-        if is_dask:
-            # Sync C++ compiled weights to remote Dask workers via serialization
-            try:
-                import dask.distributed
+    def save_weights(self, path: str | os.PathLike[str]) -> None:
+        """Persist the compiled weights in the native AXISW1 format (FR-027)."""
+        from . import weights as _w
 
-                client = dask.distributed.get_client()
-            except (ImportError, ValueError):
-                client = None
-
-            weights_key_arg = f"weights_{self._uid}"
-
-            if client is not None:
-                client_id = getattr(client, "id", id(client))
-
-                # If workers are not synchronized, replicate the serialized bytes and deserialize
-                if (client_id, weights_key_arg) not in _DRIVER_CACHE:
-                    # Deserialize directly inside the worker node's memory space (zero copying)
-                    def _deserialize_and_cache(bytes_data, key):
-                        from axis import axis_py
-                        from axis.core import _setup_worker_cache
-
-                        mat = axis_py.Matrix.from_bytes(bytes_data)
-                        _setup_worker_cache(key, mat)
-                        return True
-
-                    client.run(_deserialize_and_cache, self._serialized_weights, weights_key_arg)
-                    _DRIVER_CACHE[(client_id, weights_key_arg)] = True
-
-                weights_arg = weights_key_arg
-
-                if self._total_weights is not None:
-                    tw_key = f"tw_{self._uid}_sum"
-                    if (client_id, tw_key) not in _DRIVER_CACHE:
-                        client.run(_setup_worker_cache, tw_key, self._total_weights)
-                        _DRIVER_CACHE[(client_id, tw_key)] = True
-                    total_weights_arg = tw_key
-            else:
-                # Fallback: register locally in our _WORKER_CACHE so that local multiprocessing or thread schedulers
-                # can lookup the weights matrix by string key, completely avoiding PicklingErrors!
-                _setup_worker_cache(weights_key_arg, self._weights_matrix)
-                weights_arg = weights_key_arg
-
-                if self._total_weights is not None:
-                    tw_key = f"tw_{self._uid}_sum"
-                    _setup_worker_cache(tw_key, self._total_weights)
-                    total_weights_arg = tw_key
-
-        # Execute parallelized map-blocks SpMV using apply_ufunc
-        out = xr.apply_ufunc(
-            _apply_weights_core,
-            da_in,
-            kwargs={
-                "weights_matrix": weights_arg,
-                "dims_source": self._dims_source,
-                "shape_target": self._shape_target,
-                "skipna": self.skipna,
-                "total_weights": total_weights_arg,
-                "na_thres": self.na_thres,
-                "weights_key": weights_key_arg,
-            },
-            input_core_dims=[input_core_dims],
-            output_core_dims=[temp_output_core_dims],
-            dask="parallelized",
-            vectorize=False,
-            output_dtypes=[da_in.dtype],
-            dask_gufunc_kwargs={
-                "output_sizes": dict(zip(temp_output_core_dims, self._shape_target, strict=False)),
-                "allow_rechunk": True,
-            },
+        if self._bytes is None or self._matrix is None:  # pragma: no cover
+            raise RuntimeError("no weights to save")
+        _w.save_weight_set(
+            path,
+            kind="scalar",
+            settings=self._settings(),
+            source=self.source,
+            target=self.target,
+            matrices=[(self._n_src, self._n_dst, int(self._matrix.nnz))],
+            blobs=[self._bytes],
         )
 
-        # Rename temporary output dimensions to target dimension names
-        rename_dict = {temp: orig for temp, orig in zip(temp_output_core_dims, self._dims_target, strict=False) if temp in out.dims}
-        if rename_dict:
-            out = out.rename(rename_dict)
+    @classmethod
+    def load_weights(cls, path: str | os.PathLike[str], *, source: Grid, target: Grid, **options: Any) -> Regridder:
+        """Rebuild a fitted Regridder from a native weight file (FR-028).
 
-        # Assign coordinates from target grid
-        target_coords: dict[Any, Any] = {}
-        if self.target_grid_ds is not None:
-            for c in self.target_grid_ds.coords:
-                c_dims = set(self.target_grid_ds.coords[c].dims)
-                if c_dims.issubset(set(self._dims_target)):
-                    target_coords[c] = self.target_grid_ds.coords[c]
-        else:
-            if isinstance(self._dst_geom, (RectilinearGrid, CurvilinearGrid)):
-                if self._dst_geom.lons.ndim == 1:
-                    target_coords["lat"] = self._dst_geom.lats
-                    target_coords["lon"] = self._dst_geom.lons
-                else:
-                    target_coords["lat"] = (("y", "x"), self._dst_geom.lats)
-                    target_coords["lon"] = (("y", "x"), self._dst_geom.lons)
+        Generation-time settings are restored from the header (truthful
+        summary, AC3); any keyword in ``options`` overrides them. The declared
+        grids are fingerprint-validated before any data is touched (FR-029)."""
+        from . import weights as _w
 
-        if target_coords:
-            out = out.assign_coords(target_coords)
-        return out
+        header, blobs = _w.load_weight_set(path, kind="scalar", source=source, target=target)
+        settings = {**_w.settings_from_header(header), **options}
+        method = settings.pop("method")
+        obj = cls.__new__(cls)
+        obj._init_meta(source, target, method, **settings)
+        obj._matrix = _core.Matrix.from_bytes(blobs[0])
+        obj._bytes = blobs[0]
+        from .distributed import weights_fingerprint
+
+        obj._fingerprint = weights_fingerprint(blobs[0])
+        obj._unmapped_mask = np.asarray(obj._matrix.unmapped_mask()) if obj._matrix.has_unmapped_mask else None
+        if obj.skipna:
+            obj._total_weights = np.array(_core.apply_weights(obj._matrix, np.ones(obj._n_src, dtype=np.float64))).ravel()
+        obj._fitted = True
+        return obj
+
+    def to_esmf(self, path: str | os.PathLike[str]) -> None:
+        """Export portable ESMF/SCRIP NetCDF with AXIS fingerprints (FR-028, SC-009)."""
+        from . import weights as _w
+
+        if self._matrix is None:  # pragma: no cover
+            raise RuntimeError("not fitted")
+        _w.write_esmf_file(
+            path, self._matrix, source=self.source, target=self.target, method=self.method.value, norm=self.norm.value
+        )
+
+    @classmethod
+    def from_esmf(cls, path: str | os.PathLike[str], *, source: Grid, target: Grid, **options: Any) -> Regridder:
+        """Import an ESMF/SCRIP weight file (AXIS- or xESMF-produced, SC-009)."""
+        from . import weights as _w
+
+        matrix, attrs = _w.read_esmf_file(path, source=source, target=target)
+        method = options.pop("method", attrs.get("axis_method", "bilinear"))
+        if "axis_norm" in attrs:
+            options.setdefault("norm", attrs["axis_norm"])
+        obj = cls.__new__(cls)
+        obj._init_meta(source, target, method, **options)
+        obj._matrix = matrix
+        obj._bytes = matrix.to_bytes()
+        from .distributed import weights_fingerprint
+
+        obj._fingerprint = weights_fingerprint(obj._bytes)
+        obj._unmapped_mask = None
+        obj._fitted = True
+        return obj
+
+    def _init_meta(self, source: Any, target: Any, method: Any, **options: Any) -> None:
+        self.source = _as_grid(source)
+        self.target = _as_grid(target)
+        self.method = _as_method(method)
+        self.norm = _as_norm(options.get("norm", "frac_area"))
+        self.unmapped = _as_unmapped(options.get("unmapped", "nan"))
+        self.skipna = bool(options.get("skipna", False))
+        self.na_thres = float(options.get("na_thres", 1.0))
+        periodic = options.get("periodic")
+        self.periodic = self.source.periodic and self.target.periodic if periodic is None else bool(periodic)
+        line_type = options.get("line_type")
+        self.line_type = self.source.line_type if line_type is None else _as_line_type(line_type)
+        self._uid = str(uuid.uuid4())
+        self._total_weights = None
+        self._dims_source = self.source.dims
+        self._dims_target = self.target.dims
+        self._shape_source = self.source.shape
+        self._shape_target = self.target.shape
+        self._n_src = self.source.n_cells
+        self._n_dst = self.target.n_cells
+
+    # ─── categorical remap (R15) ─────────────────────────────────────────────
 
     def regrid_categorical(
-        self,
-        da_in: xr.DataArray,
-        categories: list | dict | None = None,
-        prefix: str = "fraction_",
+        self, da: xr.DataArray, categories: list[Any] | dict[Any, Any] | None = None, *, prefix: str = "fraction_"
     ) -> xr.Dataset:
-        """
-        Remap high-resolution categorical data (e.g., land-use classes) to coarse grid fractions.
-
-        Parameters
-        ----------
-        da_in : xr.DataArray
-            Categorical input DataArray containing integer class codes or IDs.
-        categories : list or dict, optional
-            If a list, computes fractions only for the specified category IDs.
-            If a dict, maps category ID (key) to its corresponding string name (value)
-            for the output variables.
-            If None (default), automatically discovers all unique non-NaN category IDs.
-        prefix : str, default "fraction_"
-            Prefix to prepend to the output variable names (e.g. "fraction_forest").
-
-        Returns
-        -------
-        xr.Dataset
-            A dataset containing the fractional coverage for each category as separate variables.
-        """
-        import numpy as np
-
-        if not isinstance(da_in, xr.DataArray):
-            raise TypeError("Input categorical object must be an xarray.DataArray")
-
-        # 1. Identify category values to extract
+        if not isinstance(da, xr.DataArray):
+            raise TypeError("categorical input must be an xarray.DataArray")
         if categories is None:
-            # Drop NaNs and extract unique values
-            flat_vals = da_in.values.ravel()
-            unique_vals = np.unique(flat_vals[~np.isnan(flat_vals)])
-            category_mapping = {int(val): str(int(val)) for val in unique_vals}
+            flat = np.asarray(da.values).ravel()
+            uniq = np.unique(flat[~np.isnan(flat)]) if np.issubdtype(flat.dtype, np.floating) else np.unique(flat)
+            mapping = {int(v): str(int(v)) for v in uniq}
         elif isinstance(categories, dict):
-            category_mapping = categories
-        elif isinstance(categories, (list, tuple, np.ndarray)):
-            category_mapping = {int(val): str(int(val)) for val in categories}
+            mapping = categories
         else:
-            raise TypeError("categories must be a list, dict, or None")
+            mapping = {int(v): str(int(v)) for v in categories}
+        out_vars = {f"{prefix}{name}": self((da == cat_id).astype(float), keep_attrs=False) for cat_id, name in mapping.items()}
+        return xr.Dataset(out_vars)
 
-        # 2. Iterate and remap each category
-        regridded_vars = {}
-        for cat_id, cat_name in category_mapping.items():
-            # Build binary indicator mask
-            indicator = (da_in == cat_id).astype(float)
 
-            # Carry over coordinates and metadata for exact spatial mapping
-            indicator = indicator.copy(deep=True)
+# ─── target-coordinate helpers ────────────────────────────────────────────────
 
-            # Remap via self
-            fraction_da = self(indicator, keep_attrs=False)
 
-            # Form clean variable name
-            var_name = f"{prefix}{cat_name}"
-            regridded_vars[var_name] = fraction_da
-
-        return xr.Dataset(regridded_vars)
+def _grid_coords(grid: Grid) -> dict[str, tuple[tuple[str, ...], np.ndarray]]:
+    """lon/lat coordinate arrays for a grid, keyed by name → (dims, values)."""
+    p = grid._payload
+    dims = tuple(str(d) for d in grid.dims)
+    kind = p["kind"]
+    out: dict[str, tuple[tuple[str, ...], np.ndarray]] = {}
+    if kind == "rect":
+        out[dims[0]] = (dims[:1], p["lat"])
+        out[dims[1]] = (dims[1:], p["lon"])
+    elif kind in ("curv", "cs"):
+        out["lat"] = (dims, p["lat"])
+        out["lon"] = (dims, p["lon"])
+    elif kind == "named":
+        if p.get("projected"):
+            out["x"] = (dims, p["x"])
+            out["y"] = (dims, p["y"])
+        elif "lon" in p and np.ndim(p["lon"]) == 1 and len(dims) == 2:
+            out[dims[0]] = (dims[:1], p["lat"])
+            out[dims[1]] = (dims[1:], p["lon"])
+        elif "lon" in p:
+            out["lat"] = (dims, np.asarray(p["lat"]))
+            out["lon"] = (dims, np.asarray(p["lon"]))
+    elif kind == "csr" and p.get("location") == "node":
+        coords = p["node_coords"]
+        out["lat"] = (dims, coords[:, 1])
+        out["lon"] = (dims, coords[:, 0])
+    return out

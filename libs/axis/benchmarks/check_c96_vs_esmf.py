@@ -15,7 +15,7 @@ import numpy as np
 import xarray as xr
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from axis import axis_py  # noqa: E402
+from axis import _core  # noqa: E402
 from fetch_c96 import fetch_c96_tiles  # noqa: E402
 
 try:
@@ -53,7 +53,7 @@ def axis_mesh_and_centers():
         tl = (i + (j + 1) * nip1 + off).ravel()
         conn_list.append(np.column_stack([bl, br, tr, tl]).ravel())
         off += len(node_list[-1])
-    mesh = axis_py.make_ugrid_mesh(
+    mesh = _core.make_ugrid_mesh(
         np.asfortranarray(np.concatenate(node_list)),
         np.arange(0, sum(len(c) for c in conn_list) + 1, 4, dtype=np.int64),
         np.concatenate(conn_list).astype(np.int64),
@@ -128,18 +128,18 @@ def main():
     mesh, slon, slat = axis_mesh_and_centers()
     src_const = np.ones(slon.size)
     src_smooth = np.cos(np.radians(slat)) * np.cos(np.radians(slon))
-    dst_mesh = axis_py.make_regular_mesh(NLON, NLAT, 0.0, -90.0, 1.0, 1.0)
+    dst_mesh = _core.make_regular_mesh(NLON, NLAT, 0.0, -90.0, 1.0, 1.0)
     cfg = {
-        "method": axis_py.Method.Conservative,
+        "method": _core.Method.Conservative,
         "periodic": False,
-        "line_type": axis_py.LineType.GreatCircle,
-        "norm_type": axis_py.NormType.FracArea,
-        "unmapped": axis_py.UnmappedAction.Ignore,
+        "line_type": _core.LineType.GreatCircle,
+        "norm_type": _core.NormType.FracArea,
+        "unmapped": _core.UnmappedAction.Ignore,
     }
     t0 = time.perf_counter()
-    w = axis_py.generate_weights(mesh, dst_mesh, cfg)
-    ax_const = np.array(axis_py.apply_weights(w, src_const)).reshape(NLAT, NLON)
-    ax_smooth = np.array(axis_py.apply_weights(w, src_smooth)).reshape(NLAT, NLON)
+    w = _core.generate_weights(mesh, dst_mesh, cfg)
+    ax_const = np.array(_core.apply_weights(w, src_const)).reshape(NLAT, NLON)
+    ax_smooth = np.array(_core.apply_weights(w, src_smooth)).reshape(NLAT, NLON)
     ax_t = time.perf_counter() - t0
 
     print(f"AXIS C96->1deg  ({ax_t:.3f}s)")

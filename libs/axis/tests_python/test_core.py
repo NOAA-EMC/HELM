@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Integration tests for the AXIS Python API (axis_py nanobind module).
+Integration tests for the AXIS Python API (_core nanobind module).
 
 These tests exercise the main binding surface:
   - Mesh construction (regular lat-lon, named grids)
@@ -14,10 +14,10 @@ Requirements validated: 12.3, 12.5, 12.6
 import numpy as np
 import pytest
 
-# axis_py is the nanobind extension module built with AXIS_BUILD_PYTHON=ON.
+# _core is the nanobind extension module built with AXIS_BUILD_PYTHON=ON.
 # These tests are written to be runnable once the module is available.
 axis = pytest.importorskip("axis")
-axis_py = axis.axis_py
+_core = axis._core
 
 
 # ─── Test: generate + apply produces correct results (Req 12.3) ───────────────
@@ -40,7 +40,7 @@ class TestGenerateAndApply:
         src_field = np.full(n_src, 42.0, dtype=np.float64)
 
         # Apply interpolation
-        dst_field = axis_py.apply_weights(bilinear_matrix, src_field)
+        dst_field = _core.apply_weights(bilinear_matrix, src_field)
 
         # Result should be a numpy array of length n_dst
         assert isinstance(dst_field, np.ndarray)
@@ -55,7 +55,7 @@ class TestGenerateAndApply:
         n_src = bilinear_matrix.n_src
         src_field = np.ones(n_src, dtype=np.float64)
 
-        dst_field = axis_py.apply_weights(bilinear_matrix, src_field)
+        dst_field = _core.apply_weights(bilinear_matrix, src_field)
 
         assert dst_field.shape == (bilinear_matrix.n_dst,)
 
@@ -64,12 +64,12 @@ class TestGenerateAndApply:
         wrong_size = np.ones(bilinear_matrix.n_src + 5, dtype=np.float64)
 
         with pytest.raises((ValueError, RuntimeError)):
-            axis_py.apply_weights(bilinear_matrix, wrong_size)
+            _core.apply_weights(bilinear_matrix, wrong_size)
 
     def test_generate_with_dict_config(self, small_src_mesh, small_dst_mesh):
         """generate_weights accepts a Python dict as RegridConfig."""
         config = {"method": "bilinear", "unmapped": "ignore"}
-        matrix = axis_py.generate_weights(small_src_mesh, small_dst_mesh, config)
+        matrix = _core.generate_weights(small_src_mesh, small_dst_mesh, config)
 
         assert matrix.n_src > 0
         assert matrix.n_dst > 0
@@ -96,14 +96,14 @@ class TestBatchApply:
         src_2d = rng.standard_normal((n_src, n_vars))
 
         # Batch apply
-        dst_batch = axis_py.batch_apply(bilinear_matrix, src_2d)
+        dst_batch = _core.batch_apply(bilinear_matrix, src_2d)
 
         # Verify shape
         assert dst_batch.shape == (n_dst, n_vars)
 
         # Compare against individual applies
         for v in range(n_vars):
-            dst_single = axis_py.apply_weights(bilinear_matrix, src_2d[:, v].copy())
+            dst_single = _core.apply_weights(bilinear_matrix, src_2d[:, v].copy())
             np.testing.assert_allclose(
                 dst_batch[:, v],
                 dst_single,
@@ -124,7 +124,7 @@ class TestBatchApply:
         constants = [1.0, -7.5, 100.0, 0.0]
         src_2d = np.column_stack([np.full(n_src, c, dtype=np.float64) for c in constants])
 
-        dst_batch = axis_py.batch_apply(bilinear_matrix, src_2d)
+        dst_batch = _core.batch_apply(bilinear_matrix, src_2d)
 
         for v, c in enumerate(constants):
             np.testing.assert_allclose(
@@ -139,7 +139,7 @@ class TestBatchApply:
         wrong_shape = np.ones((bilinear_matrix.n_src + 3, 2), dtype=np.float64)
 
         with pytest.raises((ValueError, RuntimeError)):
-            axis_py.batch_apply(bilinear_matrix, wrong_shape)
+            _core.batch_apply(bilinear_matrix, wrong_shape)
 
 
 # ─── Test: weight cache to_bytes/from_bytes round-trip (Req 12.5) ─────────────
@@ -162,7 +162,7 @@ class TestWeightCacheRoundTrip:
         assert len(blob) > 0
 
         # Deserialize
-        restored = axis_py.Matrix.from_bytes(blob)
+        restored = _core.Matrix.from_bytes(blob)
 
         # Structural equality
         assert restored.n_src == bilinear_matrix.n_src
@@ -173,8 +173,8 @@ class TestWeightCacheRoundTrip:
         rng = np.random.default_rng(seed=99)
         src_field = rng.standard_normal(n_src)
 
-        dst_original = axis_py.apply_weights(bilinear_matrix, src_field)
-        dst_restored = axis_py.apply_weights(restored, src_field)
+        dst_original = _core.apply_weights(bilinear_matrix, src_field)
+        dst_restored = _core.apply_weights(restored, src_field)
 
         # Should be identical within double precision machine tolerance (same weights)
         np.testing.assert_allclose(
@@ -194,7 +194,7 @@ class TestWeightCacheRoundTrip:
         """from_bytes() raises on garbage input."""
         garbage = b"\x00\x01\x02\x03" * 10
         with pytest.raises(RuntimeError):
-            axis_py.Matrix.from_bytes(garbage)
+            _core.Matrix.from_bytes(garbage)
 
 
 # ─── Test: named mesh generation ──────────────────────────────────────────────
@@ -212,7 +212,7 @@ class TestNamedMeshGeneration:
         Total cells ≈ 2 * 32 * (20 + 64) / 2 = ~2688 (approximate).
         We just verify it's a non-trivial mesh with > 0 cells.
         """
-        mesh = axis_py.make_named_mesh("O32")
+        mesh = _core.make_named_mesh("O32")
 
         assert mesh.n_cells > 0
         assert mesh.n_nodes > 0
@@ -221,7 +221,7 @@ class TestNamedMeshGeneration:
 
     def test_make_named_mesh_properties(self):
         """Named meshes expose n_cells and n_nodes properties."""
-        mesh = axis_py.make_named_mesh("O32")
+        mesh = _core.make_named_mesh("O32")
 
         # n_nodes should be >= n_cells for a well-formed mesh
         # (each cell has at least one node, most are shared)

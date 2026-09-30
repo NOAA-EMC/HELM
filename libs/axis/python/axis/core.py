@@ -3,19 +3,23 @@ from typing import Any
 
 import numpy as np
 
-from . import axis_py
+from . import _core
 
 # Worker-local cache for sparse weight matrices to optimize Dask performance
 _WORKER_CACHE: dict[Any, Any] = {}
 
+# SC-005 observability: per-key count of weight (de)serialization events on
+# this worker/process. Provisioning and lazy in-process install share it.
+_WORKER_SYNC_COUNTS: dict[str, int] = {}
 
-def _setup_worker_cache(key, obj):
+
+def _setup_worker_cache(key: Any, obj: Any) -> bool:
     """Setup a shared object in the worker-local cache."""
     _WORKER_CACHE[key] = obj
     return True
 
 
-def _sync_cache_from_worker_data(future_key, cache_key):
+def _sync_cache_from_worker_data(future_key: str, cache_key: str) -> bool:
     """Retrieve dask future data from worker and save to local cache."""
     try:
         import dask.distributed
@@ -30,9 +34,9 @@ def _sync_cache_from_worker_data(future_key, cache_key):
 
 def _apply_weights_core(
     data_block: np.ndarray,
-    weights_matrix,
-    dims_source: tuple,
-    shape_target: tuple,
+    weights_matrix: _core.Matrix | str,
+    dims_source: tuple[str, ...],
+    shape_target: tuple[int, ...],
     skipna: bool = False,
     total_weights: np.ndarray | None = None,
     na_thres: float = 1.0,
@@ -45,11 +49,12 @@ def _apply_weights_core(
     using AXIS's C++ SpMV execution path.
     """
     # Cache retrieval
-    if isinstance(weights_matrix, str):
-        weights_key = weights_matrix
-        weights_matrix = _WORKER_CACHE.get(weights_key)
+    matrix: _core.Matrix | None = weights_matrix if isinstance(weights_matrix, _core.Matrix) else None
+    if matrix is None:
+        weights_key = weights_matrix if isinstance(weights_matrix, str) else weights_key
+        matrix = _WORKER_CACHE.get(weights_key) if weights_key is not None else None
 
-    if weights_matrix is None:
+    if matrix is None:
         raise RuntimeError(f"Weights key '{weights_key}' not found in worker cache.")
 
     if isinstance(total_weights, str):
@@ -78,7 +83,7 @@ def _apply_weights_core(
 
     if not skipna:
         # Standard fast path: Apply weights directly in C++
-        result_t = axis_py.batch_apply(weights_matrix, flat_data_t)
+        result_t = _core.batch_apply(matrix, flat_data_t)
         result = result_t.T
     else:
         # NaN-aware re-normalization path
@@ -86,12 +91,12 @@ def _apply_weights_core(
         zero = flat_data.dtype.type(0)
         safe_data = np.where(mask, zero, flat_data)
 
-        result_t = axis_py.batch_apply(weights_matrix, np.asfortranarray(safe_data.T))
+        result_t = _core.batch_apply(matrix, np.asfortranarray(safe_data.T))
         result = result_t.T
 
         # Calculate weight sums of valid (non-NaN) inputs using float32 masks
         valid_mask = np.logical_not(mask).astype(np.float32)
-        weights_sum_t = axis_py.batch_apply(weights_matrix, np.asfortranarray(valid_mask.T))
+        weights_sum_t = _core.batch_apply(matrix, np.asfortranarray(valid_mask.T))
         weights_sum = weights_sum_t.T
 
         with np.errstate(divide="ignore", invalid="ignore"):

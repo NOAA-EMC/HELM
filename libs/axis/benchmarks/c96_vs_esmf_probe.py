@@ -5,7 +5,7 @@ import esmpy
 import numpy as np
 import xarray as xr
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "benchmarks"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fetch_c96 import fetch_c96_tiles  # noqa: E402
 
 

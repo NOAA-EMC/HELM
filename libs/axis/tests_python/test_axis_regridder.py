@@ -19,9 +19,9 @@ except ImportError:
     SCIPY_AVAILABLE = False
 
 import axis
-from axis import axis_py
+from axis import _core
 
-PROJ_AVAILABLE = getattr(axis_py, "HAVE_PROJ", False)
+PROJ_AVAILABLE = getattr(_core, "HAVE_PROJ", False)
 
 
 @pytest.fixture
@@ -331,7 +331,7 @@ def test_regridder_cubed_sphere_3d():
     np.testing.assert_allclose(da_out.values, 42.0, rtol=1e-12)
 
 
-@pytest.mark.skipif(not PROJ_AVAILABLE, reason="axis_py built without PROJ (AXIS_ENABLE_PROJ=OFF)")
+@pytest.mark.skipif(not PROJ_AVAILABLE, reason="_core built without PROJ (AXIS_ENABLE_PROJ=OFF)")
 def test_regridder_projected_lcc():
     """Verify that regional Lambert Conformal projected datasets parse and regrid correctly."""
     # Build 2D curvilinear coordinates with standard grid_mapping metadata
@@ -382,30 +382,30 @@ def test_regridder_sutherland_approximation(sample_grids):
 
 
 def test_regridder_errors(sample_grids):
-    """Verify that the regridder correctly rejects invalid inputs and raises exceptions."""
+    """Verify that the regridder rejects invalid inputs with actionable errors."""
     ds_in, ds_out = sample_grids
 
-    # 1. Invalid method name
-    with pytest.raises(ValueError):
+    # 1. Invalid method name -> AxisConfigError naming the bad input (SC-006)
+    with pytest.raises(axis.AxisConfigError, match="invalid_method_name"):
         axis.Regridder(ds_in, ds_out, method="invalid_method_name")
 
-    # 2. Passing invalid array types to __call__
+    # 2. Passing invalid types to __call__
     regridder = axis.Regridder(ds_in, ds_out, method="bilinear")
     with pytest.raises(TypeError):
         regridder("not_an_xarray_object")
 
-    # 4. Invalid line_type name
-    with pytest.raises(ValueError):
+    # 3. Invalid line_type name
+    with pytest.raises(axis.AxisConfigError, match="invalid_line_type"):
         axis.Regridder(ds_in, ds_out, method="conservative", line_type="invalid_line_type")
 
-    # 3. Missing latitude coordinates in dataset
+    # 4. Missing latitude coordinates in dataset -> GridError
     bad_ds = xr.Dataset({"lon": ds_in["lon"]})  # No lat coordinate!
-    with pytest.raises(KeyError):
+    with pytest.raises(axis.GridError):
         axis.Regridder(bad_ds, ds_out, method="bilinear")
 
 
 def test_regridder_save_and_reuse_weights(sample_grids, tmp_path):
-    """Verify that regridding weights can be serialized to a file and loaded/reused successfully."""
+    """Weights serialize to a native file and reload with identical results."""
     ds_in, ds_out = sample_grids
     da_in = xr.DataArray(
         np.ones((len(ds_in["lat"]), len(ds_in["lon"]))),
@@ -413,24 +413,23 @@ def test_regridder_save_and_reuse_weights(sample_grids, tmp_path):
         dims=["lat", "lon"],
     )
 
-    # 1. Instantiate, run, and save weights to a temporary file
     regridder_gen = axis.Regridder(ds_in, ds_out, method="bilinear")
     da_out_gen = regridder_gen(da_in)
 
-    weights_path = tmp_path / "weights.bin"
-    regridder_gen.to_file(str(weights_path))
+    weights_path = tmp_path / "weights.axisw"
+    regridder_gen.save_weights(weights_path)
     assert weights_path.exists()
 
-    # 2. Instantiate a brand new regridder using the saved weights file (skips generation)
-    regridder_loaded = axis.Regridder(ds_in, ds_out, weights_file=str(weights_path))
+    source = axis.Grid(lon=ds_in["lon"].values, lat=ds_in["lat"].values)
+    target = axis.Grid(lon=ds_out["lon"].values, lat=ds_out["lat"].values)
+    regridder_loaded = axis.Regridder.load_weights(weights_path, source=source, target=target)
     da_out_loaded = regridder_loaded(da_in)
 
-    # 3. Assert results are mathematically identical
     np.testing.assert_allclose(da_out_loaded.values, da_out_gen.values, rtol=1e-15, atol=1e-15)
 
 
 def test_regridder_esmf_weights_roundtrip(sample_grids, tmp_path):
-    """Verify that regridding weights can be written as an ESMF netCDF file and re-loaded successfully."""
+    """Weights write as ESMF NetCDF and reload with identical results."""
     ds_in, ds_out = sample_grids
     da_in = xr.DataArray(
         np.ones((len(ds_in["lat"]), len(ds_in["lon"]))),
@@ -442,11 +441,12 @@ def test_regridder_esmf_weights_roundtrip(sample_grids, tmp_path):
     da_out_gen = regridder_gen(da_in)
 
     esmf_path = tmp_path / "esmf_weights.nc"
-    regridder_gen.to_esmf(str(esmf_path))
+    regridder_gen.to_esmf(esmf_path)
     assert esmf_path.exists()
 
-    # Re-load from ESMF weight file
-    regridder_loaded = axis.Regridder.from_esmf(str(esmf_path), ds_in, ds_out)
+    source = axis.Grid(lon=ds_in["lon"].values, lat=ds_in["lat"].values)
+    target = axis.Grid(lon=ds_out["lon"].values, lat=ds_out["lat"].values)
+    regridder_loaded = axis.Regridder.from_esmf(esmf_path, source=source, target=target)
     da_out_loaded = regridder_loaded(da_in)
 
     np.testing.assert_allclose(da_out_loaded.values, da_out_gen.values, rtol=1e-15, atol=1e-15)

@@ -1,0 +1,56 @@
+# ============================================================
+# HELM Project .dockerignore
+# Keep build context lean for helm-dev-env / benchmark images
+# ============================================================
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Build outputs (rebuilt inside the container)
+**/build/
+**/build-*/
+**/cmake-build-*/
+**/_deps/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/compile_commands.json
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.venv/
+**/venv/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/*.so
+**/*.dylib
+libs/axis/python/axis/_core.pyi
+
+# Downloaded benchmark/data fixtures (fetched on demand in-container)
+libs/axis/data/
+**/*.nc.tmp
+
+# Editor / OS junk
+**/.vscode/
+**/.idea/
+**/.DS_Store
+**/*.swp
+**/*.swo
+*~
+
+# Logs / temp / local agent state
+**/*.log
+**/*.tmp
+**/*.bak
+.kiro/
+docs/superpowers/
+specs/**/checklists/
+
+# Figures / scratch outputs at repo root
+*.png
+*.pdf
+*.jpg

@@ -1,194 +1,151 @@
 # Python API {#python_api}
 
-AXIS provides Python bindings via nanobind, enabling interactive prototyping of
-regridding workflows with numpy arrays. The Python module links only against AXIS
-and nanobind — no AMIO, HALO, or other HELM dependency.
+AXIS ships a curated Python package (`import axis`) built on nanobind bindings
+to the Kokkos engine. The public surface is exactly the names in
+`axis.__all__`; the compiled engine lives at the internal `axis._core` module
+and is not part of the user API.
+
+> Migrating from the pre-redesign surface? See
+> [migration-v1.md](migration-v1.md) for the old → new symbol table.
 
 ## Installation
 
-Build AXIS with Python bindings enabled:
+Build AXIS with Python bindings enabled, then install the package:
 
 ```bash
+cd libs/axis
 cmake -B build \
   -DAXIS_BUILD_PYTHON=ON \
   -DPython_EXECUTABLE=$(which python3) \
   -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel $(nproc)
-
-# Install the module
-pip install build/python/
+pip install ./python
 ```
 
-## Module Overview
+## Quick start
 
 ```python
+import xarray as xr
 import axis
 
-# Core components
-axis.MeshFactory          # Create meshes from numpy arrays
-axis.NamedGridRegistry    # Generate standard grids by name
-axis.WeightGenerator      # Generate interpolation weights
-axis.InterpolationMatrix  # Sparse weight matrix
-axis.apply()              # Single-field interpolation
-axis.batch_apply()        # Multi-field interpolation
+# 1. Build reusable, immutable Grid objects (six families auto-detected)
+src = axis.Grid(xr.open_dataset("analysis.nc"))
+dst = axis.Grid("C96")                       # named cubed-sphere, no file needed
+
+# 2. Fit once — weights are generated eagerly at construction
+rg = axis.Regridder(src, dst, "conservative")
+
+# 3. Call many — output type/laziness/dtype follow the input
+tas = rg(xr.open_dataset("analysis.nc").tas)         # DataArray -> DataArray
+ds_out = rg(xr.open_dataset("analysis.nc"))          # Dataset   -> Dataset
 ```
 
-## Mesh Construction
+## `Grid`
 
-### From Numpy Arrays (GridDescriptor)
+A `Grid` is an immutable snapshot of a horizontal mesh. It auto-detects the
+family (rectilinear, curvilinear, cubed-sphere, UGRID/MPAS, ICON, point cloud)
+from any xarray container, or accepts explicit coordinates, a named-grid
+string, or raw UGRID connectivity:
 
 ```python
-import axis
-import numpy as np
-
-# Cell center coordinates
-lon = np.array([0.0, 90.0, 180.0, 270.0], dtype=np.float64)
-lat = np.array([45.0, 45.0, 45.0, 45.0], dtype=np.float64)
-
-# Connectivity (vertex indices per cell, CSR format)
-connectivity = np.array([0, 1, 5, 4, 1, 2, 6, 5, ...], dtype=np.int64)
-offsets = np.array([0, 4, 8, 12, 16], dtype=np.int64)
-
-mesh = axis.MeshFactory.from_descriptor(
-    lon=lon,
-    lat=lat,
-    connectivity=connectivity,
-    offsets=offsets,
-    coord_system="spherical_deg"
-)
+axis.Grid(ds)                                   # auto-detect
+axis.Grid(lon=lon_vector, lat=lat_vector)       # 1-D vectors -> rectilinear
+axis.Grid(lon=lon2d, lat=lat2d, bounds=corners) # 2-D matrices -> curvilinear
+axis.Grid("O96")                                # named grid: C, F, G, N, O, R families
+axis.Grid.from_ugrid(node_coords, offsets, indices)
+axis.Grid.from_points(lon, lat)                 # sparse point cloud
 ```
 
-### Named Grids
+Read-only properties: `family`, `dims`, `shape`, `n_cells`, `periodic`,
+`line_type`, `fingerprint`. A `Grid` is hashable and safe to reuse across
+regridders.
+
+## `Regridder` (scalar)
 
 ```python
-# Octahedral reduced Gaussian grids
-src = axis.NamedGridRegistry.generate("O48")
-dst = axis.NamedGridRegistry.generate("O96")
-
-# Regular Gaussian
-mesh = axis.NamedGridRegistry.generate("N128")
+rg = axis.Regridder(source, target, method="bilinear", *,
+                    norm="frac_area", unmapped="nan", skipna=False,
+                    na_thres=1.0, periodic=None, line_type=None,
+                    src_mask=None, dst_mask=None)
 ```
 
-## Weight Generation
+`source`/`target` accept a `Grid`, `Dataset`, `DataArray`, `dict`, or named-grid
+string. Structurally impossible method/grid pairings raise `AxisConfigError`
+**at construction**, never at apply time.
+
+Call it with a `DataArray`, `Dataset`, `ndarray`, or dask-backed array;
+`transform` and `regrid` are aliases of `__call__`. Introspection: `nnz`,
+`fitted`, `summary()`.
+
+### Serialization
 
 ```python
-config = {
-    "method": "bilinear",               # or "conservative_1st", "conservative_2nd"
-    "normalization": "dst_area",         # or "frac_area"
-    "unmapped": "ignore",               # or "zero", "error"
-    "use_limiter": False,
-}
+rg.save_weights("w.axisw")    # native AXISW1 format
+rg.to_esmf("w.nc")            # portable, xESMF-compatible ESMF NetCDF
 
-matrix = axis.WeightGenerator.generate(src, dst, config)
+rg = axis.Regridder.load_weights("w.axisw", source=src, target=dst)
+rg = axis.Regridder.from_esmf("w.nc", source=src, target=dst)
 ```
 
-## Applying Weights
+Reloaded files are validated against the source/target grid fingerprints
+before any data is touched; a mismatch raises `AxisWeightMismatchError` naming
+the offending side.
 
-### Single Field
+## `VectorRegridder` (rotation-aware u/v)
 
 ```python
-src_field = np.random.randn(src.n_cells)
-dst_field = axis.apply(matrix, src_field)
+vrg = axis.VectorRegridder(src, dst, "bilinear", *, src_alpha=None, dst_alpha=None)
+u_out, v_out = vrg(u, v)
 ```
 
-### Batch Apply (Multiple Variables)
+Coordinate-frame rotation happens in the engine; `src_alpha`/`dst_alpha`
+override the auto-computed per-cell orientation angles. Only `bilinear` and
+`nearest` are accepted (conservative vector remapping raises `AxisConfigError`).
+
+## `VerticalRegridder` / `regrid_3d`
 
 ```python
-# Shape: [n_cells, n_vars]
-src_fields = np.random.randn(src.n_cells, 10)
-dst_fields = axis.batch_apply(matrix, src_fields)
+vrg = axis.VerticalRegridder(tension=0.0, out_of_range="nan")  # nan | clip | extrapolate
+field_out = vrg(field, src_levels, dst_levels, vertical_dim="lev")
 
-assert dst_fields.shape == (dst.n_cells, 10)
+# Horizontal + vertical in one call:
+out3d = axis.regrid_3d(field, src, dst, src_levels, dst_levels, method="conservative")
 ```
 
-## Weight Caching
+## Enums
+
+String-coercible, so plain strings work everywhere:
 
 ```python
-# Serialize to bytes
-blob = matrix.to_bytes()
-
-# Save/load via standard Python I/O
-with open("weights.bin", "wb") as f:
-    f.write(blob)
-
-with open("weights.bin", "rb") as f:
-    matrix2 = axis.InterpolationMatrix.from_bytes(f.read())
-
-# Results are bitwise identical
-dst1 = axis.apply(matrix, src_field)
-dst2 = axis.apply(matrix2, src_field)
-assert np.array_equal(dst1, dst2)
+axis.Method    # bilinear, bicubic, patch, nearest, conservative, conservative2nd
+axis.Norm      # frac_area, dst_area
+axis.Unmapped  # nan, mask, error
+axis.LineType  # great_circle, cartesian
 ```
 
-## Memory Layout Requirements
-
-AXIS expects Fortran-order (column-major) arrays internally. The Python bindings
-handle this transparently:
-
-- **Fortran-order arrays** — zero-copy (passed directly to AXIS)
-- **C-order arrays** — accepted with internal transpose (may allocate)
-
-To avoid copies, create arrays with Fortran order:
+## xarray accessor (sugar)
 
 ```python
-# Optimal: Fortran-order
-data = np.asfortranarray(np.random.randn(n_cells, n_vars))
-
-# Also works but may copy internally
-data = np.random.randn(n_cells, n_vars)  # C-order
+ds.tas.axis.to(dst, method="bilinear")   # one-shot regrid
+rg = ds.tas.axis.fit(dst, method="bilinear")  # reusable Regridder
 ```
 
-If a strict zero-copy mode is needed, pass `strict_layout=True`:
+## Dask / distributed
 
-```python
-# Raises ValueError for C-order arrays
-dst = axis.apply(matrix, c_order_array, strict_layout=True)
-```
+Lazy arrays stay lazy end-to-end — no user-side `.compute()`. On a distributed
+cluster, each worker syncs a regridder's weights at most once via `client.run`;
+on local schedulers a thread-safe worker cache avoids re-pickling.
 
-## Complete Example
+## Errors
 
-```python
-import axis
-import numpy as np
+All derive from `axis.AxisError`; every message names the offending input and a
+concrete fix:
 
-# Create grids
-src_mesh = axis.NamedGridRegistry.generate("O48")
-dst_mesh = axis.NamedGridRegistry.generate("O96")
-
-# Generate conservative weights
-config = {"method": "conservative_1st", "normalization": "dst_area"}
-matrix = axis.WeightGenerator.generate(src_mesh, dst_mesh, config)
-
-# Create a test field (constant = 1.0, should be preserved)
-src_field = np.ones(src_mesh.n_cells)
-dst_field = axis.apply(matrix, src_field)
-
-# Verify conservation (partition of unity for constant field)
-print(f"Max deviation from 1.0: {np.max(np.abs(dst_field - 1.0)):.2e}")
-
-# Batch apply for atmosphere state
-n_vars = 5  # T, u, v, q, ps
-src_state = np.random.randn(src_mesh.n_cells, n_vars)
-dst_state = axis.batch_apply(matrix, src_state)
-
-print(f"Regridded {n_vars} variables: {src_state.shape} -> {dst_state.shape}")
-```
-
-## Error Handling
-
-Python exceptions are mapped from C++ exceptions:
-
-| C++ Exception | Python Exception |
-|---------------|-----------------|
-| `std::invalid_argument` | `ValueError` |
-| `std::runtime_error` | `RuntimeError` |
-| Kokkos allocation failure | `MemoryError` |
-
-```python
-try:
-    # Wrong size array
-    bad = np.ones(42)
-    axis.apply(matrix, bad)
-except ValueError as e:
-    print(f"Caught: {e}")
-```
+| Exception | Raised for |
+|---|---|
+| `GridError` | coordinate detection failed |
+| `AxisConfigError` | unknown/impossible method, norm, line_type |
+| `AxisShapeError` | input shape/dim mismatch |
+| `AxisWeightMismatchError` | reloaded weights don't match the grids |
+| `AxisCapabilityError` | optional engine feature not built (PROJ/NetCDF) |
+| `AxisUnmappedError` | `unmapped="error"` policy triggered |

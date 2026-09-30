@@ -1,57 +1,48 @@
 # SPDX-License-Identifier: Apache-2.0
-"""
-AXIS Python package — stateless, high-performance spatial regridding for xarray.
+"""AXIS — xESMF-class regridding on the Kokkos engine.
+
+Public surface (``contracts/python-api.md``): ``import axis`` exposes exactly
+the curated names in ``__all__``. The compiled engine lives at ``axis._core``
+and is internal; the legacy factory/mesh/matrix surface is retired (FR-040).
 """
 # ruff: noqa: I001
 
-# Import axis_py FIRST using relative import to completely avoid partially initialized circular issues
-from . import axis_py
+from . import _core as _core  # engine module — internal, deliberately not in __all__
 
-# Register the custom .axis xarray accessor
+# Register the .axis xarray accessor (import side-effect; reached via xarray).
 from . import accessors  # noqa: F401
-from .grid import CurvilinearGrid, Geometry, GridFactory, RectilinearGrid, UnstructuredMesh
+
+from .errors import (
+    AxisCapabilityError,
+    AxisConfigError,
+    AxisError,
+    AxisShapeError,
+    AxisUnmappedError,
+    AxisWeightMismatchError,
+    GridError,
+)
+from .grid import Grid
 from .regridder import Regridder
+from .types import GridFamily, LineType, Method, Norm, Unmapped
 from .vector import VectorRegridder
 from .vertical import VerticalRegridder, regrid_3d
 
-# Expose C++ Mesh construction and Matrix serialization APIs directly on the axis package
-Mesh = axis_py.Mesh
-Matrix = axis_py.Matrix
-make_regular_mesh = axis_py.make_regular_mesh
-make_projected_mesh = axis_py.make_projected_mesh
-make_ugrid_mesh = axis_py.make_ugrid_mesh
-make_named_mesh = axis_py.make_named_mesh
-apply_weights = axis_py.apply_weights
-batch_apply = axis_py.batch_apply
-detect_tripolar_grid = axis_py.detect_tripolar_grid
-generate_vector_weights = axis_py.generate_vector_weights
-Method = axis_py.Method
-NormType = axis_py.NormType
-UnmappedAction = axis_py.UnmappedAction
-LineType = axis_py.LineType
-
 __all__ = [
+    "Grid",
+    "GridFamily",
     "Regridder",
-    "Geometry",
-    "RectilinearGrid",
-    "CurvilinearGrid",
-    "UnstructuredMesh",
-    "GridFactory",
     "VectorRegridder",
     "VerticalRegridder",
     "regrid_3d",
-    "Mesh",
-    "Matrix",
-    "make_regular_mesh",
-    "make_projected_mesh",
-    "make_ugrid_mesh",
-    "make_named_mesh",
-    "apply_weights",
-    "batch_apply",
-    "detect_tripolar_grid",
-    "generate_vector_weights",
     "Method",
-    "NormType",
-    "UnmappedAction",
+    "Norm",
+    "Unmapped",
     "LineType",
+    "AxisError",
+    "GridError",
+    "AxisConfigError",
+    "AxisShapeError",
+    "AxisWeightMismatchError",
+    "AxisCapabilityError",
+    "AxisUnmappedError",
 ]

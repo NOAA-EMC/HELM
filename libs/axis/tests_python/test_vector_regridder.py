@@ -1,9 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
 # test_vector_regridder.py
 #
-# Verifies coupled wind vector interpolation and local grid-frame rotation.
+# Coupled wind-vector interpolation with local grid-frame rotation (ported to
+# the redesigned Grid/VectorRegridder API — T035).
 
 import numpy as np
-from axis import RectilinearGrid, VectorRegridder
+from axis import Grid, VectorRegridder
 
 
 def test_vector_regridder_numerical_precision():
@@ -19,10 +21,10 @@ def test_vector_regridder_numerical_precision():
     u_in = np.ones((4, 4), dtype=np.float64) * 10.0
     v_in = np.ones((4, 4), dtype=np.float64) * 5.0
 
-    # Instantiate coupled vector regridder (with zero grid rotation angles)
+    # Instantiate coupled vector regridder (engine auto-computes rotation angles)
     regridder = VectorRegridder(
-        RectilinearGrid(lons_in, lats_in),
-        RectilinearGrid(lons_out, lats_out),
+        Grid(lon=lons_in, lat=lats_in),
+        Grid(lon=lons_out, lat=lats_out),
         method="bilinear",
     )
 

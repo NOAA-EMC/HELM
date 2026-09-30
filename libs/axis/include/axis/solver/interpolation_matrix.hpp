@@ -315,6 +315,36 @@ class InterpolationMatrix {
         return kk_crs_matrix_;
     }
 
+    /// @brief Attach a per-destination unmapped mask (0 = mapped, 1 = unmapped).
+    ///
+    /// Populated by WeightGenerator when RegridConfig::unmapped ==
+    /// UnmappedAction::Mask. Callers can then distinguish "no data" rows
+    /// (zero weights + mask==1) from genuine zeros (mask==0).
+    void set_unmapped_mask(Kokkos::View<int *, MemorySpace> mask) {
+        if (mask.extent(0) != n_dst_) {
+            throw std::invalid_argument("InterpolationMatrix::set_unmapped_mask: mask.extent(0) (" + std::to_string(mask.extent(0)) + ") != n_dst (" +
+                                        std::to_string(n_dst_) + ")");
+        }
+        unmapped_mask_ = std::move(mask);
+    }
+
+    /// @brief True if an unmapped mask has been attached (UnmappedAction::Mask).
+    [[nodiscard]] bool has_unmapped_mask() const noexcept {
+        return unmapped_mask_.extent(0) > 0;
+    }
+
+    /// Per-destination unmapped mask: [n_dst]. 1 = destination cell has no
+    /// source coverage, 0 = covered. Empty view when no mask was attached.
+    /// @see has_unmapped_mask()
+    [[nodiscard]] field_view<const int, 1> unmapped_mask() const noexcept {
+        return field_view<const int, 1>{unmapped_mask_.data(), unmapped_mask_.extent(0)};
+    }
+
+    /// Internal Kokkos::View accessor for the unmapped mask (serialization).
+    [[nodiscard]] const auto &unmapped_mask_view() const noexcept {
+        return unmapped_mask_;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Internal Kokkos::View accessors (for WeightGenerator, apply, and
     // conservation accounting that need direct View access)
@@ -353,6 +383,10 @@ class InterpolationMatrix {
     Kokkos::View<double *, MemorySpace> area_b_;       ///< destination cell areas [n_dst]
     std::size_t n_src_{0};
     std::size_t n_dst_{0};
+
+    // Optional per-destination unmapped mask (populated for UnmappedAction::Mask):
+    // 1 = destination cell has no source coverage, 0 = covered. Empty when unset.
+    Kokkos::View<int *, MemorySpace> unmapped_mask_;
 
     // CSR storage (populated by to_csr())
     Kokkos::View<index_t *, MemorySpace> row_ptr_;  ///< row pointers [n_dst+1]

@@ -1737,17 +1737,18 @@ template <class MemorySpace>
 InterpolationMatrix<MemorySpace> coastal_renormalize_and_extrapolate(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
                                                                      const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
                                                                      InterpolationMatrix<MemorySpace> matrix, const RegridConfig &config) {
-    // If source mesh does not have a cell mask View, return original matrix
-    if (src_mesh.cell_mask_view().extent(0) == 0) {
-        return matrix;
-    }
-
     const std::size_t n_src = matrix.n_src();
     const std::size_t n_dst = matrix.n_dst();
     const std::size_t nnz = matrix.nnz();
 
-    auto mask = src_mesh.cell_mask_view();
-    auto h_mask = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), mask);
+    const bool has_cell_mask = (src_mesh.cell_mask_view().extent(0) > 0);
+    const bool want_unmapped_mask = (config.unmapped == UnmappedAction::Mask);
+    const bool has_dst_mask = (config.dst_mask.extent(0) == n_dst);
+
+    // Nothing to renormalize, extrapolate, or mask: return unchanged.
+    if (!has_cell_mask && !want_unmapped_mask && !has_dst_mask) {
+        return matrix;
+    }
 
     auto rows = matrix.factor_row_view();
     auto cols = matrix.factor_col_view();
@@ -1757,39 +1758,56 @@ InterpolationMatrix<MemorySpace> coastal_renormalize_and_extrapolate(const topol
     auto h_cols = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), cols);
     auto h_vals = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), vals);
 
-    // Each scalar entry W_ji yields exactly 2 entries in W_u and 2 in W_v if vector,
-    // but here we just copy active ones.
+    Kokkos::View<int *, Kokkos::HostSpace> h_dst_mask;
+    if (has_dst_mask) {
+        // The post-pass is host-side; copy the non-owning mask into a host View.
+        h_dst_mask = Kokkos::View<int *, Kokkos::HostSpace>("dst_mask_host", n_dst);
+        std::memcpy(h_dst_mask.data(), config.dst_mask.data_handle(), n_dst * sizeof(int));
+    }
+
+    // ── Active (wet) source mask, if provided ──
+    Kokkos::View<int *, Kokkos::HostSpace> h_mask;
+    if (has_cell_mask) {
+        h_mask = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), src_mesh.cell_mask_view());
+    }
+
+    // Build the surviving COO entries. With a source cell mask this performs
+    // wet renormalization; without one it copies entries straight through.
     std::vector<index_t> u_rows, u_cols;
     std::vector<double> u_vals;
     u_rows.reserve(nnz);
     u_cols.reserve(nnz);
     u_vals.reserve(nnz);
 
-    // Row sums of wet weights
-    std::vector<double> row_sums(n_dst, 0.0);
-    for (std::size_t k = 0; k < nnz; ++k) {
-        index_t j = h_rows(k);
-        index_t i = h_cols(k);
-        double w = h_vals(k);
-
-        if (h_mask(i) > 0) {
-            row_sums[j] += w;
+    if (has_cell_mask) {
+        // Row sums of wet weights
+        std::vector<double> row_sums(n_dst, 0.0);
+        for (std::size_t k = 0; k < nnz; ++k) {
+            index_t j = h_rows(k);
+            index_t i = h_cols(k);
+            if (j < 0) continue;  // flagged-unmapped sentinel
+            if (h_mask(i) > 0) row_sums[j] += h_vals(k);
         }
-    }
-
-    for (std::size_t k = 0; k < nnz; ++k) {
-        index_t j = h_rows(k);
-        index_t i = h_cols(k);
-        double w = h_vals(k);
-
-        if (h_mask(i) > 0) {
-            double s = row_sums[j];
-            if (s > 0.0 && s < 1.0) {
-                w /= s;  // Renormalize wet weights
+        for (std::size_t k = 0; k < nnz; ++k) {
+            index_t j = h_rows(k);
+            index_t i = h_cols(k);
+            if (j < 0) continue;
+            if (h_mask(i) > 0) {
+                double w = h_vals(k);
+                double s = row_sums[j];
+                if (s > 0.0 && s < 1.0) w /= s;  // Renormalize wet weights
+                u_rows.push_back(j);
+                u_cols.push_back(i);
+                u_vals.push_back(w);
             }
+        }
+    } else {
+        for (std::size_t k = 0; k < nnz; ++k) {
+            index_t j = h_rows(k);
+            if (j < 0) continue;
             u_rows.push_back(j);
-            u_cols.push_back(i);
-            u_vals.push_back(w);
+            u_cols.push_back(h_cols(k));
+            u_vals.push_back(h_vals(k));
         }
     }
 
@@ -1798,7 +1816,7 @@ InterpolationMatrix<MemorySpace> coastal_renormalize_and_extrapolate(const topol
         row_has_weights[static_cast<std::size_t>(r)] = true;
     }
 
-    if (config.extrap_method == ExtrapolationAction::NearestWet) {
+    if (has_cell_mask && config.extrap_method == ExtrapolationAction::NearestWet) {
         // Build ArborX BoundingVolumeHierarchy over unmasked ("wet") source cell centroids
         using Point2 = ArborX::Point<2>;
         Kokkos::View<double *, Kokkos::HostSpace> src_cx, src_cy;
@@ -1855,9 +1873,33 @@ InterpolationMatrix<MemorySpace> coastal_renormalize_and_extrapolate(const topol
                         u_rows.push_back(static_cast<index_t>(j));
                         u_cols.push_back(static_cast<index_t>(src_idx));
                         u_vals.push_back(1.0);
+                        row_has_weights[j] = true;
                     }
                 }
             }
+        }
+    }
+
+    // ── Destination mask: drop rows for masked (dst_mask == 0) cells ──
+    // These become "no data" rows and are recorded as unmapped regardless of
+    // the unmapped policy — a masked destination is never a silent zero.
+    if (has_dst_mask) {
+        std::vector<index_t> kept_rows, kept_cols;
+        std::vector<double> kept_vals;
+        kept_rows.reserve(u_rows.size());
+        kept_cols.reserve(u_rows.size());
+        kept_vals.reserve(u_rows.size());
+        for (std::size_t k = 0; k < u_rows.size(); ++k) {
+            if (h_dst_mask(u_rows[k]) == 0) continue;  // masked destination → drop entry
+            kept_rows.push_back(u_rows[k]);
+            kept_cols.push_back(u_cols[k]);
+            kept_vals.push_back(u_vals[k]);
+        }
+        u_rows = std::move(kept_rows);
+        u_cols = std::move(kept_cols);
+        u_vals = std::move(kept_vals);
+        for (std::size_t j = 0; j < n_dst; ++j) {
+            if (h_dst_mask(j) == 0) row_has_weights[j] = false;
         }
     }
 
@@ -1876,8 +1918,22 @@ InterpolationMatrix<MemorySpace> coastal_renormalize_and_extrapolate(const topol
     auto dev_cols = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_final_cols);
     auto dev_vals = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_final_vals);
 
-    return InterpolationMatrix<MemorySpace>(dev_vals, dev_rows, dev_cols, matrix.frac_a_view(), matrix.frac_b_view(), matrix.area_a_view(),
-                                            matrix.area_b_view(), n_src, n_dst);
+    InterpolationMatrix<MemorySpace> out(dev_vals, dev_rows, dev_cols, matrix.frac_a_view(), matrix.frac_b_view(), matrix.area_a_view(),
+                                         matrix.area_b_view(), n_src, n_dst);
+
+    // Materialize the unmapped mask whenever requested, or whenever a
+    // destination mask forced rows empty. Rows without weights are unmapped
+    // (1); covered rows are 0.
+    if (want_unmapped_mask || has_dst_mask) {
+        Kokkos::View<int *, Kokkos::HostSpace> h_um("unmapped_mask", n_dst);
+        for (std::size_t j = 0; j < n_dst; ++j) {
+            h_um(j) = row_has_weights[j] ? 0 : 1;
+        }
+        auto d_um = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_um);
+        out.set_unmapped_mask(std::move(d_um));
+    }
+
+    return out;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2063,9 +2119,15 @@ InterpolationMatrix<MemorySpace> generate_nearest_rect(const topology::Unstructu
             // Rounding to nearest source coordinate index
             index_t s_i = static_cast<index_t>(Kokkos::round((lon - src_lon_start) / src_dlon));
 
-            // Wrap longitude periodically
-            s_i = s_i % src_ni;
-            if (s_i < 0) s_i += src_ni;
+            // Wrap longitude periodically unless explicitly forced non-periodic
+            // (RegridConfig::periodic == -1); +1/0 keep the wrap behavior.
+            if (config.periodic >= 0) {
+                s_i = s_i % src_ni;
+                if (s_i < 0) s_i += src_ni;
+            } else {
+                if (s_i < 0) s_i = 0;
+                if (s_i >= src_ni) s_i = src_ni - 1;
+            }
 
             index_t s_j = static_cast<index_t>(Kokkos::round((lat - src_lat_start) / src_dlat));
 

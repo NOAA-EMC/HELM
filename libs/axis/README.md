@@ -51,43 +51,76 @@ AXIS is fully packaged for Python with deep `xarray`, `cf-xarray`, and **Dask** 
 pip install ./libs/axis
 ```
 
-### 1. Basic Python Usage with xarray Accessor
-AXIS registers a custom **`.axis`** accessor namespace on all xarray Datasets and DataArrays:
+### 1. Reusable `Grid` objects
+A `Grid` is an immutable snapshot of a horizontal mesh. It auto-detects the
+grid family from any xarray container, or you can build it from explicit
+coordinates, a named-grid string, or raw UGRID connectivity:
 
 ```python
 import xarray as xr
 import axis
 
-# Load source and destination datasets
 ds_src = xr.open_dataset("gfs_source.nc")
 ds_dst = xr.open_dataset("orca_target.nc")
 
-# Remap a DataArray instantly using the accessor
-regridded_temp = ds_src.temperature.axis.regrid_to(ds_dst, method="bilinear")
+src = axis.Grid(ds_src)                       # auto-detect (rectilinear/curvilinear/UGRID/...)
+dst = axis.Grid(ds_dst)
+cs  = axis.Grid("C96")                        # named cubed-sphere, no file needed
+rr  = axis.Grid(lon=lon_vector, lat=lat_vector)   # explicit rectilinear
 ```
 
-### 2. Standard Regridder Object
-You can instantiate a persistent `Regridder` object to reuse the same generated weights across multiple fields:
+Six families are supported: rectilinear, curvilinear, cubed-sphere,
+UGRID/MPAS, ICON, and sparse point clouds.
+
+### 2. Fit-once / call-many `Regridder`
+A `Regridder` fits its weights eagerly at construction and applies them to any
+number of fields. Output type, dimensionality, laziness, and dtype follow the
+input:
 
 ```python
-regridder = axis.Regridder(ds_src, ds_dst, method="conservative")
+rg = axis.Regridder(src, dst, "conservative")   # source/target may be Grid/Dataset/dict/str
 
-# Apply to multiple variables
-u_regridded = regridder(ds_src.u_wind)
-v_regridded = regridder(ds_src.v_wind)
+tas = rg(ds_src.tas)              # DataArray in  -> DataArray out
+allvars = rg(ds_src)              # Dataset in    -> Dataset out
+flat = rg(np_array)               # ndarray in    -> ndarray out
+
+# One-shot sugar via the xarray accessor:
+regridded_temp = ds_src.temperature.axis.to(dst, method="bilinear")
+```
+
+Vector winds use the rotation-aware `VectorRegridder`, which returns a paired
+`(u_out, v_out)` with coordinate-frame rotation handled in the engine:
+
+```python
+vrg = axis.VectorRegridder(src, dst, "bilinear")
+u_out, v_out = vrg(ds_src.u10, ds_src.v10)
+```
+
+Vertical / 3-D columns use `VerticalRegridder` (per-column spline with an
+explicit out-of-range policy) or the one-call `regrid_3d` composition:
+
+```python
+vrgd = axis.VerticalRegridder(tension=0.0, out_of_range="clip")
+field_out = vrgd(field, src_levels, dst_levels, vertical_dim="lev")
+
+# or horizontal + vertical in one call:
+out3d = axis.regrid_3d(field, src, dst, src_levels, dst_levels, method="conservative")
 ```
 
 ### 3. Save, Reload, and Reuse Weights
-Bypass the weights generation phase entirely by saving compiled C++ weights to a file and reloading them:
+Compiled weights can be serialized and reloaded in a fresh process — either in
+AXIS's native format or as a portable, xESMF-compatible ESMF NetCDF file:
 
 ```python
-# Save weights to a binary file
-regridder.to_file("my_weights.bin")
+rg.save_weights("w.axisw")                                   # native AXISW1
+rg2 = axis.Regridder.load_weights("w.axisw", source=src, target=dst)
 
-# Reload and reuse instantly in subsequent runs
-fast_regridder = axis.Regridder(ds_src, ds_dst, weights_file="my_weights.bin")
-result = fast_regridder(ds_src.temperature)
+rg.to_esmf("w.nc")                                           # portable ESMF
+rg3 = axis.Regridder.from_esmf("w.nc", source=src, target=dst)
 ```
+
+Reloading validates the source/target grid fingerprints before touching data,
+so a mismatched file fails fast with an actionable message.
 
 ### 4. Flawless Dask Distributed Parallelism
 When running on backed Dask chunk-wise arrays, AXIS automatically serializes its C++ compiled weights and distributes them across all remote worker nodes in parallel using `client.run`. For local process/thread-wise schedulers, it leverages a thread-safe worker cache to completely bypass Python pickling limits, ensuring zero `PicklingError`s and beautiful, lazy parallel scalability.
@@ -96,15 +129,30 @@ When running on backed Dask chunk-wise arrays, AXIS automatically serializes its
 
 ## 💻 `axis-regrid` Command-Line Tool
 
-AXIS registers a native command-line executable **`axis-regrid`** in your system path, allowing shell scripters and operational pipelines to run Kokkos-parallel, high-performance regridding on NetCDF files with a single command:
+AXIS registers a native command-line executable **`axis-regrid`** in your system path. It uses subcommands (`regrid`, `weights`, `list`) so shell scripts and batch pipelines can run Kokkos-parallel regridding on NetCDF files with a single command:
 
 ```bash
-# Run conservative remapping on all spatial variables in a NetCDF file
-axis-regrid -s source.nc -t target_grid.nc -o output.nc -m conservative --skipna
+# Conservative remapping of all spatial variables from a file onto a named grid
+axis-regrid regrid -s source.nc -t target_grid.nc -o output.nc -m conservative --skipna
 
 # Remap specific variables with periodic wrapping enabled
-axis-regrid -s source.nc -t target_grid.nc -o output.nc -m bilinear --periodic -v temperature -v humidity
+axis-regrid regrid -s source.nc -t target_grid.nc -o output.nc -m bilinear --periodic -v temperature -v humidity
+
+# Precompute a reusable, portable weight file (ESMF by default, or native)
+axis-regrid weights -s source.nc -t mpas_grid.nc -o weights.nc -m conservative
+axis-regrid weights -s source.nc -t mpas_grid.nc -o weights.axisw --format native
+
+# List the six methods and the registered named-grid families
+axis-regrid list methods
+axis-regrid list grids
 ```
+
+Exit codes: `0` success · `1` runtime error (an actionable message on stderr,
+no traceback unless `--debug`) · `2` argument-parsing error.
+
+> Migrating from the pre-redesign Python surface? See
+> [`docs/migration-v1.md`](docs/migration-v1.md) for the full old → new symbol
+> table.
 
 ---
 

@@ -12,7 +12,7 @@ Prerequisites:
   - xarray + netcdf4 for I/O
   - numpy
   - scipy
-  - axis_py module (built from libs/axis/python/)
+  - _core module (built from libs/axis/python/)
 
 Usage:
   python benchmarks/compare_cdo.py [--grid-type regular] [--grid-size 32] [--methods bilinear,nearest,conservative]

@@ -204,4 +204,126 @@ template class VectorWeightGenerator<Kokkos::CudaSpace>;
 template class VectorWeightGenerator<Kokkos::HIPSpace>;
 #endif
 
+// ─────────────────────────────────────────────────────────────────────────────
+// compute_rotation_angles — per-cell east-vector orientation (R8)
+// ─────────────────────────────────────────────────────────────────────────────
+
+template <typename MemorySpace>
+Kokkos::View<double *, MemorySpace> compute_rotation_angles(const topology::UnstructuredMesh<MemorySpace> &mesh) {
+    const std::size_t n_cells = mesh.n_cells();
+
+    Kokkos::View<double *, Kokkos::HostSpace> h_alpha("rotation_angles", n_cells);
+
+    // Projected (planar) meshes have no geographic east: identity rotation,
+    // u/v is assumed expressed in the projection x/y basis on both grids.
+    const auto csys = mesh.coord_system();
+    const bool spherical = (csys == topology::CoordinateSystem::SphericalDeg || csys == topology::CoordinateSystem::SphericalRad);
+    if (!spherical) {
+        auto dev_alpha = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_alpha);
+        return dev_alpha;  // all-zero
+    }
+
+    const double pi = 3.14159265358979323846;
+    const double deg2rad = pi / 180.0;
+    const double scale = (csys == topology::CoordinateSystem::SphericalRad) ? 1.0 : deg2rad;
+
+    auto h_coords = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, mesh.node_coords_view());
+    auto h_offsets = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, mesh.conn_offsets_view());
+    auto h_indices = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, mesh.conn_indices_view());
+
+    // Unit vector (x, y, z) from lon/lat in radians.
+    auto to_unit = [](double lon_rad, double lat_rad) {
+        const double cl = std::cos(lat_rad);
+        return std::array<double, 3>{cl * std::cos(lon_rad), cl * std::sin(lon_rad), std::sin(lat_rad)};
+    };
+
+    for (std::size_t c = 0; c < n_cells; ++c) {
+        const auto start = static_cast<std::size_t>(h_offsets(c));
+        const auto end = static_cast<std::size_t>(h_offsets(c + 1));
+
+        // Only quadrilateral cells carry a meaningful local i-axis.
+        // Polygons (MPAS/ICON) store cell vectors on the geographic basis.
+        if (end - start != 4) {
+            h_alpha(c) = 0.0;
+            continue;
+        }
+
+        // CCW winding (n00, n10, n11, n01): +i axis runs west→east, along the
+        // grid line through the west- and east-edge midpoints.
+        const std::size_t v0 = static_cast<std::size_t>(h_indices(start + 0));
+        const std::size_t v1 = static_cast<std::size_t>(h_indices(start + 1));
+        const std::size_t v2 = static_cast<std::size_t>(h_indices(start + 2));
+        const std::size_t v3 = static_cast<std::size_t>(h_indices(start + 3));
+
+        auto unit_at = [&](std::size_t vi) { return to_unit(h_coords(vi, 0) * scale, h_coords(vi, 1) * scale); };
+        auto renorm = [](std::array<double, 3> m) {
+            const double r = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+            return std::array<double, 3>{m[0] / r, m[1] / r, m[2] / r};
+        };
+
+        const auto u0 = unit_at(v0);
+        const auto u1 = unit_at(v1);
+        const auto u2 = unit_at(v2);
+        const auto u3 = unit_at(v3);
+
+        // Cell-center approximation: normalized mean of the four unit vertices.
+        auto rc = renorm({(u0[0] + u1[0] + u2[0] + u3[0]) / 4.0, (u0[1] + u1[1] + u2[1] + u3[1]) / 4.0, (u0[2] + u1[2] + u2[2] + u3[2]) / 4.0});
+
+        // Local east / north basis at the cell center (ẑ × r, r × east).
+        const std::array<double, 3> east_raw{-rc[1], rc[0], 0.0};
+        const double en = std::sqrt(east_raw[0] * east_raw[0] + east_raw[1] * east_raw[1]);
+        if (en < 1.0e-300) {  // at a pole: any direction is east; identity rotation
+            h_alpha(c) = 0.0;
+            continue;
+        }
+        const std::array<double, 3> e{east_raw[0] / en, east_raw[1] / en, 0.0};
+        const std::array<double, 3> north{rc[1] * e[2] - rc[2] * e[1], rc[2] * e[0] - rc[0] * e[2], rc[0] * e[1] - rc[1] * e[0]};
+
+        // Local +i direction: tangent, at the cell center, to the great circle
+        // through the west- and east-edge midpoints. This is exact for lat-lon
+        // (the great circle peaks at the center → tangent ∥ east → α = 0) and
+        // for gnomonic cubed-sphere tiles (the a-line IS that great circle and
+        // the vertex-mean center lies on it by symmetry).
+        const auto wmid = renorm({u0[0] + u3[0], u0[1] + u3[1], u0[2] + u3[2]});
+        const auto emid = renorm({u1[0] + u2[0], u1[1] + u2[1], u1[2] + u2[2]});
+        std::array<double, 3> gnorm{wmid[1] * emid[2] - wmid[2] * emid[1], wmid[2] * emid[0] - wmid[0] * emid[2],
+                                    wmid[0] * emid[1] - wmid[1] * emid[0]};
+        const double gn = std::sqrt(gnorm[0] * gnorm[0] + gnorm[1] * gnorm[1] + gnorm[2] * gnorm[2]);
+        if (gn < 1.0e-300) {  // midpoints coincide/antipodal: degenerate cell
+            h_alpha(c) = 0.0;
+            continue;
+        }
+        gnorm[0] /= gn;
+        gnorm[1] /= gn;
+        gnorm[2] /= gn;
+
+        // Project the center onto the great-circle plane, then take the
+        // travel-direction tangent (gnorm × p) from west to east.
+        const double cd = rc[0] * gnorm[0] + rc[1] * gnorm[1] + rc[2] * gnorm[2];
+        auto p = renorm({rc[0] - cd * gnorm[0], rc[1] - cd * gnorm[1], rc[2] - cd * gnorm[2]});
+        const std::array<double, 3> t{gnorm[1] * p[2] - gnorm[2] * p[1], gnorm[2] * p[0] - gnorm[0] * p[2], gnorm[0] * p[1] - gnorm[1] * p[0]};
+
+        const double x = t[0] * e[0] + t[1] * e[1] + t[2] * e[2];              // east component
+        const double y = t[0] * north[0] + t[1] * north[1] + t[2] * north[2];  // north component
+        if (std::abs(x) < 1.0e-300 && std::abs(y) < 1.0e-300) {
+            h_alpha(c) = 0.0;  // degenerate cell
+            continue;
+        }
+        h_alpha(c) = std::atan2(y, x);  // CCW angle from east toward north
+    }
+
+    auto dev_alpha = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_alpha);
+    return dev_alpha;
+}
+
+template Kokkos::View<double *, Kokkos::HostSpace> compute_rotation_angles<Kokkos::HostSpace>(const topology::UnstructuredMesh<Kokkos::HostSpace> &);
+
+#ifdef KOKKOS_ENABLE_CUDA
+template Kokkos::View<double *, Kokkos::CudaSpace> compute_rotation_angles<Kokkos::CudaSpace>(const topology::UnstructuredMesh<Kokkos::CudaSpace> &);
+#endif
+
+#ifdef KOKKOS_ENABLE_HIP
+template Kokkos::View<double *, Kokkos::HIPSpace> compute_rotation_angles<Kokkos::HIPSpace>(const topology::UnstructuredMesh<Kokkos::HIPSpace> &);
+#endif
+
 }  // namespace axis::solver

@@ -202,10 +202,17 @@ InterpolationMatrix<MemorySpace> generate_bilinear_rect(const topology::Unstruct
     const double delta_lat = src_grid_info.delta_lat;
 
     // ── Periodicity detection ──
-    // Source grid is periodic if its longitude span ≈ 360° within tolerance
+    // Source grid is periodic if its longitude span ≈ 360° within tolerance.
+    // RegridConfig::periodic overrides auto-detection: +1 forces periodic,
+    // -1 forces non-periodic, 0 keeps span-based detection.
     const double lon_span = src_grid_info.lon_max - src_grid_info.lon_min;
     const double period_tol = 1.0e-10 * delta_lon;
-    const bool is_periodic = std::abs(lon_span - 360.0) < period_tol;
+    bool is_periodic = std::abs(lon_span - 360.0) < period_tol;
+    if (config.periodic > 0) {
+        is_periodic = true;
+    } else if (config.periodic < 0) {
+        is_periodic = false;
+    }
 
     // ── Construct the compute kernel ──
     BilinearRectKernel kernel{lon_min, lat_min, delta_lon, delta_lat, ni, nj, is_periodic};

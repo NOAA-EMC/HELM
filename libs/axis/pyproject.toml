@@ -7,22 +7,26 @@ name = "axis-regrid"
 version = "0.1.0"
 description = "Arbitrary eXgrid Interpolation Solver (AXIS) Python bindings"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
 dependencies = [
     "cf-xarray",
+    "dask[array]",
+    "netCDF4",
     "numpy",
     "xarray",
 ]
 
 [dependency-groups]
 test = [
-    "dask",
-    "netCDF4",
     "pyproj",
     "pytest",
     "scipy",
 ]
+# Cross-validation extras (NOT in the default test group — CI runs bare
+# `uv run pytest` on platforms where esmpy/xesmf cannot resolve).
+# The interop tests importorskip them; install manually for full parity:
+#   uv pip install esmpy xesmf   (or use the helm-dev-benchmarks image)
 mypy = [
     "mypy",
     #
@@ -38,9 +42,9 @@ mypy = [
 axis-regrid = "axis.cli:main"
 
 [tool.pytest.ini_options]
-# Keep collection scoped to the real suite so scratch scripts at the
-# package root (e.g. test_c96_comparison.py) or benchmark probes under
-# benchmarks/ are not imported by bare `pytest` in CI.
+# Keep collection scoped to the real suite so benchmark probes under
+# benchmarks/ (e.g. c96_vs_esmf_probe.py) are not imported by bare `pytest`
+# in CI. Scratch scripts must never be named test_*.py at the package root.
 testpaths = ["tests_python"]
 
 [tool.scikit-build]
@@ -55,14 +59,14 @@ cmake.source-dir = "."
 
 [tool.mypy]
 # `packages = ["axis"]` type-checks the *installed* package, so its bundled
-# axis_py.pyi stub resolves axis_py. The downside is a rebuild/reinstall is
+# _core.pyi stub resolves _core. The downside is a rebuild/reinstall is
 # needed before mypy sees Python source edits.
 #
 # For faster dev cycles when working on typing, symlink the stub into the source
 # tree once, then run mypy against the source path directly (no reinstall, and no
 # MYPYPATH needed — mypy auto-detects `python/` as the package root):
 #
-#   ln -sf "$(uv run python -c 'import importlib.util, os; print(os.path.join(os.path.dirname(importlib.util.find_spec("axis").origin), "axis_py.pyi"))')" python/axis/
+#   ln -sf "$(uv run python -c 'import importlib.util, os; print(os.path.join(os.path.dirname(importlib.util.find_spec("axis").origin), "_core.pyi"))')" python/axis/
 #   uv run mypy python/axis
 #
 packages = ["axis"]

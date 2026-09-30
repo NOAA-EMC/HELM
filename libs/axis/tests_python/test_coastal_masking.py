@@ -1,6 +1,10 @@
-# test_coastal_masking.py
-#
-# Verifies spatial coastline masking and conservative weight normalization.
+# SPDX-License-Identifier: Apache-2.0
+"""Coastal (source-cell) masking with conservative weight renormalization.
+
+Ported to the new fit-on-construction API (FR-040): ``src_mask`` rides on the
+constructor, and a flat wet field must remap to 1.0 under frac-area norm once
+dry cells are renormalized away.
+"""
 
 import numpy as np
 import xarray as xr
@@ -18,22 +22,17 @@ def test_coastal_mask_application():
     lats_out = np.linspace(-10, 10, 2)
     ds_out = xr.Dataset(coords={"lat": lats_out, "lon": lons_out})
 
-    # Create a source land mask: 0 representing dry land, 1 representing ocean
-    # Let's set one quadrant to be land
+    # Source land mask: 0 = dry land, 1 = ocean. Top-left quadrant is land.
     src_mask = np.ones((4, 4), dtype=np.int32)
-    src_mask[0:2, 0:2] = 0  # Top-left quadrant is land
+    src_mask[0:2, 0:2] = 0
 
-    # Generate weights with coastal mask
-    regridder = Regridder(method="conservative", src_mask=src_mask)
-    regridder.fit(ds_in, ds_out, src_mask=src_mask)
+    regridder = Regridder(ds_in, ds_out, method="conservative", src_mask=src_mask)
 
-    # Let's verify that a flat wet field preserves values under fracarea normalization
+    # A flat wet field must map to 1.0 under frac-area renormalization over the
+    # active (wet) source cells.
     src_data = np.ones((4, 4), dtype=np.float64)
+    res = regridder(src_data)
 
-    # Apply weights
-    res = regridder.transform(src_data)
-
-    # Under conservative fracarea normalization, the sum of overlap areas is divided by the
-    # total wet active source fractions. Thus, active unmasked regions still remap to 1.0.
     assert res.shape == (2, 2)
     assert not np.any(np.isnan(res))
+    np.testing.assert_allclose(res, 1.0, rtol=1e-10, atol=1e-10)

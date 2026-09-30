@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Rerun Table 4 (MPAS 10000 -> 90x90 regular) natively on macOS (arm64).
-# Uses the axis-benchmark-env conda env and the build-macos axis_py .so
+# Uses the axis-benchmark-env conda env and the build-macos _core .so
 # (copied into python/axis/). Sources the fixed CCW-winding MPAS generator.
 set -uo pipefail
 cd "$(dirname "$0")/.."

@@ -12,6 +12,7 @@
 /// along with the RegridConfig struct that captures all runtime options for
 /// weight generation. Header-only — no associated .cpp compilation unit.
 
+#include <axis/types.hpp>
 #include <cstdint>
 
 namespace axis::solver {
@@ -57,8 +58,11 @@ enum class LineType : std::uint8_t {
 
 /// Controls what happens when a destination cell has no source overlap.
 enum class UnmappedAction : std::uint8_t {
-    Error,  ///< Throw std::runtime_error identifying the unmapped index
-    Ignore  ///< Leave destination value at zero; no entry in the matrix
+    Error,   ///< Throw std::runtime_error identifying the unmapped index
+    Ignore,  ///< Leave destination value at zero; no entry in the matrix
+    Mask     ///< Like Ignore (zero row), but the matrix records an unmapped_mask
+             ///< (per-dst 0/1) so callers can distinguish "no data" from "zero".
+             ///< The destination is never silently filled with a fake value.
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,6 +90,24 @@ struct RegridConfig {
 
     /// @brief Extrapolation method when a destination cell has zero wet source overlaps.
     ExtrapolationAction extrap_method = ExtrapolationAction::NearestWet;
+
+    /// @brief Explicit global-longitude periodicity override for the source grid.
+    ///
+    /// The rectilinear fast paths auto-detect periodicity when the source
+    /// longitude span is ≈ 360°. This tri-state lets a caller override that
+    /// detection when the span is ambiguous (e.g. a global grid whose edge
+    /// columns are duplicated, or a regional grid that spans 360° but must
+    /// NOT wrap). Values: 0 = auto-detect (default); 1 = force periodic;
+    /// -1 = force non-periodic.
+    std::int8_t periodic = 0;
+
+    /// @brief Optional fit-time destination-cell mask [n_dst] (non-owning).
+    ///
+    /// When extent(0) == n_dst, destination cells with dst_mask == 0 have
+    /// every matrix row zeroed (all COO entries dropped) and are recorded in
+    /// the matrix's unmapped mask — they are "no data", never silent zeros.
+    /// Empty view (default) = no destination masking.
+    field_view<const int, 1> dst_mask{};
 };
 
 }  // namespace axis::solver

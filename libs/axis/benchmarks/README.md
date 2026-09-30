@@ -176,7 +176,7 @@ cmake -B build-macos -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp -I$SP/include" \
     -DOpenMP_CXX_LIB_NAMES=omp -DOpenMP_omp_LIBRARY=$SP/lib/libomp.dylib \
     -DPython_EXECUTABLE=$SP/bin/python -Dnanobind_DIR=$SP/lib/python3.11/site-packages/nanobind/cmake
-cmake --build build-macos && cp build-macos/python/axis_py*.so python/axis/
+cmake --build build-macos && cp build-macos/python/_core*.so python/axis/
 #    (If Kokkos links a second libomp, relink the .so + Kokkos dylibs onto the
 #     conda libomp with install_name_tool -change, then codesign -f -s -.)
 

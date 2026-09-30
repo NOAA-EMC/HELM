@@ -44,6 +44,33 @@ class VectorWeightGenerator {
         const GridRotation<MemorySpace> &src_rotation, const GridRotation<MemorySpace> &dst_rotation, const RegridConfig &config);
 };
 
+/// @brief Compute per-cell vector rotation angles (radians) for a mesh.
+///
+/// Returns, for each cell, the counter-clockwise angle from geographic east
+/// to the cell's local +i direction — the direction of the cell's first
+/// connectivity edge (vertex 0 → vertex 1). This is the convention the
+/// coupled rotation in VectorWeightGenerator::generate expects: with
+/// diff = alpha_dst - alpha_src, u_dst = cos(diff)·u + sin(diff)·v and
+/// v_dst = -sin(diff)·u + cos(diff)·v transports a vector correctly between
+/// two locally-oriented grids.
+///
+/// Per-cell rules (fit-time metadata; host-side computation):
+///   - Spherical meshes with quadrilateral cells (cubed-sphere tiles,
+///     curvilinear structured grids, regular lat-lon): α = π/2 − bearing of
+///     the great-circle edge 0→1. A lat-lon grid yields α = 0 everywhere;
+///     a cubed-sphere tile yields the tile's spatially varying rotation.
+///   - Non-quadrilateral cells (MPAS/ICON polygons): vertex order carries no
+///     i-axis meaning and cell-centered vectors are conventionally stored on
+///     the geographic east/north basis — α = 0 (identity rotation).
+///   - Projected (planar) meshes: no geographic east — α = 0; u/v is assumed
+///     expressed in the projection's x/y basis on both grids.
+///
+/// @tparam MemorySpace Kokkos memory space of the mesh.
+/// @param mesh Source or destination mesh.
+/// @return View<double*, MemorySpace> of length mesh.n_cells(), in radians.
+template <typename MemorySpace>
+Kokkos::View<double *, MemorySpace> compute_rotation_angles(const topology::UnstructuredMesh<MemorySpace> &mesh);
+
 }  // namespace axis::solver
 
 #endif  // AXIS_SOLVER_VECTOR_REGRIDDER_HPP

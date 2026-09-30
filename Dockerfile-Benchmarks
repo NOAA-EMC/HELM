@@ -16,7 +16,7 @@
 #     -t helm-dev-benchmarks .
 #
 # The workspace is mounted at the same path as in the base image, so the
-# axis_py extension built inside the container is picked up as-is. Activate
+# _core extension built inside the container is picked up as-is. Activate
 # the benchmark toolchain with:  mamba run -n axis-bench python3 ...
 # ─────────────────────────────────────────────────────────────────────────────
 ARG BASE_IMAGE=helm-project-helm-dev:latest
@@ -35,7 +35,7 @@ RUN ARCH=$(uname -m) \
 ENV PATH=/opt/miniforge/bin:$PATH
 
 # 2. Benchmark environment: AXIS vs CDO vs xregrid comparison harness deps.
-#    Python pinned to 3.11 to match the prebuilt axis_py cpython-311 extension.
+#    Python pinned to 3.11 to match the prebuilt _core cpython-311 extension.
 RUN mamba create -y -n axis-bench -c conda-forge \
         python=3.11 \
         numpy scipy xarray netcdf4 pyproj \

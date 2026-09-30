@@ -60,6 +60,41 @@ option(AXIS_BUILD_BENCHMARKS "Build the AXIS performance benchmark harness"     
 # Kokkos — the ONLY required third-party dependency (HELM Law #2).
 option(AXIS_FETCH_KOKKOS "Fetch and build Kokkos automatically if not found on system" ON)
 
+# On macOS the OpenMP runtime must be the exact libomp the (prebuilt) Kokkos
+# links, or the process ends up with two OpenMP runtimes and
+# Kokkos::OpenMP::initialize() deadlocks the first time it forks a team (i.e. on
+# the first grid build). A stray LLVM on PATH makes CMake's FindOpenMP resolve
+# llvm's bundled libomp while Kokkos links the libomp formula. Pin FindOpenMP to
+# Kokkos' own libomp BEFORE find_package(Kokkos) — KokkosConfig re-runs
+# find_dependency(OpenMP), which then honours these cache values. Skipped when
+# the caller pinned OpenMP explicitly or is building Kokkos itself.
+if(APPLE AND NOT AXIS_FETCH_KOKKOS AND NOT DEFINED OpenMP_omp_LIBRARY AND NOT DEFINED OpenMP_CXX_LIB_NAMES)
+    set(_axis_kokkoscore "")
+    if(DEFINED Kokkos_DIR AND EXISTS "${Kokkos_DIR}")
+        file(GLOB _axis_kokkoscore_cand "${Kokkos_DIR}/../../lib/libkokkoscore*.dylib"
+                                        "${Kokkos_DIR}/../../../lib/libkokkoscore*.dylib")
+        list(GET _axis_kokkoscore_cand 0 _axis_kokkoscore)
+    endif()
+    if(_axis_kokkoscore AND EXISTS "${_axis_kokkoscore}")
+        execute_process(COMMAND /usr/bin/otool -L "${_axis_kokkoscore}"
+                        OUTPUT_VARIABLE _axis_otool ERROR_QUIET)
+        string(REGEX MATCH "/[^ \t\r\n]*libomp[^ \t\r\n]*\\.dylib" _axis_omp "${_axis_otool}")
+        if(_axis_omp AND EXISTS "${_axis_omp}")
+            get_filename_component(_axis_omp_dir "${_axis_omp}" DIRECTORY)
+            set(OpenMP_CXX_LIB_NAMES "omp" CACHE STRING "libomp that Kokkos links (single OpenMP runtime)" FORCE)
+            set(OpenMP_omp_LIBRARY "${_axis_omp}" CACHE FILEPATH "libomp that Kokkos links (single OpenMP runtime)" FORCE)
+            set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp -I${_axis_omp_dir}/../include"
+                CACHE STRING "compile flags for the libomp that Kokkos links" FORCE)
+            message(STATUS "AXIS: pinning FindOpenMP to Kokkos' libomp: ${_axis_omp}")
+        endif()
+        unset(_axis_otool)
+        unset(_axis_omp)
+        unset(_axis_omp_dir)
+    endif()
+    unset(_axis_kokkoscore)
+    unset(_axis_kokkoscore_cand)
+endif()
+
 find_package(Kokkos QUIET)
 
 if(NOT TARGET Kokkos::kokkos AND AXIS_FETCH_KOKKOS)

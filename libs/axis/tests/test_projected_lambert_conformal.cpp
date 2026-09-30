@@ -77,9 +77,10 @@ TEST(ProjectedLambertConformal, EndToEndInterpolationAllMethods) {
     std::vector<double> dst_cx(dst_n_points);
     std::vector<double> dst_cy(dst_n_points);
 
-    // Build destination grid center points around -96 deg lon, 40 deg lat
-    double dst_min_lon = -96.5;
-    double dst_max_lon = -95.5;
+    // Build destination grid center points around lon 263.5-264.5 deg (= -96.5..-95.5),
+    // 40 deg lat — [0, 360) to match ProjectionBuilder's normalized output range.
+    double dst_min_lon = 263.5;
+    double dst_max_lon = 264.5;
     double dst_min_lat = 39.5;
     double dst_max_lat = 40.5;
 

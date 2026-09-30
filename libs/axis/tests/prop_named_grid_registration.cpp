@@ -8,7 +8,7 @@
 //   2. Invalid name strings (unknown prefix, non-positive numbers, empty string,
 //      non-numeric suffix) → parse throws std::invalid_argument,
 //      is_registered returns false
-//   3. registered_families() returns exactly {'F','G','N','O','R'} (sorted)
+//   3. registered_families() returns exactly {'C','F','G','N','O','R'} (sorted)
 //   4. G-family names use the separate grid<num> syntax and are covered below
 //
 // No Kokkos needed for parse/is_registered tests — these are pure string logic.
@@ -32,10 +32,10 @@ using axis::topology::NamedGridRegistry;
 
 // ─── RapidCheck Generators ───────────────────────────────────────────────────
 
-/// Generate a valid one-letter family prefix character: one of 'O', 'F', 'N', 'R'.
+/// Generate a valid one-letter family prefix character: one of 'C', 'O', 'F', 'N', 'R'.
 /// G is intentionally excluded here because it uses the grid<num> syntax.
 rc::Gen<char> genValidFamily() {
-    return rc::gen::element('O', 'F', 'N', 'R');
+    return rc::gen::element('C', 'O', 'F', 'N', 'R');
 }
 
 /// Generate a positive integer suitable as a grid number.
@@ -50,13 +50,13 @@ rc::Gen<std::string> genValidName() {
                           genPositiveNumber());
 }
 
-/// Generate an invalid family prefix character: NOT one of 'O', 'F', 'N', 'R',
-/// 'o', 'f', 'n', 'r' — actually parse uppercases, so any char NOT in {O, F, N, R}
+/// Generate an invalid family prefix character: NOT one of 'C', 'O', 'F', 'N', 'R',
+/// 'c', 'o', 'f', 'n', 'r' — actually parse uppercases, so any char NOT in {C, O, F, N, R}
 /// after toupper will be invalid. We pick from characters that are definitely
 /// not valid families.
 rc::Gen<char> genInvalidFamily() {
     return rc::gen::suchThat(rc::gen::inRange<char>('A', '['),  // 'A'..'Z'
-                             [](char c) { return c != 'O' && c != 'F' && c != 'N' && c != 'R'; });
+                             [](char c) { return c != 'C' && c != 'O' && c != 'F' && c != 'N' && c != 'R'; });
 }
 
 /// Generate a non-positive number (0 or negative).
@@ -191,20 +191,20 @@ RC_GTEST_PROP(PropNamedGridRegistration, FamilyOnlyThrows, ()) {
     RC_ASSERT(!NamedGridRegistry::is_registered(name));
 }
 
-// ─── Property 5g: registered_families() returns exactly {'F','G','N','O','R'} ─
+// ─── Property 5g: registered_families() returns exactly {'C','F','G','N','O','R'} ─
 // Verify the sorted set of registered families is always the same regardless
 // of how many times it is called.
 //
 // **Validates: Requirements 6.3**
 
-RC_GTEST_PROP(PropNamedGridRegistration, RegisteredFamiliesAreFGNOR, ()) {
+RC_GTEST_PROP(PropNamedGridRegistration, RegisteredFamiliesAreCFGNOR, ()) {
     auto families = NamedGridRegistry::registered_families();
 
     // Must be sorted
     RC_ASSERT(std::is_sorted(families.begin(), families.end()));
 
-    // Must contain exactly F, G, N, O, R
-    const std::vector<char> expected = {'F', 'G', 'N', 'O', 'R'};
+    // Must contain exactly C, F, G, N, O, R
+    const std::vector<char> expected = {'C', 'F', 'G', 'N', 'O', 'R'};
     RC_ASSERT(families == expected);
 }
 

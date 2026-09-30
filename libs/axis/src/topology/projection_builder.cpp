@@ -122,7 +122,14 @@ StructuredGrid<MemorySpace> ProjectionBuilder::build(const ingest::ProjectedPara
                                      " (x=" + std::to_string(buffers.center_x[i]) + ", y=" + std::to_string(buffers.center_y[i]) + ")");
         }
 
-        host_lon(i) = output_coord.xy.x;  // longitude in degrees
+        // Longitude in degrees, normalized to [0, 360) to match the range
+        // convention of every other AXIS mesh ingest path (PROJ's EPSG:4326
+        // output is [-180, 180]; a disjoint raw range makes the engine's 2-D
+        // BVH range check reject otherwise-overlapping grids).
+        host_lon(i) = std::fmod(output_coord.xy.x, 360.0);
+        if (host_lon(i) < 0.0) {
+            host_lon(i) += 360.0;
+        }
         host_lat(i) = output_coord.xy.y;  // latitude in degrees
     }
 
