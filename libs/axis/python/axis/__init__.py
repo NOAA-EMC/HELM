@@ -5,30 +5,37 @@ AXIS Python package — stateless, high-performance spatial regridding for xarra
 # ruff: noqa: I001
 
 # Import axis_py FIRST using relative import to completely avoid partially initialized circular issues
-from . import axis_py
+from . import axis_py  # noqa: F401
 
 # Register the custom .axis xarray accessor
 from . import accessors  # noqa: F401
-from .grid import CurvilinearGrid, Geometry, GridFactory, RectilinearGrid, UnstructuredMesh
+from .grid import CurvilinearGrid, Geometry, GridFactory, RectilinearGrid, UnstructuredMesh, RuleGeometry
 from .regridder import Regridder
 from .vector import VectorRegridder
 from .vertical import VerticalRegridder, regrid_3d
 
 # Expose C++ Mesh construction and Matrix serialization APIs directly on the axis package
-Mesh = axis_py.Mesh
-Matrix = axis_py.Matrix
-make_regular_mesh = axis_py.make_regular_mesh
-make_projected_mesh = axis_py.make_projected_mesh
-make_ugrid_mesh = axis_py.make_ugrid_mesh
-make_named_mesh = axis_py.make_named_mesh
-apply_weights = axis_py.apply_weights
-batch_apply = axis_py.batch_apply
-detect_tripolar_grid = axis_py.detect_tripolar_grid
-generate_vector_weights = axis_py.generate_vector_weights
-Method = axis_py.Method
-NormType = axis_py.NormType
-UnmappedAction = axis_py.UnmappedAction
-LineType = axis_py.LineType
+from .axis_py import (
+    LineType,
+    Matrix,
+    Mesh,
+    Method,
+    NormType,
+    UnmappedAction,
+    adjust_by_fraction,
+    apply_weights,
+    batch_apply,
+    detect_rectilinear_grid,
+    detect_regular_grid,
+    detect_tripolar_grid,
+    generate_vector_weights,
+    make_named_mesh,
+    make_projected_mesh,
+    make_regular_mesh,
+    make_ugrid_mesh,
+    reconstruct_gradient,
+    write_gmsh,
+)
 
 __all__ = [
     "Regridder",
@@ -36,6 +43,7 @@ __all__ = [
     "RectilinearGrid",
     "CurvilinearGrid",
     "UnstructuredMesh",
+    "RuleGeometry",
     "GridFactory",
     "VectorRegridder",
     "VerticalRegridder",
@@ -48,7 +56,12 @@ __all__ = [
     "make_named_mesh",
     "apply_weights",
     "batch_apply",
+    "write_gmsh",
+    "reconstruct_gradient",
     "detect_tripolar_grid",
+    "detect_regular_grid",
+    "detect_rectilinear_grid",
+    "adjust_by_fraction",
     "generate_vector_weights",
     "Method",
     "NormType",

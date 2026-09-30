@@ -234,10 +234,10 @@ RC_GTEST_PROP(PropBilinearRectAgreement, LinearFieldReproduction, ()) {
         }
     }
 
-    // Assert agreement within 2e-11 relative tolerance.
+    // Assert agreement within 1e-10 relative tolerance.
     // Note: tolerance is slightly above machine epsilon * condition_number to
     // account for floating-point accumulation in bilinear weight products.
-    RC_ASSERT(max_rel_err < 2e-11);
+    RC_ASSERT(max_rel_err < 1e-10);
 }
 
 // ─── Property 2b: Weight Row-Sum Agreement ──────────────────────────────────

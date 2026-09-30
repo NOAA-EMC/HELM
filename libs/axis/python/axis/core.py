@@ -81,25 +81,11 @@ def _apply_weights_core(
         result_t = axis_py.batch_apply(weights_matrix, flat_data_t)
         result = result_t.T
     else:
-        # NaN-aware re-normalization path
-        mask = np.isnan(flat_data)
-        zero = flat_data.dtype.type(0)
-        safe_data = np.where(mask, zero, flat_data)
-
-        result_t = axis_py.batch_apply(weights_matrix, np.asfortranarray(safe_data.T))
+        # NaN-aware re-normalization path using C++ fused solver
+        if not weights_matrix.is_csr:
+            weights_matrix.to_csr()
+        result_t = axis_py.nan_batch_apply(weights_matrix, flat_data_t, na_thres)
         result = result_t.T
-
-        # Calculate weight sums of valid (non-NaN) inputs using float32 masks
-        valid_mask = np.logical_not(mask).astype(np.float32)
-        weights_sum_t = axis_py.batch_apply(weights_matrix, np.asfortranarray(valid_mask.T))
-        weights_sum = weights_sum_t.T
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            result /= weights_sum
-            if total_weights is not None:
-                fraction_valid = weights_sum / total_weights
-                nan_val = result.dtype.type(np.nan)
-                result = np.where(fraction_valid < (1.0 - na_thres - 1e-6), nan_val, result)
 
     new_shape = other_dims_shape + shape_target
     return result.reshape(new_shape).astype(data_block.dtype, copy=False)

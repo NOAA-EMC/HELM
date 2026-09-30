@@ -272,8 +272,10 @@ void apply(const InterpolationMatrix<MemorySpace> &matrix, const HaloPattern &pa
 ///
 /// @throws std::invalid_argument if src.extent(0) != matrix.n_src(),
 ///         dst.extent(0) != matrix.n_dst(), or src.extent(1) != dst.extent(1).
-template <class MemorySpace>
-void batch_apply(const InterpolationMatrix<MemorySpace> &matrix, field_view<const double, 2> src, field_view<double, 2> dst) {
+template <class MemorySpace, class Layout = Kokkos::LayoutLeft>
+void batch_apply(const InterpolationMatrix<MemorySpace> &matrix,
+                 Kokkos::View<const double **, Layout, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> src,
+                 Kokkos::View<double **, Layout, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> dst) {
     // ── Extent validation (throw BEFORE touching dst) ────────────────────────
     if (src.extent(0) != matrix.n_src()) {
         throw std::invalid_argument("axis::solver::batch_apply: src.extent(0) (" + std::to_string(src.extent(0)) + ") != matrix.n_src() (" +
@@ -293,14 +295,6 @@ void batch_apply(const InterpolationMatrix<MemorySpace> &matrix, field_view<cons
     const std::size_t n_src = matrix.n_src();
     const std::size_t n_vars = src.extent(1);
 
-    // Wrap raw pointers in unmanaged rank-2 Kokkos Views (LayoutLeft = column-major).
-    // field_view is layout_left, so src(cell, var) is contiguous along cells.
-    using dst_view_t = Kokkos::View<double **, Kokkos::LayoutLeft, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
-    using src_view_t = Kokkos::View<const double **, Kokkos::LayoutLeft, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
-
-    dst_view_t dst_kk(dst.data_handle(), n_dst, n_vars);
-    src_view_t src_kk(src.data_handle(), n_src, n_vars);
-
     using exec_space = typename MemorySpace::execution_space;
 
     if (matrix.is_csr()) {
@@ -309,7 +303,7 @@ void batch_apply(const InterpolationMatrix<MemorySpace> &matrix, field_view<cons
         // path) is reused here; KokkosSparse::spmv accepts rank-2
         // (multivector) x/y views against the same operator.
         const auto &A = matrix.kk_crs_matrix();
-        KokkosSparse::spmv("N", 1.0, A, src_kk, 0.0, dst_kk);
+        KokkosSparse::spmv("N", 1.0, A, src, 0.0, dst);
     } else {
         // ── COO scatter-add path ─────────────────────────────────────────────
         const auto &S = matrix.factor_list_view();   // [nnz]
@@ -322,7 +316,7 @@ void batch_apply(const InterpolationMatrix<MemorySpace> &matrix, field_view<cons
             "axis::batch_apply::zero_dst", Kokkos::RangePolicy<exec_space>(0, n_dst * n_vars), KOKKOS_LAMBDA(const std::size_t idx) {
                 const auto j = idx % n_dst;  // cell index (leading dim)
                 const auto v = idx / n_dst;  // variable index (trailing dim)
-                dst_kk(j, v) = 0.0;
+                dst(j, v) = 0.0;
             });
 
         // Scatter-add: dst(row_k, v) += S(k) * src(col_k, v) for all v
@@ -332,15 +326,118 @@ void batch_apply(const InterpolationMatrix<MemorySpace> &matrix, field_view<cons
                 const auto v = idx / nnz;  // variable index
                 const auto r = row(k);
                 const auto c = col(k);
-                Kokkos::atomic_add(&dst_kk(r, v), S(k) * src_kk(c, v));
+                Kokkos::atomic_add(&dst(r, v), S(k) * src(c, v));
             });
     }
 
     Kokkos::fence("axis::batch_apply::complete");
 }
 
+template <class MemorySpace>
+void batch_apply(const InterpolationMatrix<MemorySpace> &matrix, field_view<const double, 2> src, field_view<double, 2> dst) {
+    using dst_view_t = Kokkos::View<double **, Kokkos::LayoutLeft, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+    using src_view_t = Kokkos::View<const double **, Kokkos::LayoutLeft, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+    dst_view_t dst_kk(dst.data_handle(), dst.extent(0), dst.extent(1));
+    src_view_t src_kk(src.data_handle(), src.extent(0), src.extent(1));
+    batch_apply<MemorySpace, Kokkos::LayoutLeft>(matrix, src_kk, dst_kk);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Masked apply: dst = S · src, skipping masked destination cells
+// 5. NaN-aware batch apply: dst = S · src with on-the-fly re-normalization
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Apply the interpolation matrix to multiple variables simultaneously with on-the-fly
+/// NaN-aware SpMV re-normalization (fused single-pass).
+///
+/// Both src and dst are rank-2 layout_left (column-major) views.
+///
+/// @tparam MemorySpace Kokkos memory space of the InterpolationMatrix
+/// @param matrix  Sparse interpolation operator
+/// @param src     Source fields [n_src, n_vars]
+/// @param dst     Destination fields [n_dst, n_vars] — overwritten with result
+/// @param na_thres Minimum fraction of valid input contribution required for output cell
+template <class MemorySpace, class Layout = Kokkos::LayoutLeft>
+void nan_batch_apply(const InterpolationMatrix<MemorySpace> &matrix,
+                     Kokkos::View<const double **, Layout, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> src,
+                     Kokkos::View<double **, Layout, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> dst, double na_thres) {
+    if (src.extent(0) != matrix.n_src()) {
+        throw std::invalid_argument("axis::solver::nan_batch_apply: src.extent(0) != matrix.n_src()");
+    }
+    if (dst.extent(0) != matrix.n_dst()) {
+        throw std::invalid_argument("axis::solver::nan_batch_apply: dst.extent(0) != matrix.n_dst()");
+    }
+    if (src.extent(1) != dst.extent(1)) {
+        throw std::invalid_argument("axis::solver::nan_batch_apply: src.extent(1) != dst.extent(1)");
+    }
+
+    const std::size_t n_dst = matrix.n_dst();
+    const std::size_t n_src = matrix.n_src();
+    const std::size_t n_vars = src.extent(1);
+
+    using exec_space = typename MemorySpace::execution_space;
+
+    if (!matrix.is_csr()) {
+        throw std::runtime_error("axis::solver::nan_batch_apply requires matrix in CSR format. Call to_csr() first.");
+    }
+
+    const auto row_ptr = matrix.row_ptr();
+    const auto col_idx = matrix.col_idx();
+    const auto csr_vals = matrix.csr_values();
+
+    using team_policy = Kokkos::TeamPolicy<exec_space>;
+    using member_type = typename team_policy::member_type;
+
+    Kokkos::parallel_for(
+        "axis::nan_batch_apply::csr", team_policy(static_cast<int>(n_dst), Kokkos::AUTO), KOKKOS_LAMBDA(const member_type &team) {
+            const auto j = team.league_rank();
+            const auto start = row_ptr(j);
+            const auto end = row_ptr(j + 1);
+
+            // Compute total weight for row j (sum of S)
+            double total_row_weight = 0.0;
+            for (auto k = start; k < end; ++k) {
+                total_row_weight += csr_vals(k);
+            }
+
+            Kokkos::parallel_for(Kokkos::ThreadVectorRange(team, static_cast<int>(n_vars)), [&](const int v) {
+                double weighted_sum_val = 0.0;
+                double sum_valid_weights = 0.0;
+
+                for (auto k = start; k < end; ++k) {
+                    const double val = src(col_idx(k), v);
+                    if (!Kokkos::isnan(val)) {
+                        weighted_sum_val += csr_vals(k) * val;
+                        sum_valid_weights += csr_vals(k);
+                    }
+                }
+
+                if (sum_valid_weights == 0.0 || total_row_weight == 0.0) {
+                    dst(j, v) = Kokkos::nan("not a number");
+                } else {
+                    double fraction_valid = sum_valid_weights / total_row_weight;
+                    if (fraction_valid < (1.0 - na_thres - 1e-6)) {
+                        dst(j, v) = Kokkos::nan("not a number");
+                    } else {
+                        dst(j, v) = weighted_sum_val / sum_valid_weights;
+                    }
+                }
+            });
+        });
+
+    Kokkos::fence("axis::nan_batch_apply::complete");
+}
+
+template <class MemorySpace>
+void nan_batch_apply(const InterpolationMatrix<MemorySpace> &matrix, field_view<const double, 2> src, field_view<double, 2> dst, double na_thres) {
+    using dst_view_t = Kokkos::View<double **, Kokkos::LayoutLeft, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+    using src_view_t = Kokkos::View<const double **, Kokkos::LayoutLeft, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+    dst_view_t dst_kk(dst.data_handle(), dst.extent(0), dst.extent(1));
+    src_view_t src_kk(src.data_handle(), src.extent(0), src.extent(1));
+    nan_batch_apply<MemorySpace, Kokkos::LayoutLeft>(matrix, src_kk, dst_kk, na_thres);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. Masked apply: dst = S · src, skipping masked destination cells
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Apply the interpolation matrix with an optional destination cell mask.

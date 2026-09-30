@@ -79,30 +79,6 @@ class VerticalRegridder:
 
             flat_field = f_arr.reshape(-1, n_src_lev)
 
-            # ─── Automatic Coordinate Direction Alignment ────────────────────
-            if s_arr.ndim == 1:
-                if len(s_arr) > 1 and s_arr[0] > s_arr[-1]:
-                    s_arr = s_arr[::-1].copy()
-                    flat_field = flat_field[:, ::-1].copy()
-            else:
-                flat_s = s_arr.reshape(-1, n_src_lev)
-                if flat_s.shape[1] > 1 and flat_s[0, 0] > flat_s[0, -1]:
-                    flat_s = flat_s[:, ::-1].copy()
-                    flat_field = flat_field[:, ::-1].copy()
-                    s_arr = flat_s.reshape(s_arr.shape[:-1] + (n_src_lev,))
-
-            reverse_dst = False
-            if d_arr.ndim == 1:
-                if len(d_arr) > 1 and d_arr[0] > d_arr[-1]:
-                    reverse_dst = True
-                    d_arr = d_arr[::-1].copy()
-            else:
-                flat_d = d_arr.reshape(-1, n_dst_lev)
-                if flat_d.shape[1] > 1 and flat_d[0, 0] > flat_d[0, -1]:
-                    reverse_dst = True
-                    flat_d = flat_d[:, ::-1].copy()
-                    d_arr = flat_d.reshape(d_arr.shape[:-1] + (n_dst_lev,))
-
             # Guarantee contiguity
             if not flat_field.flags["C_CONTIGUOUS"]:
                 flat_field = np.ascontiguousarray(flat_field)
@@ -112,6 +88,7 @@ class VerticalRegridder:
                 d_arr = np.ascontiguousarray(d_arr)
 
             # Execute applying compiled core interpolators
+            # C++ Core handles coordinate direction reversals natively without copies
             if s_arr.ndim == 1 and d_arr.ndim == 1:
                 res_flat = axis_py.interpolate_vertical(flat_field, s_arr, d_arr, self.tension)
             else:
@@ -119,13 +96,7 @@ class VerticalRegridder:
                 flat_d = d_arr.reshape(-1, n_dst_lev)
                 res_flat = axis_py.interpolate_vertical_varying(flat_field, flat_s, flat_d, self.tension)
 
-            res = res_flat.reshape(original_shape[:-1] + (n_dst_lev,))
-
-            # Restore layout coordinates direction if reversed
-            if reverse_dst:
-                res = res[..., ::-1].copy()
-
-            return res
+            return res_flat.reshape(original_shape[:-1] + (n_dst_lev,))
 
         # Run block interpolation through apply_ufunc
         input_core_dims = [[vert_dim], [da_src_levels.dims[-1]], [da_dst_levels.dims[-1]]]

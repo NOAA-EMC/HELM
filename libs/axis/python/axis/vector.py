@@ -97,37 +97,19 @@ class VectorRegridder:
         u_out: np.ndarray
         v_out: np.ndarray
 
-        if u_arr.ndim == len(src_shape) and u_arr.shape == src_shape:
-            # 2D Spatial Grid Case
-            uv_flat = np.concatenate([u_arr.ravel(), v_arr.ravel()])
-            u_out = np.array(axis_py.apply_weights(self._W_u, uv_flat)).reshape(dst_shape)
-            v_out = np.array(axis_py.apply_weights(self._W_v, uv_flat)).reshape(dst_shape)
-        elif u_arr.ndim == 1:
-            uv_flat = np.concatenate([u_arr, v_arr])
-            u_out = np.array(axis_py.apply_weights(self._W_u, uv_flat))
-            v_out = np.array(axis_py.apply_weights(self._W_v, uv_flat))
-            if len(dst_shape) > 1:
-                u_out = u_out.reshape(dst_shape)
-                v_out = v_out.reshape(dst_shape)
-        else:
-            # Multidimensional Batch Case
-            original_shape = u_arr.shape
+        original_shape = u_arr.shape
+        n_spatial_dims = len(src_shape) if u_arr.ndim > 1 else 1
+        other_dims_shape = original_shape[:-n_spatial_dims] if u_arr.ndim > 1 else ()
+        n_other = int(np.prod(other_dims_shape)) if other_dims_shape else 1
 
-            n_spatial_dims = len(src_shape)
-            other_dims_shape = original_shape[:-n_spatial_dims]
-            n_other = int(np.prod(other_dims_shape)) if other_dims_shape else 1
+        flat_u = u_arr.reshape(n_other, n_spatial)
+        flat_v = v_arr.reshape(n_other, n_spatial)
 
-            flat_u = u_arr.reshape(n_other, n_spatial)
-            flat_v = v_arr.reshape(n_other, n_spatial)
-            flat_uv = np.concatenate([flat_u, flat_v], axis=1)  # shape: (n_other, 2 * n_spatial)
+        # High-speed unified C++ remapping SpMV (handling 1D, 2D, and multidimensional arrays)
+        u_out_t, v_out_t = axis_py.vector_transform(self._W_u, self._W_v, flat_u.T, flat_v.T)
 
-            flat_uv_t = np.asfortranarray(flat_uv.T)
-
-            u_out_t = axis_py.batch_apply(self._W_u, flat_uv_t)
-            v_out_t = axis_py.batch_apply(self._W_v, flat_uv_t)
-
-            u_out = u_out_t.T.reshape(other_dims_shape + dst_shape)
-            v_out = v_out_t.T.reshape(other_dims_shape + dst_shape)
+        u_out = u_out_t.T.reshape(other_dims_shape + dst_shape)
+        v_out = v_out_t.T.reshape(other_dims_shape + dst_shape)
 
         if is_xarray:
             assert isinstance(u, xr.DataArray) and isinstance(v, xr.DataArray)

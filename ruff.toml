@@ -17,4 +17,9 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"libs/halo/spack/package.py" = ["F403", "F405"]
+# Spack package recipes are required to use `from spack.package import *`; the
+# entire Spack DSL (variant, depends_on, version, conflicts, run_after, ctest,
+# ...) is injected by that star import. F403/F405 are therefore false positives
+# for any Spack recipe. Recipes live in varying layouts (`spack/package.py`,
+# `packages/<name>/package.py`), so match the Spack-exclusive `package.py` name.
+"**/package.py" = ["F403", "F405"]

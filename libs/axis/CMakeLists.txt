@@ -57,6 +57,15 @@ option(AXIS_BUILD_BENCHMARKS "Build the AXIS performance benchmark harness"     
 # Dependency discovery
 # ##############################################################################
 
+# Prioritize Python active environment paths (Conda or Virtual Env) if defined
+if(DEFINED ENV{CONDA_PREFIX})
+    list(PREPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
+    message(STATUS "AXIS: Active Conda environment detected. Prioritizing: $ENV{CONDA_PREFIX}")
+elseif(DEFINED ENV{VIRTUAL_ENV})
+    list(PREPEND CMAKE_PREFIX_PATH "$ENV{VIRTUAL_ENV}")
+    message(STATUS "AXIS: Active Virtual Environment detected. Prioritizing: $ENV{VIRTUAL_ENV}")
+endif()
+
 # Kokkos — the ONLY required third-party dependency (HELM Law #2).
 option(AXIS_FETCH_KOKKOS "Fetch and build Kokkos automatically if not found on system" ON)
 
@@ -278,12 +287,71 @@ endif()
 
 # NetCDF — OPTIONAL target for ESMF weight files reading and writing (AXIS-IO)
 if(AXIS_ENABLE_NETCDF)
-    find_package(netCDF COMPONENTS C QUIET)
-    if(NOT netCDF_FOUND)
-        find_package(NetCDF COMPONENTS C QUIET)
+    # ── Robust NetCDF-C discovery (environment-agnostic) ──────────────────────
+    # We do NOT rely on the config package's <pkg>_FOUND flag alone, because some
+    # distributions ship configs that report NOT FOUND even when NetCDF is fully
+    # installed and usable. In particular, the conda-forge netCDF config ends with
+    # `find_dependency(MPI 5.0 EXACT)`, which can never match (FindMPI reports the
+    # MPI *standard* version — e.g. 3.1 / 4.0 — not "5.0"). That forces
+    # netCDF_FOUND=FALSE even though the netCDF::netcdf imported target has already
+    # been defined and links correctly. So we accept the imported target if it
+    # exists, then fall back to pkg-config and a manual search — the same layered
+    # strategy used for PROJ above.
+    set(_axis_netcdf_found FALSE)
+    set(_axis_netcdf_link "")
+
+    # Strategy 1: pkg-config (netcdf.pc ships with conda, Homebrew, apt, spack).
+    # Preferred first because it yields a flat "-L... -lnetcdf" link line with no
+    # transitive imported-target dependencies. The netCDF CMake config target, by
+    # contrast, records an interface dependency on MPI::MPI_C — a target AXIS does
+    # not create (it only discovers MPI's CXX component), so linking that target
+    # fails with "library 'MPI::MPI_C' not found" on installs that lack a
+    # detectable MPI C wrapper (e.g. conda-forge on macOS). netcdf.dylib's own MPI
+    # dependencies still resolve transitively at runtime via its recorded rpath.
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(AXIS_PC_NETCDF QUIET IMPORTED_TARGET netcdf)
+        if(AXIS_PC_NETCDF_FOUND)
+            set(_axis_netcdf_found TRUE)
+            set(_axis_netcdf_link PkgConfig::AXIS_PC_NETCDF)
+        endif()
     endif()
 
-    if(netCDF_FOUND OR NetCDF_FOUND)
+    # Strategy 2: CMake config package (either capitalization). Trust the imported
+    # target over the *_FOUND variable — some configs (conda-forge) report
+    # NOT FOUND due to an over-constrained `find_dependency(MPI 5.0 EXACT)` even
+    # though the netCDF::netcdf target is defined and usable.
+    if(NOT _axis_netcdf_found)
+        find_package(netCDF QUIET)
+        if(NOT TARGET netCDF::netcdf AND NOT netCDF_FOUND)
+            find_package(NetCDF QUIET COMPONENTS C)
+        endif()
+        if(TARGET netCDF::netcdf)
+            set(_axis_netcdf_found TRUE)
+            set(_axis_netcdf_link netCDF::netcdf)
+        elseif(TARGET NetCDF::NetCDF_C)
+            set(_axis_netcdf_found TRUE)
+            set(_axis_netcdf_link NetCDF::NetCDF_C)
+        elseif(netCDF_FOUND OR NetCDF_FOUND)
+            set(_axis_netcdf_found TRUE)
+            set(_axis_netcdf_link ${netCDF_LIBRARIES} ${NetCDF_LIBRARIES})
+        endif()
+    endif()
+
+    # Strategy 3: manual header + library search as a last resort.
+    if(NOT _axis_netcdf_found)
+        find_path(AXIS_NETCDF_INCLUDE_DIR netcdf.h)
+        find_library(AXIS_NETCDF_LIBRARY NAMES netcdf)
+        if(AXIS_NETCDF_INCLUDE_DIR AND AXIS_NETCDF_LIBRARY)
+            set(_axis_netcdf_found TRUE)
+            add_library(axis_netcdf_manual INTERFACE)
+            target_include_directories(axis_netcdf_manual INTERFACE ${AXIS_NETCDF_INCLUDE_DIR})
+            target_link_libraries(axis_netcdf_manual INTERFACE ${AXIS_NETCDF_LIBRARY})
+            set(_axis_netcdf_link axis_netcdf_manual)
+        endif()
+    endif()
+
+    if(_axis_netcdf_found)
         set(AXIS_HAVE_NETCDF 1)
         add_library(axis_io STATIC
             src/io/esmf_weight_io.cpp
@@ -291,18 +359,12 @@ if(AXIS_ENABLE_NETCDF)
         add_library(HELM::AXIS_IO ALIAS axis_io)
 
         target_link_libraries(axis_io PUBLIC axis)
-        if(TARGET netCDF::netcdf)
-            target_link_libraries(axis_io PRIVATE netCDF::netcdf)
-        elseif(TARGET NetCDF::NetCDF_C)
-            target_link_libraries(axis_io PRIVATE NetCDF::NetCDF_C)
-        else()
-            target_link_libraries(axis_io PRIVATE ${netCDF_LIBRARIES} ${NetCDF_LIBRARIES})
-        endif()
+        target_link_libraries(axis_io PRIVATE ${_axis_netcdf_link})
 
         target_compile_definitions(axis_io PUBLIC AXIS_HAVE_NETCDF=1)
         target_compile_definitions(axis PUBLIC AXIS_HAVE_NETCDF=1)
 
-        message(STATUS "AXIS: NetCDF found — compiling optional axis_io target")
+        message(STATUS "AXIS: NetCDF found — compiling optional axis_io target (link: ${_axis_netcdf_link})")
     else()
         message(WARNING "AXIS: AXIS_ENABLE_NETCDF=ON but NetCDF NOT found — optional axis_io target disabled")
         set_property(CACHE AXIS_ENABLE_NETCDF PROPERTY VALUE OFF)
