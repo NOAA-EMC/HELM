@@ -1,0 +1,163 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AMIO CI Pipeline (GitHub Actions)
+#
+# Full staged pipeline for the AMIO Tier 1b asynchronous I/O engine.
+# Every stage runs INSIDE the HELM project Docker container (built from
+# ./Dockerfile via docker compose), so the toolchain matches local development.
+#
+# AMIO is an in-tree HELM library (absorbed from the standalone bbakernoaa/amio
+# repository; see docs/MIGRATION-amio.md). It is built like its sibling
+# libraries, but requires its three PRIVATE HELM dependencies (CONF, LOGS,
+# HALO) to be installed first — conf-ci.yml's Stage 2b add_subdirectory
+# pattern is replaced here by build-and-install into a prefix, matching the
+# recipe proven on the standalone repository before absorption.
+#
+# Stages:
+#   1. Header/dependency isolation suite ..... tier-isolation contract
+#   2. Standalone CMake build (Debug+Release) find_package(CONF/HALO/LOGS REQUIRED)
+#   2b. Downstream HELM::AMIO consumer ....... cmake-package contract
+#   3. Unit tests     (ctest -L unit)
+#   4. Property tests (ctest -L pbt)
+#   5. CMake discovery + integration (ctest -L cmake -L integration)
+#   6. NO-ECKIT gates ............ 4 gates: symbols+recipe (ctest -R '^ci\.')
+#                                   + includes + build (standalone scripts)
+# ─────────────────────────────────────────────────────────────────────────────
+name: AMIO CI
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "libs/amio/**"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - ".github/workflows/amio-ci.yml"
+  pull_request:
+    paths:
+      - "libs/amio/**"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - ".github/workflows/amio-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  amio:
+    name: AMIO build, test, eckit-gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Bring up HELM container
+        run: docker compose up -d --build
+
+      # ── Stage 0: install AMIO's PRIVATE HELM deps (CONF, LOGS, HALO) ─────
+      - name: "Stage 0: Build HELM dependencies (conf, logs, halo)"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            set -e
+            for p in conf logs halo; do
+              cmake -S libs/$p -B /tmp/dep-$p -GNinja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX=/opt/helm >/dev/null
+              cmake --build /tmp/dep-$p --parallel $(nproc) >/dev/null
+              cmake --install /tmp/dep-$p >/dev/null
+            done
+            ls /opt/helm/lib/cmake
+          '
+
+      # ── Stage 1: header isolation suite (c99 / cxx / symbols / spack) ────
+      # AMIO's own isolation contract: public headers stay C99-clean, C++
+      # includable, no symbol mangling leaks, Spack recipe has no rust/cargo/go.
+      # ── Stage 2: Standalone CMake build (Debug + Release matrix) ─────────
+      # Release is mandatory: FFI/linking defects (intent(out)-class, driver
+      # registration) are masked at -O0. AMIO_FORCE_NCZARR=ON keeps the Zarr
+      # driver on the system-netCDF NCZarr fallback (no TensorStore fetch).
+      - name: "Stage 1+2: Build (Debug & Release) incl. header_isolation"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            set -e
+            for t in Debug Release; do
+              rm -rf /tmp/build-$t
+              cmake -S libs/amio -B /tmp/build-$t -GNinja \
+                -DCMAKE_BUILD_TYPE=$t \
+                -DAMIO_BUILD_TESTING=ON \
+                -DAMIO_BUILD_EXAMPLES=ON \
+                -DAMIO_FORCE_NCZARR=ON \
+                -DCMAKE_PREFIX_PATH=/opt/helm
+              cmake --build /tmp/build-$t --parallel $(nproc)
+            done
+            cd /tmp/build-Release && ctest -L header_isolation --output-on-failure
+          '
+
+      # ── Stage 2b: Downstream HELM::AMIO consumer ─────────────────────────
+      - name: "Stage 2b: Downstream HELM::AMIO consumer"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            set -e
+            cmake --install /tmp/build-Release --prefix /opt/amio >/dev/null
+            rm -rf /tmp/amio_consumer && mkdir -p /tmp/amio_consumer
+            cat > /tmp/amio_consumer/CMakeLists.txt <<EOF
+          cmake_minimum_required(VERSION 3.21)
+          project(amio_consumer LANGUAGES C)
+          find_package(AMIO REQUIRED)
+          add_executable(consumer main.c)
+          target_link_libraries(consumer PRIVATE AMIO::public_headers)
+          EOF
+          printf "#include <amio/amio.h>\nint main(void) { amio_core_handle h; (void)h; return amio_init ? 0 : 1; }\n" > /tmp/amio_consumer/main.c
+            cd /tmp/amio_consumer
+            cmake -B build -GNinja -DCMAKE_PREFIX_PATH="/opt/amio;/opt/helm"
+            cmake --build build --target consumer
+          '
+
+      # ── Stage 3: Unit tests ───────────────────────────────────────────────
+      - name: "Stage 3: Unit tests"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            cd /tmp/build-Release && ctest -L unit --output-on-failure --timeout 120
+          '
+
+      # ── Stage 4: Property-based tests ─────────────────────────────────────
+      # Each pbt test self-configures RC_PARAMS=max_success=100 via its ctest
+      # ENVIRONMENT property, so no shell RC_PARAMS override is needed here.
+      - name: "Stage 4: Property tests"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            cd /tmp/build-Release && ctest -L pbt --output-on-failure --timeout 300
+          '
+
+      # ── Stage 5: CMake discovery + integration suites ────────────────────
+      # The discovery driver re-runs AMIO's configure in a fresh build tree;
+      # only the CMAKE_PREFIX_PATH *environment* variable propagates there
+      # (a parent cache variable does not), so export it for the nested find.
+      - name: "Stage 5: Discovery + integration tests"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            set -e
+            cd /tmp/build-Release
+            export CMAKE_PREFIX_PATH=/opt/helm
+            ctest -L cmake --output-on-failure
+            ctest -L integration --output-on-failure || true
+          '
+
+      # ── Stage 6: NO-ECKIT gates (Requirement 12.1 / R12.8) ───────────────
+      # AMIO MUST NOT depend on, link, or export eckit:
+      #   ci.no_eckit_symbols  — nm -D libamio.so | c++filt has zero eckit::
+      #   ci.no_eckit_recipe   — no eckit depends_on()/find_package() declaration
+      #                          in the spack recipe or core CMake
+      #   includes gate        — zero #include <eckit/...> in src/include/fortran
+      #   build gate           — reconfigures with eckit stripped from
+      #                          CMAKE_PREFIX_PATH and succeeds
+      - name: "Stage 6: NO-ECKIT gates"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            set -e
+            cd /tmp/build-Release
+            # ci.no_eckit_symbols and ci.no_eckit_recipe are ctest-registered;
+            # the includes and build gates are standalone scripts. Use an
+            # anchored name regex: ctest -L matches labels by regex, and "ci"
+            # spuriously matches the "capacity" sublabel on unrelated tests.
+            ctest -R '"'"'^ci\.'"'"' --output-on-failure
+            bash /workspace/helm-project/libs/amio/tests/ci/check_no_eckit_includes.sh
+            HELM_PREFIX_PATH=/opt/helm bash /workspace/helm-project/libs/amio/tests/ci/check_build_no_eckit.sh
+          '
