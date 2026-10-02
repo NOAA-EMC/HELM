@@ -24,6 +24,26 @@ repos:
         types_or: [c, c++]
         args: ["--style=file"]
 
+  # CMake + Fortran formatting — absorbed from AMIO's standalone pre-commit
+  # config when it joined the repo. Scoped to libs/amio/ so the first
+  # absorption run stays format-neutral for the other libraries; broaden in a
+  # follow-up once siblings are baselined. libs/amio/.cmake-format.yaml is
+  # discovered by cmake-format's config walk-up from each listfile.
+  - repo: https://github.com/cheshirekow/cmake-format-precommit
+    rev: v0.6.13
+    hooks:
+      - id: cmake-format
+        additional_dependencies: [pyyaml>=5.1]
+        files: ^libs/amio/
+
+  - repo: https://github.com/pseewald/fprettify
+    rev: v0.3.7
+    hooks:
+      - id: fprettify
+        args: ["--indent", "4", "--line-length", "150", "--whitespace", "3"]
+        types: [fortran]
+        files: ^libs/amio/
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.21
     hooks:
