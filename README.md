@@ -12,7 +12,7 @@ HELM is split into independent micro-libraries:
 * **HALO:** (Tier 1) Hardware-Abstracted Link Operations (The MPI Engine)
 * **TICK:** (Tier 1) Time Integration & Chronology Kernel (The Time Manager)
 * **LOGS:** (Tier 1) Logging and State Syncronization (The Log Manager)
-* **AMIO:** (Tier 1b) Asyncronous Multidimensional Input Output (The IO Engine) - https://github.com/bbakernoaa/AMIO
+* **AMIO:** (Tier 1b) Asyncronous Multidimensional Input Output (The IO Engine)
 
 ---
 

@@ -53,10 +53,10 @@ In CI, the same commands shown per-stage below are wrapped with
 `docker compose exec -T helm-dev bash -lc "..."` (the `-T` disables TTY
 allocation, which is required on a headless runner).
 
-> **Requirement 12.5 note:** the HELM project workspace is cloned with
-> `--recurse-submodules` so the pinned HALO submodule commit is checked out
-> before the container starts. The workflow's checkout step uses
-> `submodules: recursive` to guarantee this reproducibility.
+> **Requirement 12.5 note:** all HELM libraries (including AMIO) are tracked
+> in-tree, so a plain `git clone` of the workspace checks out exactly the
+> reviewed, pinned commits before the container starts — no
+> `--recurse-submodules` step is needed.
 
 ---
 
