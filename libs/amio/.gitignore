@@ -1,0 +1,91 @@
+# ===================================================================
+# AMIO .gitignore
+# ===================================================================
+
+# --- Editor / OS ---
+*~
+.sw[a-p]
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.kate-swp
+
+# --- Kiro ---
+.kiro/
+
+# --- CMake build directories ---
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.ninja
+.ninja_deps
+.ninja_log
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# --- Compiled objects / libraries / executables ---
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.mod
+
+# --- Fortran module files ---
+*.mod
+*.smod
+
+# --- Documentation pipeline ---
+docs/xml/
+docs/site/api/*.md
+!docs/site/api/README.md
+docs/_build/
+docs/html/
+
+# --- Node.js (moxygen) ---
+node_modules/
+package-lock.json
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# --- Pre-commit ---
+.pre-commit-cache/
+
+# --- Coverage / profiling ---
+*.gcda
+*.gcno
+*.gcov
+coverage/
+lcov.info
+
+# --- Spack ---
+.spack-env/
+spack-lock.yaml
+
+# --- Docker ---
+.docker/
+
+# --- Misc ---
+*.log
+*.tmp
+*.bak
+*.orig
+*.rej
+core
+core.*

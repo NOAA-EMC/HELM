@@ -1,0 +1,90 @@
+site_name: "AMIO Documentation"
+site_description: "Asynchronous Multidimensional I/O engine for NOAA NWS Earth system models"
+site_url: "https://bbakernoaa.github.io/amio/"
+
+docs_dir: site/
+site_dir: _build/
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quickstart.md
+  - User Guide:
+      - C API: user-guide/c-api.md
+      - Fortran API: user-guide/fortran-api.md
+      - Configuration: user-guide/configuration.md
+      - Model Integration: user-guide/model-integration.md
+  - Examples:
+      - NetCDF-4 (C): examples/netcdf4-c.md
+      - NetCDF-4 (Fortran): examples/netcdf4-fortran.md
+      - Zarr v3 (C): examples/zarr-c.md
+      - Zarr v3 (Fortran): examples/zarr-fortran.md
+      - GRIB2 (C): examples/grib2-c.md
+      - GRIB2 (Fortran): examples/grib2-fortran.md
+  - API Reference:
+      - Overview: api/page-index.md
+      - C API (amio.h): api/api-amio_8h.md
+      - Error Codes (amio_errors.h): api/api-amio__errors_8h.md
+      - Types (amio_types.h): api/api-amio__types_8h.md
+      - Export Macro (amio_export.h): api/api-amio__export_8h.md
+      - mdspan Forward Decls: api/api-amio__mdspan__fwd_8h.md
+      - Fortran Module (amio_mod): api/api-amio_mod.md
+  - Architecture: architecture.md
+
+markdown_extensions:
+  - admonition
+  - codehilite:
+      guess_lang: false
+  - toc:
+      permalink: true
+  - pymdownx.snippets:
+      base_path:
+        - ..
+      check_paths: false
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/NOAA-EMC/AMIO

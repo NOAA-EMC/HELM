@@ -1,0 +1,3 @@
+# Markdownlint configuration for AMIO docs
+# Allow long lines in documentation
+line-length: false
