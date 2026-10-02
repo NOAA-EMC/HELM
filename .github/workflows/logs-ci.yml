@@ -40,10 +40,8 @@ jobs:
     name: LOGS build, test, sanitize
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (with submodules)
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       # Build and start the HELM container. The compose service is `helm-dev`;
       # OMPI_ALLOW_RUN_AS_ROOT is set so mpirun tests run under the CI user.

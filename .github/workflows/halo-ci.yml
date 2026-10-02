@@ -18,8 +18,8 @@
 #   6. Sanitizer builds     (ASan + UBSan) ................ Requirement 12.2
 #   7. Spack build smoke test (planned) ................... Requirements 6.1, 6.2, 6.3
 #
-# Submodules are checked out recursively so the pinned HALO commit is present
-# without manual steps (Requirement 12.5).
+# All HELM libraries are tracked in-tree, so a plain checkout yields exactly
+# the pinned, reviewed commit without manual steps (Requirement 12.5).
 # ─────────────────────────────────────────────────────────────────────────────
 name: HALO CI
 
@@ -47,11 +47,10 @@ jobs:
     name: HALO build, test, sanitize
     runs-on: ubuntu-latest
     steps:
-      # Requirement 12.5: pinned HALO submodule must be present.
-      - name: Checkout (with submodules)
+      # All HELM libraries (including AMIO) are in-tree: a plain checkout is
+      # complete.
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       # Requirement 12.2: build + start the HELM container from ./Dockerfile.
       # The compose service is `helm-dev`; it sets OMPI_ALLOW_RUN_AS_ROOT so
