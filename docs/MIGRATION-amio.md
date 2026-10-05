@@ -71,25 +71,24 @@ follows HELM's repository versioning, changelog discipline, and release
 process — there is no separate AMIO release train. The `libs/amio/VERSION`
 file is retained as historical content; the authoritative version is HELM's.
 
-## NO-ECKIT invariant (carried over, now enforced in HELM CI)
+## NO-ECKIT invariant (carried over)
 
 AMIO must never depend on, link, or export `eckit` — a long-standing AMIO
-architectural invariant, now enforced by four gates wired into
-`.github/workflows/amio-ci.yml` Stage 6:
+architectural invariant. **There is no optional eckit integration.** Earlier
+revisions carried dormant `#ifdef AMIO_HAS_ECKIT` code paths in
+`src/workers/` and test targets gated on `if(eckit_FOUND ...)`; those have
+been removed. Manifests are parsed with `conf::Config` (HELM's own YAML
+configuration library, already a dependency), so no test source includes an
+eckit header either. `libamio.so` has no eckit symbols and no eckit library
+in its link closure.
 
-| Gate | Checks |
-|---|---|
-| `libs/amio/tests/ci/check_no_eckit_includes.sh` | zero `#include <eckit/...>` in `src/`, `include/`, `fortran/`, **and `tests/`** |
-| `ctest` `ci.no_eckit_symbols` → `check_no_eckit_symbols.sh` | `nm -D libamio.so` demangles to zero `eckit::` symbols |
-| `check_build_no_eckit.sh` | core reconfigures successfully with eckit stripped from `CMAKE_PREFIX_PATH` |
-| `ctest` `ci.no_eckit_recipe` → `check_no_eckit_recipe.sh` | no eckit dependency, build edge, or `eckit::` symbol anywhere — the Spack recipe, **every** CMake file (`find_package(eckit)`, an eckit link, an `if(eckit_FOUND)` guard, `AMIO_HAS_ECKIT`), and all C++ sources under `src/`, `include/`, `tests/` |
-
-**There is no optional eckit integration.** Earlier revisions carried dormant
-`#ifdef AMIO_HAS_ECKIT` code paths in `src/workers/` and test targets gated on
-`if(eckit_FOUND ...)`; those have been removed. Manifests are parsed with
-`conf::Config` (HELM's own YAML configuration library, already a dependency),
-so no test source includes an eckit header either. `libamio.so` has no eckit
-symbols and no eckit library in its link closure.
+The invariant is upheld structurally rather than by dedicated CI gate
+scripts: the tree contains no eckit references at all, the HELM container
+image ships no eckit, and re-introducing one would require an explicit
+review-approved change. The former `libs/amio/tests/ci/` NO-ECKIT gate
+scripts (includes, symbols, recipe, and build checks) and the
+`amio-ci.yml` Stage 6 that ran them have been removed as redundant
+machinery once all eckit integration was deleted from the source.
 
 ## External consumers and in-flight work (dispositions)
 

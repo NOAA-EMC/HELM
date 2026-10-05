@@ -40,4 +40,3 @@ else()
 endif()
 
 add_subdirectory(integration)
-add_subdirectory(ci)

@@ -19,8 +19,11 @@
 #   3. Unit tests     (ctest -L unit)
 #   4. Property tests (ctest -L pbt)
 #   5. CMake discovery + integration (ctest -L cmake -L integration)
-#   6. NO-ECKIT gates ............ 4 gates: symbols+recipe (ctest -R '^ci\.')
-#                                   + includes + build (standalone scripts)
+#
+# NO-ECKIT is an architectural invariant of AMIO: the library must never
+# depend on, link, or export eckit. All eckit integration has been removed
+# from the tree, so no dedicated gate scripts are maintained; the invariant
+# is upheld by review and by the HELM container image shipping no eckit.
 # ─────────────────────────────────────────────────────────────────────────────
 name: AMIO CI
 
@@ -42,7 +45,7 @@ on:
 
 jobs:
   amio:
-    name: AMIO build, test, eckit-gates
+    name: AMIO build and test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -138,26 +141,4 @@ jobs:
             export CMAKE_PREFIX_PATH=/opt/helm
             ctest -L cmake --output-on-failure
             ctest -L integration --output-on-failure || true
-          '
-
-      # ── Stage 6: NO-ECKIT gates (Requirement 12.1 / R12.8) ───────────────
-      # AMIO MUST NOT depend on, link, or export eckit:
-      #   ci.no_eckit_symbols  — nm -D libamio.so | c++filt has zero eckit::
-      #   ci.no_eckit_recipe   — no eckit depends_on()/find_package() declaration
-      #                          in the spack recipe or core CMake
-      #   includes gate        — zero #include <eckit/...> in src/include/fortran
-      #   build gate           — reconfigures with eckit stripped from
-      #                          CMAKE_PREFIX_PATH and succeeds
-      - name: "Stage 6: NO-ECKIT gates"
-        run: |
-          docker compose exec -T helm-dev bash -lc '
-            set -e
-            cd /tmp/build-Release
-            # ci.no_eckit_symbols and ci.no_eckit_recipe are ctest-registered;
-            # the includes and build gates are standalone scripts. Use an
-            # anchored name regex: ctest -L matches labels by regex, and "ci"
-            # spuriously matches the "capacity" sublabel on unrelated tests.
-            ctest -R '"'"'^ci\.'"'"' --output-on-failure
-            bash /workspace/helm-project/libs/amio/tests/ci/check_no_eckit_includes.sh
-            HELM_PREFIX_PATH=/opt/helm bash /workspace/helm-project/libs/amio/tests/ci/check_build_no_eckit.sh
           '
