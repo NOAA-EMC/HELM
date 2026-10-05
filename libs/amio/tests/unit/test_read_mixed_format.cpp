@@ -59,9 +59,9 @@
 // THIS translation unit (the netcdf driver TU pulls them in separately).
 #define OMPI_SKIP_MPICXX 1
 #define MPICH_SKIP_MPICXX 1
-#include <eckit/config/YAMLConfiguration.h>
 #include <mpi.h>
 
+#include <conf/config.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -182,8 +182,8 @@ bool run_netcdf_to_grib2(const std::string &drt) {
     }
     const std::size_t payload_bytes = source.size() * sizeof(float);
 
-    eckit::YAMLConfiguration nc_cfg{make_netcdf_yaml(NC_PATH)};
-    eckit::YAMLConfiguration grib_cfg{make_grib2_yaml(grib_path, drt)};
+    conf::Config nc_cfg = conf::Config::from_string(make_netcdf_yaml(NC_PATH));
+    conf::Config grib_cfg = conf::Config::from_string(make_grib2_yaml(grib_path, drt));
 
     // ---- Stage the NetCDF source (write the variable to be read) ----
     // A thrown NetCDF write means parallel HDF5 is unavailable here; the
@@ -394,7 +394,7 @@ bool run_netcdf_to_zarr() {
     }
     const std::size_t payload_bytes = source.size() * sizeof(float);
 
-    eckit::YAMLConfiguration nc_cfg{make_netcdf_yaml(NC_PATH)};
+    conf::Config nc_cfg = conf::Config::from_string(make_netcdf_yaml(NC_PATH));
 
     // Zarr v3 target manifest: chunk == shard == array shape (trivially
     // valid sharding), lossless blosc codec -> byte-equal round trip.
@@ -404,7 +404,7 @@ bool run_netcdf_to_zarr() {
     zarr_yaml += "array_shape: [" + std::to_string(NY) + ", " + std::to_string(NX) + "]\n";
     zarr_yaml += "codec: blosc\n";
     zarr_yaml += "dtype: float32\n";
-    eckit::YAMLConfiguration zarr_cfg{zarr_yaml};
+    conf::Config zarr_cfg = conf::Config::from_string(zarr_yaml);
 
     // ---- Stage the NetCDF source ----
     try {

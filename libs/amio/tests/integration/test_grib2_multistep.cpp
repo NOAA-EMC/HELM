@@ -23,8 +23,7 @@
 //
 // The GRIB2 driver does NOT use MPI, so no MPI initialization is required.
 
-#include <eckit/config/YAMLConfiguration.h>
-
+#include <conf/config.hpp>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -104,7 +103,7 @@ int main() {
                              "  parameter_number: 5\n"
                              "  type_of_first_fixed_surface: 100\n"
                              "  scaled_value_first_surface: 50000\n";
-    eckit::YAMLConfiguration cfg{yaml};
+    conf::Config cfg = conf::Config::from_string(yaml);
 
     // ---- Write phase: 4 sequential write() calls → 4 GRIB2 messages ----
     bool functional = true;

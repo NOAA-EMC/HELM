@@ -7,12 +7,9 @@
 // Purpose
 // -------
 // Provides an abstraction layer for binding worker threads to specific
-// CPU cores or NUMA domains.  When eckit is available, the
-// implementation delegates to eckit resource binding facilities.  When
-// eckit is not linked (standalone build), the implementation uses
-// platform-specific APIs (pthread_setaffinity_np on Linux) with a
-// fallback that returns AMIO_ERR_INVALID_BINDING for non-default
-// configurations.
+// CPU cores or NUMA domains, implemented with platform-specific APIs
+// (pthread_setaffinity_np on Linux) and a fallback that returns
+// AMIO_ERR_INVALID_BINDING for non-default configurations.
 //
 // Thread safety
 // -------------

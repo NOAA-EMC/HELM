@@ -74,21 +74,22 @@ file is retained as historical content; the authoritative version is HELM's.
 ## NO-ECKIT invariant (carried over, now enforced in HELM CI)
 
 AMIO must never depend on, link, or export `eckit` — a long-standing AMIO
-architectural invariant. Four gates enforce it, all wired into
+architectural invariant, now enforced by four gates wired into
 `.github/workflows/amio-ci.yml` Stage 6:
 
 | Gate | Checks |
 |---|---|
-| `libs/amio/tests/ci/check_no_eckit_includes.sh` | zero `#include <eckit/...>` in `src/`, `include/`, `fortran/` |
+| `libs/amio/tests/ci/check_no_eckit_includes.sh` | zero `#include <eckit/...>` in `src/`, `include/`, `fortran/`, **and `tests/`** |
 | `ctest` `ci.no_eckit_symbols` → `check_no_eckit_symbols.sh` | `nm -D libamio.so` demangles to zero `eckit::` symbols |
 | `check_build_no_eckit.sh` | core reconfigures successfully with eckit stripped from `CMAKE_PREFIX_PATH` |
-| `ctest` `ci.no_eckit_recipe` → `check_no_eckit_recipe.sh` | no eckit dependency *declaration* in the spack recipe (`packages/`) or core CMake |
+| `ctest` `ci.no_eckit_recipe` → `check_no_eckit_recipe.sh` | no eckit dependency, build edge, or `eckit::` symbol anywhere — the Spack recipe, **every** CMake file (`find_package(eckit)`, an eckit link, an `if(eckit_FOUND)` guard, `AMIO_HAS_ECKIT`), and all C++ sources under `src/`, `include/`, `tests/` |
 
-The optional `#ifdef AMIO_HAS_ECKIT` blocks in `src/workers/` are a dormant
-fallback path: the core build never defines the macro and never calls
-`find_package(eckit)`, so `libamio.so` links zero eckit. Two integration test
-targets may compile against eckit only when a host explicitly provides it
-(`if(eckit_FOUND …)`); they are not part of the library or its package config.
+**There is no optional eckit integration.** Earlier revisions carried dormant
+`#ifdef AMIO_HAS_ECKIT` code paths in `src/workers/` and test targets gated on
+`if(eckit_FOUND ...)`; those have been removed. Manifests are parsed with
+`conf::Config` (HELM's own YAML configuration library, already a dependency),
+so no test source includes an eckit header either. `libamio.so` has no eckit
+symbols and no eckit library in its link closure.
 
 ## External consumers and in-flight work (dispositions)
 

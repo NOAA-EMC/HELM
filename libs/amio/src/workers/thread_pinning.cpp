@@ -1,9 +1,6 @@
 // thread_pinning.cpp -- AMIO per-thread CPU/NUMA pinning implementation.
 //
-// Platform-specific implementation of thread affinity binding.
-//
-// When eckit is available (AMIO_HAS_ECKIT defined), delegates to
-// eckit resource binding facilities.  Otherwise uses:
+// Platform-specific implementation of thread affinity binding:
 //   - Linux: pthread_setaffinity_np / sched_getaffinity
 //   - Other platforms: returns AMIO_ERR_INVALID_BINDING for
 //     non-default configs (graceful degradation).

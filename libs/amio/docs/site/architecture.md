@@ -34,10 +34,10 @@ flowchart TB
         VIEW["Memory_View<br/>kokkos/mdspan"]
         STAGE["Staging_Pool"]
         PFQ["Prefetch_Queue"]
-        WORKER["Worker_Pool<br/>eckit thread primitives"]
-        FACTORY["Backend_Factory<br/>eckit::Factory"]
-        CFG["Config_Loader<br/>eckit::YAMLConfiguration"]
-        DIAG["Diag / Exception Bridge<br/>eckit::Exception to AMIO_ERR_*"]
+        WORKER["Worker_Pool<br/>std::thread pool"]
+        FACTORY["Backend_Factory<br/>own registry"]
+        CFG["Config_Loader<br/>conf::Config"]
+        DIAG["Diag / Exception Bridge<br/>std::exception to AMIO_ERR_*"]
     end
 
     subgraph DRIVERS["Backend Drivers - private, polymorphic"]
@@ -110,7 +110,7 @@ sequenceDiagram
     end
     Q->>W: dequeue (FIFO per dataset+variable)
     W->>FX: lookup Backend_Driver for dataset
-    FX->>D: dispatch via eckit Factory
+    FX->>D: dispatch via Backend_Factory registry
     W->>D: encode buffer + metadata
     D->>ST: serialize bytes (MPI-IO, HTTP, or file)
     ST-->>D: ack or error
@@ -118,7 +118,7 @@ sequenceDiagram
         D-->>W: ok
         W->>S: release buffer back to pool
     else failure
-        D-->>W: throws eckit::Exception
+        D-->>W: throws an exception
         W->>C: record failure against write_handle
         W->>S: release buffer back to pool
     end

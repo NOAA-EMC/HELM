@@ -37,8 +37,7 @@
 //
 // Validates: Req 10.1, 10.2, 10.3, 11.2, 11.3 (Zarr read + round trip).
 
-#include <eckit/config/YAMLConfiguration.h>
-
+#include <conf/config.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -78,7 +77,7 @@ void report_failure(const char *expr, const char *file, int line, const std::str
         }                                                     \
     } while (0)
 
-// Build a Zarr v3 dataset manifest (eckit YAML) for a 2-D [ny, nx]
+// Build a Zarr v3 dataset manifest (YAML) for a 2-D [ny, nx]
 // array.  chunk_shape == shard_shape == array_shape keeps the sharding
 // constraint trivially satisfied (each chunk dim divides the shard
 // dim).  The dtype string drives the stored element type; an empty
@@ -101,7 +100,7 @@ void write_array(const std::string &uri, const std::string &dtype_str, amio_dtyp
     std::error_code ec;
     std::filesystem::remove_all(uri, ec);
 
-    eckit::YAMLConfiguration cfg{make_yaml(uri, ny, nx, dtype_str)};
+    conf::Config cfg = conf::Config::from_string(make_yaml(uri, ny, nx, dtype_str));
 
     Zarr_Driver writer;
     writer.open_write(cfg);
@@ -143,7 +142,7 @@ void run_f32_tests(const std::string &uri) {
 
     write_array(uri, /*dtype_str=*/"float32", AMIO_DTYPE_F32, NY, NX, &source[0][0], sizeof(source));
 
-    eckit::YAMLConfiguration cfg{make_yaml(uri, NY, NX, "float32")};
+    conf::Config cfg = conf::Config::from_string(make_yaml(uri, NY, NX, "float32"));
     Zarr_Driver reader;
     reader.open_read(cfg);
 
@@ -283,7 +282,7 @@ void run_roundtrip(const std::string &uri, amio_dtype_t dtype, const std::string
 
     write_array(uri, dtype_str, dtype, RNY, RNX, source.data(), nbytes);
 
-    eckit::YAMLConfiguration cfg{make_yaml(uri, RNY, RNX, dtype_str)};
+    conf::Config cfg = conf::Config::from_string(make_yaml(uri, RNY, RNX, dtype_str));
     Zarr_Driver reader;
     reader.open_read(cfg);
 

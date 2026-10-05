@@ -15,16 +15,17 @@ find_package(Threads QUIET)
 # Writes a 3D [6, 181, 360] field via the real NetCDF_Driver (single write), then reads back each timestep slice via a rank-3 bounding box and asserts
 # byte equality.  Grid: 6 forecast hours × 181 lat × 360 lon (65,160 floats/step ≈ 254 KiB/step, ~1.5 MiB total).
 #
-# Requires: netCDF (parallel HDF5), MPI, eckit.
+# Requires: netCDF (parallel HDF5), MPI.
 # ####################################################################################################################################################
-if(netCDF_FOUND AND MPI_C_FOUND AND eckit_FOUND)
+if(netCDF_FOUND AND MPI_C_FOUND)
     add_executable(
-        test_netcdf4_multistep test_netcdf4_multistep.cpp ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_driver.cpp
-                               ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp)
+        test_netcdf4_multistep
+        test_netcdf4_multistep.cpp ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_driver.cpp ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp
+        ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp)
 
     target_include_directories(test_netcdf4_multistep PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    target_compile_definitions(test_netcdf4_multistep PRIVATE AMIO_HAS_NETCDF=1 AMIO_HAS_ECKIT=1)
-    target_link_libraries(test_netcdf4_multistep PRIVATE AMIO::public_headers eckit)
+    target_compile_definitions(test_netcdf4_multistep PRIVATE AMIO_HAS_NETCDF=1)
+    target_link_libraries(test_netcdf4_multistep PRIVATE AMIO::public_headers)
 
     if(AMIO_NETCDF_PAR_LIB)
         get_target_property(_nc_inc netCDF::netcdf INTERFACE_INCLUDE_DIRECTORIES)
@@ -56,15 +57,15 @@ endif()
 # Writes 4 timesteps of a 181×360 F32 field via the real GRIB2_Driver (JPEG2000 DRT, lossless for integer-valued floats), then reads back each
 # timestep and asserts byte equality.  Grid: 4 timesteps × 181 lat × 360 lon (65,160 floats/step ≈ 254 KiB/step).
 #
-# Requires: g2c, eckit.
+# Requires: g2c.
 # ####################################################################################################################################################
-if(g2c_FOUND AND eckit_FOUND)
+if(g2c_FOUND)
     add_executable(test_grib2_multistep test_grib2_multistep.cpp ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
                                         ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/staging/staging_pool.cpp)
 
     target_include_directories(test_grib2_multistep PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    target_compile_definitions(test_grib2_multistep PRIVATE AMIO_HAS_G2C=1 AMIO_HAS_ECKIT=1)
-    target_link_libraries(test_grib2_multistep PRIVATE AMIO::public_headers eckit g2c::g2c)
+    target_compile_definitions(test_grib2_multistep PRIVATE AMIO_HAS_G2C=1)
+    target_link_libraries(test_grib2_multistep PRIVATE AMIO::public_headers g2c::g2c)
     if(Threads_FOUND)
         target_link_libraries(test_grib2_multistep PRIVATE Threads::Threads)
     endif()
@@ -80,16 +81,16 @@ endif()
 # decodes, verifies byte-equal grid-point values, Ni/Nj geometry, and Field_Identity_Name consistency across encode/decode.  Also verifies backward
 # compatibility: PDT 4.0 / GDT 3.0 produces unchanged identity names and identical output.
 #
-# Requires: g2c, eckit.
+# Requires: g2c.
 # ####################################################################################################################################################
-if(g2c_FOUND AND eckit_FOUND)
+if(g2c_FOUND)
     add_executable(
         test_grib2_composition_roundtrip test_grib2_composition_roundtrip.cpp ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
                                          ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/staging/staging_pool.cpp)
 
     target_include_directories(test_grib2_composition_roundtrip PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    target_compile_definitions(test_grib2_composition_roundtrip PRIVATE AMIO_HAS_G2C=1 AMIO_HAS_ECKIT=1)
-    target_link_libraries(test_grib2_composition_roundtrip PRIVATE AMIO::public_headers eckit g2c::g2c)
+    target_compile_definitions(test_grib2_composition_roundtrip PRIVATE AMIO_HAS_G2C=1)
+    target_link_libraries(test_grib2_composition_roundtrip PRIVATE AMIO::public_headers g2c::g2c)
     if(Threads_FOUND)
         target_link_libraries(test_grib2_composition_roundtrip PRIVATE Threads::Threads)
     endif()
@@ -97,3 +98,15 @@ if(g2c_FOUND AND eckit_FOUND)
     add_test(NAME integration.grib2_composition_roundtrip COMMAND test_grib2_composition_roundtrip)
     set_tests_properties(integration.grib2_composition_roundtrip PROPERTIES LABELS "integration;grib2;composition;roundtrip" TIMEOUT 120)
 endif()
+
+# ####################################################################################################################################################
+# HELM CONF dependency
+#
+# These targets parse their driver manifests with conf::Config and compile the driver sources (which include <conf/config.hpp>) directly into the test
+# binary. HELM::CONF is PRIVATE to amio_core, so it must be linked explicitly here for the conf headers to resolve.
+# ####################################################################################################################################################
+foreach(_target IN ITEMS test_netcdf4_multistep test_grib2_multistep test_grib2_composition_roundtrip)
+    if(TARGET ${_target} AND CONF_FOUND)
+        target_link_libraries(${_target} PRIVATE HELM::CONF)
+    endif()
+endforeach()

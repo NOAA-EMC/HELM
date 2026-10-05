@@ -44,8 +44,7 @@
 // Validates: Req 13.2, 13.3, 13.4, 13.5 (GRIB2 decode + bbox + lossless
 // round trip).
 
-#include <eckit/config/YAMLConfiguration.h>
-
+#include <conf/config.hpp>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -142,7 +141,7 @@ RoundTripResult run_roundtrip(const std::string &drt, const char *output_path) {
         }
     }
 
-    eckit::YAMLConfiguration cfg{make_yaml(output_path, drt)};
+    conf::Config cfg = conf::Config::from_string(make_yaml(output_path, drt));
     const std::string ctx = "[drt=" + drt + "]";
 
     // ---- Write phase (a DRT absent from this g2c build -> skip) ----

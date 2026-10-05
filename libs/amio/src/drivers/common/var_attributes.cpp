@@ -8,6 +8,7 @@
 
 #include <cctype>
 #include <conf/config.hpp>
+#include <conf/value.hpp>
 #include <cstdlib>
 #include <string>
 
@@ -98,50 +99,54 @@ DatasetAttributes parse_dataset_attributes(const conf::Config &config) {
         }
     }
 
-    // Per-variable attributes: CONF's dotted-path API requires knowing
-    // variable names in advance.  The driver typically knows its own
-    // variable name(s) and can query per-variable attributes at write
-    // time.  For the attribute model construction, we rely on the
-    // manifest listing variable names via a string list.
-    if (config.has("variable_names")) {
+    // Per-variable attributes: enumerate the `variables` map directly. The
+    // manifest is the source of truth for which variables exist, so its keys
+    // are the variable names. A `variable_names` string list is also honoured
+    // when present, so a manifest that cannot be introspected as a map still
+    // works.
+    std::vector<std::string> var_names;
+    if (config.is_map("variables")) {
+        var_names = config.at("variables").keys();
+    } else if (config.has("variable_names")) {
         try {
-            auto var_names = config.get_string_list("variable_names");
-            for (const std::string &var_name : var_names) {
-                std::string prefix = "variables." + var_name + ".attributes";
-                if (!config.has(prefix)) {
-                    continue;
-                }
-                VarAttributes attrs;
-                // Read known CF/UGRID per-variable attribute keys.
-                static const char *known_var_keys[] = {
-                    "units",    "long_name",          "standard_name",        "_FillValue", "coordinates", "cell_methods", "cf_role",     "mesh",
-                    "location", "topology_dimension", "scale_factor",         "add_offset", "valid_min",   "valid_max",    "valid_range", "bounds",
-                    "axis",     "grid_mapping",       "coverage_content_type"};
-                for (const char *key : known_var_keys) {
-                    std::string dotted = prefix + "." + key;
-                    auto val = config.try_string(dotted);
-                    if (val.has_value()) {
-                        if (std::string(key) == "units") {
-                            // CF units are text, including the dimensionless unit "1".
-                            AttrValue units;
-                            units.text = *val;
-                            units.is_numeric = false;
-                            units.is_integer = false;
-                            attrs.set(key, units);
-                        } else {
-                            attrs.set(key, parse_attr_value(*val));
-                        }
-                    }
-                }
-                if (has_ugrid_role(attrs)) {
-                    out.uses_ugrid = true;
-                }
-                if (!attrs.empty()) {
-                    out.per_variable.emplace(var_name, std::move(attrs));
+            var_names = config.get_string_list("variable_names");
+        } catch (...) {
+            // Malformed block -- ignore; per-variable map stays empty.
+        }
+    }
+
+    for (const std::string &var_name : var_names) {
+        std::string prefix = "variables." + var_name + ".attributes";
+        if (!config.has(prefix)) {
+            continue;
+        }
+        VarAttributes attrs;
+        // Read known CF/UGRID per-variable attribute keys.
+        static const char *known_var_keys[] = {
+            "units",    "long_name",          "standard_name",        "_FillValue", "coordinates", "cell_methods", "cf_role",     "mesh",
+            "location", "topology_dimension", "scale_factor",         "add_offset", "valid_min",   "valid_max",    "valid_range", "bounds",
+            "axis",     "grid_mapping",       "coverage_content_type"};
+        for (const char *key : known_var_keys) {
+            std::string dotted = prefix + "." + key;
+            auto val = config.try_string(dotted);
+            if (val.has_value()) {
+                if (std::string(key) == "units") {
+                    // CF units are text, including the dimensionless unit "1".
+                    AttrValue units;
+                    units.text = *val;
+                    units.is_numeric = false;
+                    units.is_integer = false;
+                    attrs.set(key, units);
+                } else {
+                    attrs.set(key, parse_attr_value(*val));
                 }
             }
-        } catch (...) {
-            // Malformed block -- ignore; per-variable map stays as-is.
+        }
+        if (has_ugrid_role(attrs)) {
+            out.uses_ugrid = true;
+        }
+        if (!attrs.empty()) {
+            out.per_variable.emplace(var_name, std::move(attrs));
         }
     }
 

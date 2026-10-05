@@ -17,9 +17,9 @@
 
 #define OMPI_SKIP_MPICXX 1
 #define MPICH_SKIP_MPICXX 1
-#include <eckit/config/YAMLConfiguration.h>
 #include <mpi.h>
 
+#include <conf/config.hpp>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -99,7 +99,7 @@ int main() {
     const std::string yaml = std::string("path: ") + OUTPUT_PATH +
                              "\n"
                              "data_model: classic\n";
-    eckit::YAMLConfiguration cfg{yaml};
+    conf::Config cfg = conf::Config::from_string(yaml);
 
     // ---- Write phase: single 3D write [6, 181, 360] ----
     bool functional = true;

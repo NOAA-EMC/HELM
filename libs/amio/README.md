@@ -83,7 +83,6 @@ int main() {
 | CMake ≥ 3.20 | Yes | Build system |
 | C++20 compiler | Yes | GCC 11+, Clang 14+ |
 | Fortran 2003 compiler | Yes | gfortran 11+ |
-| eckit ≥ 1.26 | Yes | Config, threading, factory |
 | kokkos/mdspan | Yes | Header-only, std::mdspan reference impl |
 | netCDF-c (parallel) | Yes | NetCDF-4 backend |
 | nceplibs-g2c | Optional | GRIB2 backend |
@@ -219,7 +218,7 @@ Exported targets:
 | `AMIO::amio_fortran` | Static | iso_c_binding module + libamio link |
 | `AMIO::public_headers` | Interface | C99 headers only (no link) |
 
-No third-party headers (eckit, netCDF, TensorStore, g2c) leak through the
+No third-party headers (netCDF, TensorStore, g2c) leak through the
 public interface. Downstream consumers only see `<amio/amio.h>`.
 
 ## Architecture

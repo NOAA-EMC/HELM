@@ -101,9 +101,9 @@ class Amio(CMakePackage):
 
     # NO-ECKIT (Requirement 12.1): AMIO neither links nor exports eckit. The
     # core library never calls find_package(eckit) and libamio.so carries zero
-    # eckit symbols, so the recipe MUST NOT declare an eckit dependency. The
-    # optional eckit integration in src/workers is compiled only when a host
-    # defines AMIO_HAS_ECKIT; it is not a build dependency.
+    # eckit symbols, so the recipe MUST NOT declare an eckit dependency. AMIO
+    # has no optional eckit integration: there is no AMIO_HAS_ECKIT build
+    # option and no eckit code path anywhere in src/ or the test suite.
     depends_on("kokkos-mdspan")  # header-only Memory_View
     depends_on("netcdf-cxx4")
     depends_on("netcdf-c +nczarr +blosc +zstd")  # required for NCZarr path

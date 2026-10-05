@@ -16,8 +16,7 @@
 
 #ifdef AMIO_HAS_G2C
 
-#include <eckit/config/YAMLConfiguration.h>
-
+#include <conf/config.hpp>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -187,7 +186,7 @@ bool test_pdt_roundtrip(int pdt_number) {
 
     std::vector<float> source = build_source_data();
     std::string yaml = build_yaml(tmp_path.c_str(), pdt_number);
-    eckit::YAMLConfiguration cfg{yaml};
+    conf::Config cfg = conf::Config::from_string(yaml);
 
     // ---- Write phase ----
     try {
@@ -277,7 +276,7 @@ bool test_gdt_3_40_roundtrip() {
     std::vector<float> source = build_source_data();
     // Use PDT 4.0 with GDT 3.40 to isolate the grid template test.
     std::string yaml = build_yaml(tmp_path, /*pdt_number=*/0, /*gdt_number=*/40);
-    eckit::YAMLConfiguration cfg{yaml};
+    conf::Config cfg = conf::Config::from_string(yaml);
 
     // ---- Write phase ----
     try {
@@ -374,7 +373,7 @@ bool test_backward_compatibility_pdt_4_0() {
                        "  scaled_value_first_surface: 50000\n"
                        "  pdt_number: 0\n"
                        "  gdt_number: 0\n";
-    eckit::YAMLConfiguration cfg{yaml};
+    conf::Config cfg = conf::Config::from_string(yaml);
 
     // Expected identity: base format only, NO composition suffixes (Req 15.4).
     const std::string expected_name = "d0_c3_n5_s100_l50000";
