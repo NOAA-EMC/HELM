@@ -98,6 +98,27 @@ find_package(mdspan CONFIG QUIET)
 find_package(MPI QUIET COMPONENTS C CXX Fortran)
 
 # NetCDF-cxx4 + Parallel HDF5 - NetCDF_Driver.
+#
+# Debian/Ubuntu ship two netCDF CMake packages that share the SAME config filename -- a serial build under .../cmake/netCDF/ and an MPI/parallel build
+# under .../cmake/netCDF_mpi/ -- and find_package(netCDF CONFIG) loads whichever directory it enumerates first, which is not stable across
+# architectures.  The parallel package's exported netCDF::netcdf target references its compression dependencies (blosc, bz2) by absolute path -- dev
+# symlinks that the image does not provide -- and the serial NCZarr-fallback path needs the serial library's deflate filter, so letting the parallel
+# package satisfy netCDF::netcdf both breaks serial-path tests at runtime and drags in link edges that do not exist.
+#
+# We therefore pin netCDF::netcdf to the serial package on purpose: locate the config file that lives in a directory literally named "netCDF" and set
+# netCDF_DIR to it before the CONFIG search.  The parallel runtime is untouched -- the NetCDF_Driver links libnetcdf_mpi directly (see
+# AMIO_NETCDF_PAR_LIB below) and only borrows the shared C API headers from netCDF::netcdf.  On installs that do not use this Debian multiarch layout
+# the search finds nothing and the ordinary find_package flow is left exactly as it was.
+set(_amio_netcdf_serial_dir "")
+find_file(_amio_netcdf_serial_config netCDFConfig.cmake PATHS /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/cmake/netCDF /usr/lib/cmake/netCDF
+                                                              /usr/local/lib/cmake/netCDF NO_DEFAULT_PATH)
+if(_amio_netcdf_serial_config)
+    get_filename_component(_amio_netcdf_serial_dir "${_amio_netcdf_serial_config}" DIRECTORY)
+endif()
+if(_amio_netcdf_serial_dir)
+    set(netCDF_DIR "${_amio_netcdf_serial_dir}" CACHE PATH "Serial netCDF CMake config, pinned away from the Debian netCDF_mpi collision" FORCE)
+endif()
+
 find_package(netCDF CONFIG QUIET)
 find_package(netCDFCxx CONFIG QUIET)
 
