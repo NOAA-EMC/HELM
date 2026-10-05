@@ -1,11 +1,10 @@
 """AXIS Python bindings — spatial interpolation for Earth-system fields"""
 
 import enum
-from typing import Any, Annotated, overload
+from typing import Annotated, Any, overload
 
 import numpy
 from numpy.typing import NDArray
-
 
 HAVE_PROJ: bool = True
 
@@ -51,26 +50,20 @@ class LineType(enum.Enum):
 class Mesh:
     @property
     def n_nodes(self) -> int: ...
-
     @property
     def n_cells(self) -> int: ...
 
 class Matrix:
     @property
     def nnz(self) -> int: ...
-
     @property
     def n_src(self) -> int: ...
-
     @property
     def n_dst(self) -> int: ...
-
     @property
     def is_csr(self) -> bool: ...
-
     @property
     def has_unmapped_mask(self) -> bool: ...
-
     def unmapped_mask(self) -> object:
         """Per-destination unmapped mask (int array) or None"""
 
@@ -87,10 +80,21 @@ class Matrix:
 def make_regular_mesh(ni: int, nj: int, lon_start: float, lat_start: float, dlon: float, dlat: float) -> Mesh:
     """Create a regular lat-lon UnstructuredMesh"""
 
-def make_projected_mesh(ni: int, nj: int, proj_string: str, center_x: Annotated[NDArray[numpy.float64], dict(shape=(None,))], center_y: Annotated[NDArray[numpy.float64], dict(shape=(None,))]) -> Mesh:
+def make_projected_mesh(
+    ni: int,
+    nj: int,
+    proj_string: str,
+    center_x: Annotated[NDArray[numpy.float64], dict(shape=(None,))],
+    center_y: Annotated[NDArray[numpy.float64], dict(shape=(None,))],
+) -> Mesh:
     """Create a projected UnstructuredMesh using PROJ"""
 
-def make_ugrid_mesh(node_coords: Annotated[NDArray[numpy.float64], dict(shape=(None, None))], conn_offsets: Annotated[NDArray[numpy.int64], dict(shape=(None,))], conn_indices: Annotated[NDArray[numpy.int64], dict(shape=(None,))], cell_mask: object | None = None) -> Mesh:
+def make_ugrid_mesh(
+    node_coords: Annotated[NDArray[numpy.float64], dict(shape=(None, None))],
+    conn_offsets: Annotated[NDArray[numpy.int64], dict(shape=(None,))],
+    conn_indices: Annotated[NDArray[numpy.int64], dict(shape=(None,))],
+    cell_mask: object | None = None,
+) -> Mesh:
     """
     Create an unstructured UGRID UnstructuredMesh. cell_mask (optional int array,
     nonzero = active source cell) enables wet renormalization + nearest-wet extrapolation.
@@ -141,7 +145,11 @@ def batch_apply(matrix: Matrix, src: Annotated[NDArray[numpy.float32], dict(shap
     Apply interpolation matrix to multiple float32 fields (CSR required, double accumulation).
     """
 
-def check_conservation(matrix: Matrix, src: Annotated[NDArray[numpy.float64], dict(shape=(None,))], dst: Annotated[NDArray[numpy.float64], dict(shape=(None,))]) -> dict[str, Any]:
+def check_conservation(
+    matrix: Matrix,
+    src: Annotated[NDArray[numpy.float64], dict(shape=(None,))],
+    dst: Annotated[NDArray[numpy.float64], dict(shape=(None,))],
+) -> dict[str, Any]:
     """Check conservation between source and destination fields"""
 
 def detect_tripolar_grid(mesh: Mesh, ni: int, nj: int) -> dict[str, Any]:
@@ -150,7 +158,9 @@ def detect_tripolar_grid(mesh: Mesh, ni: int, nj: int) -> dict[str, Any]:
 def compute_rotation_angles(mesh: Mesh) -> Annotated[NDArray[numpy.float64], dict(shape=(None,))]:
     """Compute per-cell vector rotation angles (radians) from mesh geometry"""
 
-def generate_vector_weights(src_mesh: Mesh, dst_mesh: Mesh, src_alpha: object | None = None, dst_alpha: object | None = None, config: dict[str, Any] = {}) -> tuple[Matrix, Matrix]:
+def generate_vector_weights(
+    src_mesh: Mesh, dst_mesh: Mesh, src_alpha: object | None = None, dst_alpha: object | None = None, config: dict[str, Any] = {}
+) -> tuple[Matrix, Matrix]:
     """
     Generate coupled vector interpolation weights for U and V wind components.
     Pass None for src_alpha/dst_alpha to use engine-computed grid orientation.
@@ -162,10 +172,20 @@ def write_esmf(filepath: str, matrix: Matrix) -> None:
 def read_esmf(filepath: str) -> Matrix:
     """Read the interpolation weights matrix from an ESMF netCDF file"""
 
-def interpolate_vertical(src_field: Annotated[NDArray[numpy.float64], dict(shape=(None, None), writable=False)], src_levels: Annotated[NDArray[numpy.float64], dict(shape=(None,), writable=False)], dst_levels: Annotated[NDArray[numpy.float64], dict(shape=(None,), writable=False)], tension: float = 0.0) -> NDArray[numpy.float64]:
+def interpolate_vertical(
+    src_field: Annotated[NDArray[numpy.float64], dict(shape=(None, None), writable=False)],
+    src_levels: Annotated[NDArray[numpy.float64], dict(shape=(None,), writable=False)],
+    dst_levels: Annotated[NDArray[numpy.float64], dict(shape=(None,), writable=False)],
+    tension: float = 0.0,
+) -> NDArray[numpy.float64]:
     """Interpolate vertical 2D profiles using 1D uniform coordinates"""
 
-def interpolate_vertical_varying(src_field: Annotated[NDArray[numpy.float64], dict(shape=(None, None), writable=False)], src_levels: Annotated[NDArray[numpy.float64], dict(shape=(None, None), writable=False)], dst_levels: Annotated[NDArray[numpy.float64], dict(shape=(None, None), writable=False)], tension: float = 0.0) -> NDArray[numpy.float64]:
+def interpolate_vertical_varying(
+    src_field: Annotated[NDArray[numpy.float64], dict(shape=(None, None), writable=False)],
+    src_levels: Annotated[NDArray[numpy.float64], dict(shape=(None, None), writable=False)],
+    dst_levels: Annotated[NDArray[numpy.float64], dict(shape=(None, None), writable=False)],
+    tension: float = 0.0,
+) -> NDArray[numpy.float64]:
     """
     Interpolate vertical 2D profiles using 2D spatially-varying coordinates
     """
