@@ -60,10 +60,10 @@ jobs:
           docker compose exec -T helm-dev bash -lc '
             set -e
             # conf and halo are STATIC libraries that AMIO links into libamio.so;
-            # build them position-independent (matching the root Dockerfile's
+            # build them position-independent (matching the root Dockerfile
             # Kokkos/RapidCheck/KokkosKernels recipe) or the x86_64 shared-object
             # link fails with R_X86_64_PC32 relocations. The cache variable also
-            # propagates to conf's FetchContent'd yaml-cpp.
+            # propagates to the FetchContent yaml-cpp bundled inside conf.
             for p in conf logs halo; do
               cmake -S libs/$p -B /tmp/dep-$p -GNinja \
                 -DCMAKE_BUILD_TYPE=Release \
