@@ -12,7 +12,7 @@
 # resolution path. This is a structural guard against regressions.
 #
 # Phase 2 -- live consumer configure (best-effort): 2a. Configure AMIO with -DAMIO_FORCE_NCZARR=ON. 2b. Install AMIO into a temporary prefix. 2c.
-# Configure a tiny consumer project that calls find_package(AMIO REQUIRED PATHS <prefix>) and links AMIO::amio_core. If any step in phase 2 fails
+# Configure and build a tiny consumer that calls find_package(AMIO REQUIRED PATHS <prefix>) and links AMIO::amio_core. If any step in phase 2 fails
 # because of a missing AMIO runtime dependency (netCDF, MPI), the driver emits "[SKIP] ..." rather than failing -- such hosts cannot complete a full
 # AMIO configure regardless of the find_package machinery.
 #
@@ -27,6 +27,25 @@ foreach(_var IN ITEMS AMIO_TEST_CMAKE AMIO_TEST_GENERATOR AMIO_SOURCE_DIR AMIO_T
         message(FATAL_ERROR "${_var} must be set on the cmake -P command line")
     endif()
 endforeach()
+
+set(_cache_args "")
+if(DEFINED AMIO_TEST_CACHE_FILE)
+    if(NOT EXISTS "${AMIO_TEST_CACHE_FILE}")
+        message(FATAL_ERROR "AMIO_TEST_CACHE_FILE does not exist: ${AMIO_TEST_CACHE_FILE}")
+    endif()
+    list(APPEND _cache_args -C "${AMIO_TEST_CACHE_FILE}")
+endif()
+set(_generator_args -G "${AMIO_TEST_GENERATOR}")
+if(AMIO_TEST_GENERATOR_PLATFORM)
+    list(APPEND _generator_args -A "${AMIO_TEST_GENERATOR_PLATFORM}")
+endif()
+if(AMIO_TEST_GENERATOR_TOOLSET)
+    list(APPEND _generator_args -T "${AMIO_TEST_GENERATOR_TOOLSET}")
+endif()
+set(_config_args "")
+if(AMIO_TEST_CONFIG)
+    list(APPEND _config_args --config "${AMIO_TEST_CONFIG}")
+endif()
 
 set(_failures "")
 set(_skipped FALSE)
@@ -95,13 +114,16 @@ file(MAKE_DIRECTORY "${_amio_install}")
 file(MAKE_DIRECTORY "${_consumer_build}")
 
 execute_process(
-    COMMAND "${AMIO_TEST_CMAKE}" -S "${AMIO_SOURCE_DIR}" -B "${_amio_build}" -G "${AMIO_TEST_GENERATOR}" -DAMIO_FORCE_NCZARR=ON
-            -DAMIO_BUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX=${_amio_install} -DBUILD_SHARED_LIBS=ON
+    COMMAND
+        "${AMIO_TEST_CMAKE}" ${_cache_args} -S "${AMIO_SOURCE_DIR}" -B "${_amio_build}" ${_generator_args} -DAMIO_FORCE_NCZARR=ON
+        -DAMIO_BUILD_TESTING=OFF -DAMIO_BUILD_EXAMPLES=OFF -DCMAKE_INSTALL_PREFIX=${_amio_install} -DBUILD_SHARED_LIBS=ON
+        -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON
     OUTPUT_VARIABLE _amio_cfg_stdout
     ERROR_VARIABLE _amio_cfg_stderr
     RESULT_VARIABLE _amio_cfg_rc)
 
 set(_amio_cfg_combined "${_amio_cfg_stdout}\n${_amio_cfg_stderr}")
+file(WRITE "${AMIO_TEST_WORK_DIR}/amio-configure.log" "${_amio_cfg_combined}")
 message(STATUS "AMIO configure rc=${_amio_cfg_rc}")
 message(STATUS "AMIO configure output:\n${_amio_cfg_combined}")
 
@@ -126,10 +148,11 @@ if(NOT _amio_cfg_rc EQUAL 0)
 else()
     # Build + install AMIO.
     execute_process(
-        COMMAND "${AMIO_TEST_CMAKE}" --build "${_amio_build}" --target install
+        COMMAND "${AMIO_TEST_CMAKE}" --build "${_amio_build}" ${_config_args} --target install
         OUTPUT_VARIABLE _build_stdout
         ERROR_VARIABLE _build_stderr
         RESULT_VARIABLE _build_rc)
+    file(WRITE "${AMIO_TEST_WORK_DIR}/amio-build-install.log" "${_build_stdout}\n${_build_stderr}")
     if(NOT _build_rc EQUAL 0)
         list(APPEND _failures "AMIO build/install failed (rc=${_build_rc})")
         message(STATUS "AMIO build output:\n${_build_stdout}\n${_build_stderr}")
@@ -137,11 +160,12 @@ else()
         # Live consumer configure -- the actual R13.1 acceptance criterion: find_package(AMIO REQUIRED) succeeds with no additional include / link /
         # flag plumbing on the consumer side.
         execute_process(
-            COMMAND "${AMIO_TEST_CMAKE}" -S "${AMIO_TEST_CONSUMER_SRC}" -B "${_consumer_build}" -G "${AMIO_TEST_GENERATOR}"
+            COMMAND "${AMIO_TEST_CMAKE}" ${_cache_args} -S "${AMIO_TEST_CONSUMER_SRC}" -B "${_consumer_build}" ${_generator_args}
                     -DAMIO_INSTALL_PREFIX=${_amio_install}
             OUTPUT_VARIABLE _cons_stdout
             ERROR_VARIABLE _cons_stderr
             RESULT_VARIABLE _cons_rc)
+        file(WRITE "${AMIO_TEST_WORK_DIR}/consumer-configure.log" "${_cons_stdout}\n${_cons_stderr}")
         message(STATUS "Consumer configure rc=${_cons_rc}")
         message(STATUS "Consumer configure output:\n${_cons_stdout}\n${_cons_stderr}")
         if(NOT _cons_rc EQUAL 0)
@@ -151,6 +175,21 @@ else()
             string(FIND "${_cons_stdout}\n${_cons_stderr}" "CONSUMER_RESOLVED_AMIO=OK" _hit_consumer)
             if(_hit_consumer EQUAL -1)
                 list(APPEND _failures "consumer did not emit CONSUMER_RESOLVED_AMIO=OK")
+            endif()
+            # Configure proves package resolution; compiling/linking proves the installed target is usable, without private include/link flags or
+            # source-tree providers in the consumer.
+            execute_process(
+                COMMAND "${AMIO_TEST_CMAKE}" --build "${_consumer_build}" ${_config_args}
+                OUTPUT_VARIABLE _cons_build_stdout
+                ERROR_VARIABLE _cons_build_stderr
+                RESULT_VARIABLE _cons_build_rc)
+            file(WRITE "${AMIO_TEST_WORK_DIR}/consumer-build.log" "${_cons_build_stdout}\n${_cons_build_stderr}")
+            message(STATUS "Consumer build rc=${_cons_build_rc}")
+            if(NOT _cons_build_rc EQUAL 0)
+                list(APPEND _failures "consumer build/link failed (rc=${_cons_build_rc})")
+                message(STATUS "Consumer build output:\n${_cons_build_stdout}\n${_cons_build_stderr}")
+            else()
+                message(STATUS "CONSUMER_BUILT_AMIO=OK")
             endif()
         endif()
     endif()

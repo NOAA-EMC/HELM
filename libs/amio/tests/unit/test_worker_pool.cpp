@@ -24,12 +24,14 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "affinity_fixture.hpp"
 #include "workers/mpi_threading.hpp"
 #include "workers/worker_pool.hpp"
 
@@ -492,57 +494,86 @@ void test_config_constructor_invalid_pinning() {
 
     WorkerPool pool(config);
 
-    // Give threads time to start and attempt pinning.
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-    // On Linux, pinning to core 99999 should fail.
-    // On non-Linux, any non-default config fails.
-    EXPECT_TRUE(pool.pinning_errors() == 2, "both threads should report pinning errors, got " + std::to_string(pool.pinning_errors()));
-
     // Pool should still function despite pinning failures.
     std::atomic<int> counter{0};
     DatasetVariableKey key{1, 1};
     pool.submit_write(key, [&]() { counter.fetch_add(1, std::memory_order_relaxed); });
     pool.drain();
     EXPECT_TRUE(counter.load() == 1, "pool should still work after pinning failures");
+    // Joining both workers makes their startup pinning attempts observable;
+    // a fixed sleep does not guarantee that both threads have started.
+    pool.shutdown();
+    EXPECT_TRUE(pool.pinning_errors() == 2, "both threads should report pinning errors, got " + std::to_string(pool.pinning_errors()));
 }
 
 // ---- Test: WorkerPoolConfig with valid pinning (Linux only) ----
 
 void test_config_constructor_valid_pinning() {
-    int available = amio::detail::query_available_cpus();
-    if (available <= 0) {
-        std::fprintf(stdout, "  SKIP: cannot query available CPUs\n");
-        ++g_result.passed;
+#if defined(__linux__)
+    amio_test::AffinityGuard affinity([](const std::string &context) { report_failure("affinity fixture", __FILE__, __LINE__, context); });
+    if (!affinity.valid()) {
         return;
     }
+#endif
 
     WorkerPoolConfig config;
     config.thread_count = 2;
 
-    // Pin both threads to core 0 (should always be available).
+    // Choose a real CPU ID in the calling thread's inherited scheduler mask.
+    // A single allocated CPU is sufficient for two worker threads.
     ThreadConfig pin;
+#if defined(__linux__)
+    pin.cpu_cores = {affinity.allowed().back()};
+#else
     pin.cpu_cores = {0};
+#endif
     config.thread_configs = {pin, pin};
 
     WorkerPool pool(config);
 
-    // Give threads time to start and apply pinning.
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // Force both workers to run a callback: the first waits for the second,
+    // using distinct dataset keys so per-key ordering cannot serialize them.
+    // The bounded wait turns a missing worker into a failure, not a hang.
+    std::mutex observation_mutex;
+    std::condition_variable observation_cv;
+    int callbacks_started = 0;
+    bool both_started = true;
+    std::vector<std::thread::id> worker_ids;
+#if defined(__linux__)
+    std::vector<std::vector<int>> worker_masks;
+#endif
+    auto observe = [&]() {
+#if defined(__linux__)
+        const auto actual = amio_test::current_cpu_ids();
+#endif
+        std::unique_lock<std::mutex> lock(observation_mutex);
+        worker_ids.push_back(std::this_thread::get_id());
+#if defined(__linux__)
+        worker_masks.push_back(actual);
+#endif
+        ++callbacks_started;
+        observation_cv.notify_all();
+        if (!observation_cv.wait_for(lock, std::chrono::seconds(5), [&]() { return callbacks_started == 2; })) {
+            both_started = false;
+        }
+    };
+    pool.submit_write(DatasetVariableKey{1, 1}, observe);
+    pool.submit_write(DatasetVariableKey{2, 1}, observe);
+    pool.drain();
+    pool.shutdown();
+
+    EXPECT_TRUE(both_started && callbacks_started == 2, "both workers must execute their observation callbacks");
+    EXPECT_TRUE(worker_ids.size() == 2 && worker_ids[0] != worker_ids[1], "must observe two distinct worker threads");
 
 #if defined(__linux__)
     EXPECT_TRUE(pool.pinning_errors() == 0, "valid pinning should succeed on Linux, got " + std::to_string(pool.pinning_errors()) + " errors");
+    EXPECT_TRUE(worker_masks.size() == 2 && worker_masks[0] == pin.cpu_cores && worker_masks[1] == pin.cpu_cores,
+                "both workers' kernel affinity must equal the requested CPU mask");
+    EXPECT_TRUE(amio_test::current_cpu_ids() == affinity.allowed(), "worker pool pinning must leave calling thread affinity unchanged");
 #else
     // On non-Linux, non-default configs always fail.
     EXPECT_TRUE(pool.pinning_errors() == 2, "non-Linux should report pinning errors");
 #endif
-
-    // Pool should function.
-    std::atomic<int> counter{0};
-    DatasetVariableKey key{1, 1};
-    pool.submit_write(key, [&]() { counter.fetch_add(1, std::memory_order_relaxed); });
-    pool.drain();
-    EXPECT_TRUE(counter.load() == 1, "pool should work with valid pinning");
 }
 
 // ---- Test: Backend_Driver MPI calls routed through I/O communicator ----

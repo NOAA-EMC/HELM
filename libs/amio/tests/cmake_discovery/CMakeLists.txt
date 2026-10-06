@@ -84,17 +84,60 @@ set_tests_properties(
 # genuinely satisfied (R13.2 host-side precondition).
 #
 # Phase 2 (live, conditional): - Build AMIO with -DAMIO_FORCE_NCZARR=ON into a temp build tree, install into a temp prefix, then configure a tiny
-# downstream consumer project with `find_package(AMIO REQUIRED PATHS <prefix>)`.  Success here proves the find_package resolution works end-to-end
-# without any prohibited toolchain. - If AMIO's own configure cannot complete on this host (for example, no netCDF-c with NCZarr support is
-# installed), the driver emits a "[SKIP] ..." line; CTest's SKIP_REGULAR_EXPRESSION turns that into a SKIPPED outcome rather than a FAIL.
+# downstream consumer project with `find_package(AMIO REQUIRED PATHS <prefix>)` and build/link its C99 executable. Success proves installed targets
+# work end-to-end without any prohibited toolchain. - If AMIO's own configure cannot complete on this host (for example, no netCDF-c with NCZarr
+# support is installed), the driver emits a "[SKIP] ..." line; CTest's SKIP_REGULAR_EXPRESSION turns that into a SKIPPED outcome rather than a FAIL.
 # ####################################################################################################################################################
+
+# This live test starts fresh CMake processes: FetchContent targets and package redirects in the parent build are not installed dependencies. CI may
+# prepare a real prefix after configure and before CTest; do not require it to exist yet.
+set(AMIO_DISCOVERY_DEPENDENCY_PREFIX_PATH "" CACHE STRING "Installed dependency prefixes for the live AMIO package-discovery test")
+set(_amio_find_package_cache "${CMAKE_CURRENT_BINARY_DIR}/find-package-cache.cmake")
+file(WRITE "${_amio_find_package_cache}" "# Generated test-only settings. No parent dependency provider or package redirects.\n")
+
+# Use an initial-cache file instead of expanding list-valued -D arguments through add_test/execute_process. In particular, preserve spaces and
+# semicolons in a multi-prefix CMAKE_PREFIX_PATH. Adapt the bracket delimiter for unusual paths.
+function(_amio_discovery_cache_entry name value)
+    set(_equals "=")
+    while("${value}" MATCHES "\\]${_equals}\\]")
+        string(APPEND _equals "=")
+    endwhile()
+    file(APPEND "${_amio_find_package_cache}" "set(${name} [${_equals}[${value}]${_equals}] CACHE STRING \"Inherited test setting\" FORCE)\n")
+endfunction()
+set(_amio_discovery_prefixes "${AMIO_DISCOVERY_DEPENDENCY_PREFIX_PATH}")
+list(APPEND _amio_discovery_prefixes ${CMAKE_PREFIX_PATH})
+list(REMOVE_ITEM _amio_discovery_prefixes "")
+_amio_discovery_cache_entry(CMAKE_PREFIX_PATH "${_amio_discovery_prefixes}")
+foreach(
+    _setting IN
+    ITEMS CMAKE_TOOLCHAIN_FILE
+          CMAKE_MAKE_PROGRAM
+          CMAKE_BUILD_TYPE
+          CMAKE_FIND_ROOT_PATH
+          CMAKE_C_COMPILER
+          CMAKE_CXX_COMPILER
+          CMAKE_Fortran_COMPILER
+          CMAKE_DISABLE_FIND_PACKAGE_netCDFCxx)
+    if(DEFINED ${_setting})
+        _amio_discovery_cache_entry("${_setting}" "${${_setting}}")
+    endif()
+endforeach()
+foreach(_language IN ITEMS C CXX Fortran)
+    foreach(_suffix IN ITEMS "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
+        set(_setting "CMAKE_${_language}_FLAGS${_suffix}")
+        if(DEFINED ${_setting})
+            _amio_discovery_cache_entry("${_setting}" "${${_setting}}")
+        endif()
+    endforeach()
+endforeach()
 
 add_test(
     NAME amio_discovery_find_package_resolves_without_rust_cargo_go
     COMMAND
         ${CMAKE_COMMAND} -DAMIO_TEST_CMAKE=${CMAKE_COMMAND} -DAMIO_TEST_GENERATOR=${CMAKE_GENERATOR} -DAMIO_SOURCE_DIR=${_amio_repo_root}
-        -DAMIO_TEST_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/find_package -DAMIO_TEST_CONSUMER_SRC=${_amio_probe_src}/find_package_consumer -P
-        ${_amio_probe_drv}/run_find_package_resolves.cmake)
+        -DAMIO_TEST_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/find_package -DAMIO_TEST_CONSUMER_SRC=${_amio_probe_src}/find_package_consumer
+        -DAMIO_TEST_CACHE_FILE=${_amio_find_package_cache} -DAMIO_TEST_CONFIG=$<CONFIG> -DAMIO_TEST_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
+        -DAMIO_TEST_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET} -P ${_amio_probe_drv}/run_find_package_resolves.cmake)
 
 set_tests_properties(
     amio_discovery_find_package_resolves_without_rust_cargo_go
