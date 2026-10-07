@@ -16,7 +16,6 @@
 #      Includes: prop_structured_exchange
 #   5. Fortran integration  (mpirun -np 4, label "fortran") Requirement 12.2
 #   6. Sanitizer builds     (ASan + UBSan) ................ Requirement 12.2
-#   7. Spack build smoke test (planned) ................... Requirements 6.1, 6.2, 6.3
 #
 # All HELM libraries are tracked in-tree, so a plain checkout yields exactly
 # the pinned, reviewed commit without manual steps (Requirement 12.5).
@@ -47,8 +46,6 @@ jobs:
     name: HALO build, test, sanitize
     runs-on: ubuntu-latest
     steps:
-      # All HELM libraries (including AMIO) are in-tree: a plain checkout is
-      # complete.
       - name: Checkout
         uses: actions/checkout@v7
 
@@ -149,22 +146,6 @@ jobs:
             cd build-asan
             ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
               ctest -L property --output-on-failure
-          '
-
-      # Stage 7 — Spack build smoke test (planned). Currently skipped because
-      # the HELM Docker container does not include a Spack installation. Enable
-      # this step once Spack is available in the container or on the runner.
-      # (Requirements 6.1, 6.2, 6.3)
-      - name: "Stage 7: Spack build smoke test (planned)"
-        if: false # Enable when Spack is installed in the CI container
-        run: |
-          docker compose exec -T helm-dev bash -lc '
-            set -e
-            cd libs/halo
-            spack repo add --scope=site spack/
-            spack spec halo@main +fortran ~gpu_aware_mpi +tests
-            spack dev-build halo@main
-            spack test run halo
           '
 
       # Always clean up throwaway build trees; leave the normal build/ intact.

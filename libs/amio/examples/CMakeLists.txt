@@ -31,8 +31,20 @@ target_link_libraries(example_netcdf4_read_c PRIVATE AMIO::amio_core m)
 # for the runtime symbols).
 # -------------------------------------------------------------------
 
-add_executable(example_netcdf4_write_f90 fortran/example_netcdf4_write.f90)
-target_link_libraries(example_netcdf4_write_f90 PRIVATE AMIO::amio_fortran)
+if(MPI_Fortran_FOUND)
+    add_executable(example_netcdf4_write_f90 fortran/example_netcdf4_write.f90)
+    target_link_libraries(example_netcdf4_write_f90 PRIVATE AMIO::amio_fortran MPI::MPI_Fortran)
+
+    if(AMIO_BUILD_TESTING)
+        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/examples/manifests")
+        configure_file("${CMAKE_CURRENT_SOURCE_DIR}/manifests/netcdf4_manifest.yaml" "${CMAKE_BINARY_DIR}/examples/manifests/netcdf4_manifest.yaml"
+                       COPYONLY)
+        add_test(NAME example.netcdf4_write_fortran COMMAND example_netcdf4_write_f90)
+        set_tests_properties(example.netcdf4_write_fortran PROPERTIES LABELS "examples" WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+    endif()
+else()
+    message(STATUS "AMIO NetCDF-4 Fortran example requires MPI Fortran; skipping")
+endif()
 
 add_executable(example_zarr_write_f90 fortran/example_zarr_write.f90)
 target_link_libraries(example_zarr_write_f90 PRIVATE AMIO::amio_fortran)

@@ -22,6 +22,7 @@
 program example_netcdf4_write
     use, intrinsic :: iso_c_binding, only: &
         c_ptr, c_null_ptr, c_int32_t, c_int64_t, c_float, c_char, c_null_char
+    use mpi
     use amio_mod
     implicit none
 
@@ -41,8 +42,13 @@ program example_netcdf4_write
 
     ! Local variables
     integer :: i, j, k
+    integer :: mpi_rc, mpi_provided
     real(c_float) :: lat, lon, altitude_km, base_temp, temp
     real(c_float), parameter :: PI = 3.14159265_c_float
+
+    call MPI_Init_thread(MPI_THREAD_MULTIPLE, mpi_provided, mpi_rc)
+    if (mpi_rc /= MPI_SUCCESS) error stop 'MPI_Init_thread failed'
+    if (mpi_provided < MPI_THREAD_MULTIPLE) error stop 'MPI_THREAD_MULTIPLE is required'
 
     write (*, '(A)') 'AMIO NetCDF-4 Write Example (Fortran)'
     write (*, '(A)') '======================================'
@@ -137,6 +143,9 @@ program example_netcdf4_write
     rc = amio_finalize(core)
     call check_amio(rc, 'amio_finalize')
     write (*, '(A)') '  AMIO finalized.'
+
+    call MPI_Finalize(mpi_rc)
+    if (mpi_rc /= MPI_SUCCESS) error stop 'MPI_Finalize failed'
 
     ! Clean up
     deallocate (temperature)

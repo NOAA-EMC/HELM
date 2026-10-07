@@ -24,4 +24,4 @@ codec:
   active_codec: blosc
   lossless_allow_list:
     - blosc
-    - zlib
+    - zstandard

@@ -16,14 +16,10 @@
 #   1. Header/dependency isolation suite ..... tier-isolation contract
 #   2. Standalone CMake build (Debug+Release) find_package(CONF/HALO/LOGS REQUIRED)
 #   2b. Downstream HELM::AMIO consumer ....... cmake-package contract
-#   3. Unit tests     (ctest -L unit)
+#   3. Unit tests and compiled examples (ctest -L unit; ctest -L examples)
 #   4. Property tests (ctest -L pbt)
 #   5. CMake discovery + integration (ctest -L cmake -L integration)
 #
-# NO-ECKIT is an architectural invariant of AMIO: the library must never
-# depend on, link, or export eckit. All eckit integration has been removed
-# from the tree, so no dedicated gate scripts are maintained; the invariant
-# is upheld by review and by the HELM container image shipping no eckit.
 # ─────────────────────────────────────────────────────────────────────────────
 name: AMIO CI
 
@@ -124,6 +120,7 @@ jobs:
         run: |
           docker compose exec -T helm-dev bash -lc '
             cd /tmp/build-Release && ctest -L unit --output-on-failure --timeout 120
+            ctest -L examples --output-on-failure --timeout 120
           '
 
       # ── Stage 4: Property-based tests ─────────────────────────────────────
