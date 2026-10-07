@@ -1,0 +1,4 @@
+format:
+  line_width: 150
+  tab_size: 4
+  max_subgroups_hwrap: 3

@@ -1,0 +1,11 @@
+{
+  "name": "amio-docs",
+  "private": true,
+  "description": "AMIO documentation tooling (Moxygen for Doxygen XML to Markdown conversion)",
+  "devDependencies": {
+    "moxygen": "^0.8"
+  },
+  "scripts": {
+    "generate-api": "moxygen docs/xml --output docs/site/api/api-%s.md --classes --pages"
+  }
+}

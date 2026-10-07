@@ -48,10 +48,8 @@ jobs:
     name: Zero-computation static analysis
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (with submodules)
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Bring up HELM container
         run: docker compose up -d --build
@@ -113,10 +111,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: zero-computation-check
     steps:
-      - name: Checkout (with submodules)
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Bring up HELM container
         run: docker compose up -d --build

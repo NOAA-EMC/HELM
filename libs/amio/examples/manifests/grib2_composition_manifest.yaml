@@ -1,0 +1,39 @@
+# AMIO Manifest: GRIB2 Backend — Aerosol Optical Properties
+#
+# Encode aerosol optical depth at 550–600 nm on a Gaussian grid
+# using PDT 4.48 (aerosol optical properties at a wavelength)
+# and GDT 3.40 (Gaussian latitude/longitude).
+
+backend: grib2
+path: aerosol_aod_550nm.grib2
+drt: jpeg2000
+
+staging_pool:
+  buffer_count: 4
+  buffer_capacity_bytes: 20971520
+
+worker_pool:
+  threads: 1
+
+grib2:
+  discipline: 0
+  center: 7
+  parameter_category: 0
+  parameter_number: 11 # Aerosol optical depth
+  type_of_first_fixed_surface: 1 # Ground/water surface
+  scaled_value_first_surface: 0
+
+  # Select PDT 4.48 (aerosol optical properties at a wavelength)
+  pdt_number: 48
+
+  # Select Gaussian grid (GDT 3.40)
+  gdt_number: 40
+
+  # Composition-specific metadata
+  aerosol_type: 62000 # Total aerosol (WMO Table 4.233)
+  optical_property_type: 1 # Aerosol optical depth
+  wavelength_first_nm: 550 # 550 nm band start
+  wavelength_last_nm: 600 # 600 nm band end
+
+  # Gaussian grid: 48 parallels between equator and pole (T47 truncation)
+  n_parallel: 48

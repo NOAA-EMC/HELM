@@ -1,0 +1,27 @@
+@PACKAGE_INIT@
+
+####################################################################
+# AMIOConfig.cmake
+#
+# Provides imported targets for downstream consumers:
+#
+#   AMIO::public_headers   - INTERFACE target; C99-only include path.
+#   AMIO::amio_core        - SHARED libamio.so; the FFI runtime.
+#   AMIO::amio_fortran     - STATIC Fortran iso_c_binding wrapper.
+#
+# Consumers should write:
+#
+#   find_package(AMIO REQUIRED)
+#   target_link_libraries(my_app PRIVATE AMIO::amio_core)
+#
+# and need not specify any include path, link path, or compile flag
+# manually (R13.1).  Backend driver targets (driver_netcdf,
+# driver_zarr, driver_grib2) are PRIVATE to libamio and are NOT
+# exposed by this config (R4.8, R13.6).
+####################################################################
+
+include(CMakeFindDependencyMacro)
+
+include("${CMAKE_CURRENT_LIST_DIR}/AMIOTargets.cmake")
+
+check_required_components(AMIO)

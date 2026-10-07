@@ -1,0 +1,16 @@
+# Spack repository metadata for the vendored AMIO recipe.
+#
+# Required by `spack repo add` / `repos.yaml` registration so Spack
+# treats `packages/` as a real package repository ahead of (or
+# alongside) the builtin repo.  Mirrors the spack-stack convention
+# of namespacing custom recipes under the project name.
+#
+# Used by:
+#   * tests/header_isolation/scripts/check_spack_no_rust.cmake
+#     -- registers this directory in a hermetic config scope and
+#     concretizes `amio` to assert the no-Rust/Cargo/Go closure
+#     (R13.2).
+#   * NOAA spack-stack integrators following the README quickstart:
+#     `spack repo add /path/to/AMIO/packages && spack install amio`.
+repo:
+  namespace: "amio"

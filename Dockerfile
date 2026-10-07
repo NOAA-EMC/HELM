@@ -23,8 +23,17 @@ RUN apt-get update && apt-get install -y \
     libgtest-dev \
     libproj-dev \
     libnetcdf-dev \
+    libnetcdf-mpi-dev \
+    libnetcdf-c++4-dev \
+    catch2 \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# AMIO (in-tree since the 002 absorption) needs the parallel netCDF headers
+# (netcdf_par.h, from libnetcdf-mpi-dev) and the netCDF-C++4 API
+# (libnetcdf-c++4-dev) for its NetCDF_Driver, and Catch2 v3 for its property-
+# based test suite. RapidCheck is built from source in step 4 below; AMIO's
+# PBT gate skips gracefully if Catch2 or RapidCheck is absent.
 
 # CDO backs the AXIS-vs-CDO comparison tests (Stage 6). It is packaged for
 # x86_64 Ubuntu (CI) but not on arm64 ports (Apple Silicon dev boxes), where

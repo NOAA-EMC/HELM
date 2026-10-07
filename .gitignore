@@ -93,6 +93,7 @@ __pycache__/
 venv/
 env/
 uv.lock
+*.pyi
 
 # ---------- Docker ----------
 *.log
@@ -117,6 +118,31 @@ Desktop.ini
 *.orig
 *.rej
 
+# ---------- AMIO development artifacts ----------
+*.kate-swp
+*.ninja
+.ninja_deps
+.ninja_log
+libs/amio/build-*/
+libs/amio/docs/xml/
+!libs/amio/docs/site/
+!libs/amio/docs/site/api/
+libs/amio/docs/site/api/*.md
+!libs/amio/docs/site/api/README.md
+libs/amio/docs/_build/
+libs/amio/docs/html/
+package-lock.json
+.pre-commit-cache/
+coverage/
+lcov.info
+.spack-env/
+spack-lock.yaml
+.docker/
+
 # ---------- Local agent state (Kiro specs/steering, superpowers plans/specs) ----------
 .kiro/
 docs/superpowers/
+.specify/
+specs/
+.github/agents/
+.github/prompts/

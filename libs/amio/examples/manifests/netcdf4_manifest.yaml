@@ -1,0 +1,27 @@
+# AMIO Manifest: NetCDF-4 Backend
+#
+# Write a 3D atmospheric field to a NetCDF-4 file using
+# parallel HDF5 with lossless compression.
+
+backend: netcdf4
+path: output_netcdf4.nc
+data_model: classic
+
+staging_pool:
+  buffer_count: 8
+  buffer_capacity_bytes: 52428800 # 50 MiB per buffer
+
+worker_pool:
+  threads: 2
+
+prefetch:
+  depth: 4
+  read_timeout_s: 60
+
+staging_timeout_ms: 10000
+
+codec:
+  active_codec: blosc
+  lossless_allow_list:
+    - blosc
+    - zstandard

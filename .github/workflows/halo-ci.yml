@@ -16,10 +16,9 @@
 #      Includes: prop_structured_exchange
 #   5. Fortran integration  (mpirun -np 4, label "fortran") Requirement 12.2
 #   6. Sanitizer builds     (ASan + UBSan) ................ Requirement 12.2
-#   7. Spack build smoke test (planned) ................... Requirements 6.1, 6.2, 6.3
 #
-# Submodules are checked out recursively so the pinned HALO commit is present
-# without manual steps (Requirement 12.5).
+# All HELM libraries are tracked in-tree, so a plain checkout yields exactly
+# the pinned, reviewed commit without manual steps (Requirement 12.5).
 # ─────────────────────────────────────────────────────────────────────────────
 name: HALO CI
 
@@ -47,11 +46,8 @@ jobs:
     name: HALO build, test, sanitize
     runs-on: ubuntu-latest
     steps:
-      # Requirement 12.5: pinned HALO submodule must be present.
-      - name: Checkout (with submodules)
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       # Requirement 12.2: build + start the HELM container from ./Dockerfile.
       # The compose service is `helm-dev`; it sets OMPI_ALLOW_RUN_AS_ROOT so
@@ -150,22 +146,6 @@ jobs:
             cd build-asan
             ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
               ctest -L property --output-on-failure
-          '
-
-      # Stage 7 — Spack build smoke test (planned). Currently skipped because
-      # the HELM Docker container does not include a Spack installation. Enable
-      # this step once Spack is available in the container or on the runner.
-      # (Requirements 6.1, 6.2, 6.3)
-      - name: "Stage 7: Spack build smoke test (planned)"
-        if: false # Enable when Spack is installed in the CI container
-        run: |
-          docker compose exec -T helm-dev bash -lc '
-            set -e
-            cd libs/halo
-            spack repo add --scope=site spack/
-            spack spec halo@main +fortran ~gpu_aware_mpi +tests
-            spack dev-build halo@main
-            spack test run halo
           '
 
       # Always clean up throwaway build trees; leave the normal build/ intact.

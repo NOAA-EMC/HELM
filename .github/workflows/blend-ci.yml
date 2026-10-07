@@ -36,10 +36,8 @@ jobs:
     name: BLEND build, test, sanitize
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (with submodules)
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Bring up HELM container
         run: docker compose up -d --build

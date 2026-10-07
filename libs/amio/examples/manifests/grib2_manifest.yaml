@@ -1,0 +1,55 @@
+# AMIO Manifest: GRIB2 Backend
+#
+# Write a 2D meteorological field to GRIB2 using nceplibs-g2c
+# with lossless JPEG2000 compression.
+
+backend: grib2
+path: output.grib2
+drt: jpeg2000
+
+staging_pool:
+  buffer_count: 4
+  buffer_capacity_bytes: 20971520
+
+worker_pool:
+  threads: 1
+
+prefetch:
+  depth: 4
+  read_timeout_s: 60
+
+staging_timeout_ms: 10000
+
+grib2:
+  discipline: 0
+  center: 7
+  parameter_category: 3
+  parameter_number: 5
+  type_of_first_fixed_surface: 100
+  scaled_value_first_surface: 50000
+
+  # Product Definition Template selection (default: 0).
+  # Supported: 0 (analysis/forecast), 8 (statistically processed),
+  #            40 (chemical), 44 (aerosol), 45 (ensemble aerosol),
+  #            46 (stat aerosol), 48 (aerosol optical), 49 (ens optical).
+  pdt_number: 0
+
+  # Grid Definition Template selection (default: 0).
+  # Supported: 0 (regular lat/lon), 40 (Gaussian lat/lon).
+  gdt_number: 0
+
+  # --- Composition-specific fields (all default to 0 when absent) ---
+  # chemical_constituent_type: 7    # WMO Table 4.230 (PDT 4.40)
+  # aerosol_type: 5                 # WMO Table 4.233 (PDT 4.44-4.49)
+  # size_dist_param_first: 100      # Size distribution (PDT 4.44-4.46)
+  # size_dist_param_second: 200     # Size distribution (PDT 4.44-4.46)
+  # optical_property_type: 1        # Optical property code (PDT 4.48, 4.49)
+  # wavelength_first_nm: 550        # First wavelength nm (PDT 4.48, 4.49)
+  # wavelength_last_nm: 600         # Last wavelength nm (PDT 4.48, 4.49)
+  # ensemble_perturbation_number: 0 # Ensemble member (PDT 4.45, 4.49)
+  # statistical_process: 2          # WMO Table 4.10 (PDT 4.8, 4.46)
+  # time_range_unit: 1              # WMO Table 4.4 (PDT 4.8, 4.46)
+  # time_range_length: 6            # Time range length (PDT 4.8, 4.46)
+  # number_of_time_range_specs: 1   # (PDT 4.8, 4.46)
+  # total_missing_from_statistical_process: 0  # (PDT 4.8, 4.46)
+  # n_parallel: 48                  # Gaussian parallels equator-to-pole (GDT 3.40)

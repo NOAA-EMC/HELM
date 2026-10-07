@@ -15,7 +15,7 @@
 #
 # Everything runs inside the pinned HELM container, which is the single
 # build/test environment for HALO (Requirement 12.2). Reproducibility rests on
-# the pinned container image and pinned submodule commit (Requirement 12.5).
+# the pinned container image and the pinned in-tree commit (Requirement 12.5).
 #
 # Usage:
 #   sh ci_pipeline.sh [SOURCE_DIR] [BUILD_ROOT]

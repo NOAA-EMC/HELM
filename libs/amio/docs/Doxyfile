@@ -1,0 +1,115 @@
+# Doxyfile for AMIO - Asynchronous Multidimensional I/O
+#
+# Generate with: doxygen docs/Doxyfile
+# Or via CMake:  cmake --build build --target docs-xml
+
+#---------------------------------------------------------------------------
+# Project related configuration options
+#---------------------------------------------------------------------------
+
+PROJECT_NAME           = "AMIO"
+PROJECT_NUMBER         = 0.1.0
+PROJECT_BRIEF          = "Asynchronous Multidimensional I/O engine for NOAA NWS Earth system models"
+PROJECT_LOGO           =
+
+OUTPUT_DIRECTORY       = docs
+
+#---------------------------------------------------------------------------
+# Build related configuration options
+#---------------------------------------------------------------------------
+
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+
+#---------------------------------------------------------------------------
+# Input related configuration options
+#---------------------------------------------------------------------------
+
+INPUT                  = include/amio \
+                         fortran/ \
+                         docs/mainpage.md
+FILE_PATTERNS          = *.h *.f90
+RECURSIVE              = YES
+USE_MDFILE_AS_MAINPAGE = docs/mainpage.md
+
+#---------------------------------------------------------------------------
+# Source browsing configuration
+#---------------------------------------------------------------------------
+
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+#---------------------------------------------------------------------------
+# Alphabetical index configuration
+#---------------------------------------------------------------------------
+
+ALPHABETICAL_INDEX     = YES
+
+#---------------------------------------------------------------------------
+# HTML output configuration (disabled - using MkDocs instead)
+#---------------------------------------------------------------------------
+
+GENERATE_HTML          = NO
+
+#---------------------------------------------------------------------------
+# XML output configuration (for Moxygen → MkDocs pipeline)
+#---------------------------------------------------------------------------
+
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+
+#---------------------------------------------------------------------------
+# LaTeX output configuration
+#---------------------------------------------------------------------------
+
+GENERATE_LATEX         = NO
+
+#---------------------------------------------------------------------------
+# Preprocessor configuration
+#---------------------------------------------------------------------------
+
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = NO
+PREDEFINED             = AMIO_API= \
+                         __cplusplus
+
+#---------------------------------------------------------------------------
+# Language-specific configuration
+#---------------------------------------------------------------------------
+
+OPTIMIZE_FOR_FORTRAN   = YES
+EXTENSION_MAPPING      = f90=FortranFree
+
+#---------------------------------------------------------------------------
+# Dot tool configuration (for diagrams)
+#---------------------------------------------------------------------------
+
+HAVE_DOT               = NO
+CLASS_DIAGRAMS         = YES
+COLLABORATION_GRAPH    = NO
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+
+#---------------------------------------------------------------------------
+# Warning and progress configuration
+#---------------------------------------------------------------------------
+
+QUIET                  = NO
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES
+
+#---------------------------------------------------------------------------
+# Sorting configuration
+#---------------------------------------------------------------------------
+
+SORT_MEMBER_DOCS       = YES
+SORT_BRIEF_DOCS        = NO
+SORT_GROUP_NAMES       = NO
