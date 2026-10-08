@@ -517,7 +517,22 @@ void StructuredGrid<MemorySpace>::synthesize_corners(bool is_periodic, double pe
 template <class MemorySpace>
 UnstructuredMesh<MemorySpace> StructuredGrid<MemorySpace>::to_unstructured() const {
     const double period = coord_sys_ == CoordinateSystem::SphericalRad ? 2.0 * std::numbers::pi : 360.0;
-    return to_unstructured(CornerPolicy::RectilinearMidpoint, LongitudePeriodicity{false, period, true});
+    const LongitudePeriodicity seam{false, period, true};
+    CornerPolicy policy = gaussian_weights_explicit_ ? CornerPolicy::GaussianLatLon : CornerPolicy::RectilinearMidpoint;
+
+    // The no-argument API is the convenience path for center-only inputs:
+    // retain exact rectilinear midpoint construction when the axes are
+    // separable, but use the explicit approximate policy for genuinely
+    // curvilinear center fields (e.g., PROJ-transformed grids). Strict callers
+    // can still request RequireExplicit through the policy overload.
+    if (!corners_explicit_ && !rectilinear_bounds_explicit_ && !gaussian_weights_explicit_) {
+        try {
+            validate_rectilinear_centers(ni_, nj_, center_lon_, center_lat_, seam.period, false, seam.increasing);
+        } catch (const std::invalid_argument &) {
+            policy = CornerPolicy::CurvilinearApproximate;
+        }
+    }
+    return to_unstructured(policy, seam);
 }
 
 template <class MemorySpace>

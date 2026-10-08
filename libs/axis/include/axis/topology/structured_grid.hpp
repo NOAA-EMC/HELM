@@ -135,8 +135,11 @@ class StructuredGrid {
     /// quadrilateral element with 4 corner nodes in the resulting unstructured mesh. If corner
     /// coordinates have not been explicitly provided via `set_corners()`, they are reconstructed
     /// from center coordinates using interior interpolation and one-sided exterior extrapolation.
-    /// The no-argument overload treats longitude as nonperiodic; periodic grids must use the
-    /// policy overload with an explicit `LongitudePeriodicity` declaration.
+    /// The no-argument overload uses rectilinear midpoint bounds for separable
+    /// axes and curvilinear approximate reconstruction otherwise. It treats
+    /// longitude as nonperiodic; periodic grids must use the policy overload
+    /// with an explicit `LongitudePeriodicity` declaration. Use
+    /// `CornerPolicy::RequireExplicit` to prohibit reconstruction.
     ///
     /// This conversion is executed via a highly parallelized Kokkos kernel on the device or host
     /// associated with the template's `MemorySpace`.

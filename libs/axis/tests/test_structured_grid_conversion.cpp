@@ -99,6 +99,25 @@ TEST(StructuredGridPolicies, NoArgumentConversionDoesNotInferPeriodicityFromSpac
     EXPECT_NEAR(mesh.node_coords()(2, 0), 180.0, 1e-12);
 }
 
+TEST(StructuredGridPolicies, NoArgumentConversionAcceptsCurvilinearCenterCoordinates) {
+    Kokkos::View<double *, MemSpace> lon("lon", 4);
+    Kokkos::View<double *, MemSpace> lat("lat", 4);
+    lon(0) = 0.0;
+    lon(1) = 2.0;
+    lon(2) = 0.2;
+    lon(3) = 2.2;
+    lat(0) = 0.0;
+    lat(1) = 0.1;
+    lat(2) = 2.0;
+    lat(3) = 2.1;
+    StructuredGrid<MemSpace> grid(2, 2, std::move(lon), std::move(lat), CoordinateSystem::SphericalDeg);
+
+    const auto mesh = grid.to_unstructured();
+    EXPECT_EQ(mesh.n_cells(), 4u);
+    EXPECT_EQ(mesh.geometry_metadata().provenance, GeometryProvenance::Approximate);
+    EXPECT_EQ(mesh.geometry_metadata().boundary_model, BoundaryModel::GreatCircle);
+}
+
 TEST(StructuredGridPolicies, NonperiodicPerimeterUsesOneSidedExtrapolation) {
     Kokkos::View<double *, MemSpace> lon("lon", 4);
     Kokkos::View<double *, MemSpace> lat("lat", 4);
