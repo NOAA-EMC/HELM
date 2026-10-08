@@ -461,8 +461,8 @@ def create_axis_mesh(ds: xr.Dataset, method: str | None = None) -> axis_py.Mesh:
                 n_edges = ds["nEdgesOnCell"].values if "nEdgesOnCell" in ds else np.full(conn_raw.shape[0], conn_raw.shape[1])
 
                 n_cells, max_edges = conn_raw.shape
-                conn_offsets = np.zeros(n_cells + 1, dtype=np.int64)
-                conn_indices: list[int] = []
+                mpas_conn_offsets = np.zeros(n_cells + 1, dtype=np.int64)
+                mpas_conn_index_list: list[int] = []
                 cell_mask = np.ones(n_cells, dtype=np.int32)
                 for cell, raw_arity in enumerate(n_edges):
                     arity = int(raw_arity)
@@ -475,13 +475,14 @@ def create_axis_mesh(ds: xr.Dataset, method: str | None = None) -> axis_py.Mesh:
                         # mask is zero.
                         if node_coords.shape[0] == 0:
                             raise ValueError("cannot represent masked MPAS cells without any mesh vertices")
-                        conn_indices.extend([0, 0, 0])
+                        mpas_conn_index_list.extend([0, 0, 0])
                         cell_mask[cell] = 0
                     else:
-                        conn_indices.extend((conn_raw[cell, :arity] - 1).astype(np.int64).tolist())
-                    conn_offsets[cell + 1] = len(conn_indices)
+                        mpas_conn_index_list.extend((conn_raw[cell, :arity] - 1).astype(np.int64).tolist())
+                    mpas_conn_offsets[cell + 1] = len(mpas_conn_index_list)
 
-                return axis_py.make_ugrid_mesh(node_coords, conn_offsets, np.asarray(conn_indices, dtype=np.int64), cell_mask)
+                mpas_conn_indices = np.asarray(mpas_conn_index_list, dtype=np.int64)
+                return axis_py.make_ugrid_mesh(node_coords, mpas_conn_offsets, mpas_conn_indices, cell_mask)
             else:
                 # Triangulated MPAS (for bilinear/bicubic/patch) - C++ accelerated
                 v_conn = ds["verticesOnCell"]
@@ -497,14 +498,14 @@ def create_axis_mesh(ds: xr.Dataset, method: str | None = None) -> axis_py.Mesh:
                 )
 
                 tri_res = axis_py.triangulate_poly_cells(node_coords, conn_raw, n_edges)
-                conn_offsets = tri_res["conn_offsets"]
-                conn_indices = tri_res["conn_indices"]
-                return axis_py.make_ugrid_mesh(node_coords, conn_offsets, conn_indices)
+                tri_conn_offsets = tri_res["conn_offsets"]
+                tri_conn_indices = tri_res["conn_indices"]
+                return axis_py.make_ugrid_mesh(node_coords, tri_conn_offsets, tri_conn_indices)
         # 2. SCRIP 2D Bounds format
         elif "lat_bnds" in ds or any("bounds" in ds[v].attrs for v in ds.variables if v in ["lat", "lon"]):
-            node_lon, node_lat, conn_offsets, conn_indices = _parse_scrip_bounds(ds)
+            node_lon, node_lat, scrip_conn_offsets, scrip_conn_indices = _parse_scrip_bounds(ds)
             node_coords = np.asfortranarray(np.column_stack([node_lon, node_lat]))
-            return axis_py.make_ugrid_mesh(node_coords, conn_offsets, conn_indices)
+            return axis_py.make_ugrid_mesh(node_coords, scrip_conn_offsets, scrip_conn_indices)
         # 3. Curvilinear (2D) or Cubed-Sphere (3D) coordinate arrays fallback
         elif lat.ndim in [2, 3]:
             if lat.ndim == 2:
@@ -557,17 +558,17 @@ def create_axis_mesh(ds: xr.Dataset, method: str | None = None) -> axis_py.Mesh:
                     node_offset += len(coords_t)
 
                 node_coords = np.asfortranarray(np.concatenate(node_coords_list))
-                conn_indices = np.concatenate(conn_indices_list)
-                conn_offsets = np.arange(0, len(conn_indices) + 1, 4, dtype=np.int64)
+                cubed_sphere_conn_indices = np.concatenate(conn_indices_list)
+                cubed_sphere_conn_offsets = np.arange(0, len(cubed_sphere_conn_indices) + 1, 4, dtype=np.int64)
 
-                return axis_py.make_ugrid_mesh(node_coords, conn_offsets, conn_indices)
+                return axis_py.make_ugrid_mesh(node_coords, cubed_sphere_conn_offsets, cubed_sphere_conn_indices)
         # 4. CF-UGRID standard
         else:
             node_lon, node_lat, element_conn = _get_ugrid_info(ds)
             node_coords = np.asfortranarray(np.column_stack([node_lon, node_lat]))
-            conn_offsets = np.arange(0, len(element_conn) + 1, 3, dtype=np.int64)
-            conn_indices = element_conn.astype(np.int64)
-            return axis_py.make_ugrid_mesh(node_coords, conn_offsets, conn_indices)
+            ugrid_conn_offsets = np.arange(0, len(element_conn) + 1, 3, dtype=np.int64)
+            ugrid_conn_indices = element_conn.astype(np.int64)
+            return axis_py.make_ugrid_mesh(node_coords, ugrid_conn_offsets, ugrid_conn_indices)
     else:
         # Structured: regular or rectilinear/projected
         if lon.ndim == 1 and lat.ndim == 1:
@@ -775,6 +776,7 @@ class CurvilinearGrid(Geometry):
             if (self.corner_lons is None) != (self.corner_lats is None):
                 raise ValueError("corner_lons and corner_lats must be provided together")
             if self.corner_lons is not None:
+                assert self.corner_lats is not None
                 expected = (ny + 1) * (nx + 1)
                 if self.corner_lons.size != expected or self.corner_lats.size != expected:
                     raise ValueError(f"explicit corner arrays must contain {(ny + 1)} by {(nx + 1)} values")
