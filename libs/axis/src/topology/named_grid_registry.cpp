@@ -23,10 +23,14 @@
 #include <Kokkos_Core.hpp>
 #include <algorithm>
 #include <axis/ingest/grid_descriptor.hpp>
+#include <axis/topology/mesh_builder.hpp>
 #include <axis/topology/named_grid_registry.hpp>
 #include <axis/topology/projection_builder.hpp>
+#include <axis/topology/reduced_gaussian_grid.hpp>
+#include <axis/topology/rule_generator.hpp>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -112,132 +116,16 @@ std::vector<int> octahedral_nlons(int N) {
     return nlons;
 }
 
-/// Compute total number of nodes in an octahedral reduced Gaussian grid.
-/// Formula: 4*N*(N+9) for ECMWF convention (minimum 20 points at poles).
-std::size_t octahedral_total_nodes(int N) {
-    // Sum all nlons
-    std::size_t total = 0;
-    for (int j = 0; j < 2 * N; ++j) {
-        int dist = std::min(j, 2 * N - 1 - j);
-        total += static_cast<std::size_t>(20 + 4 * dist);
-    }
-    return total;
-}
-
-/// Regular Gaussian: 2N latitudes, each with 4N longitudes.
-/// Total nodes = 2N * 4N = 8*N^2.
-std::size_t regular_total_nodes(int N) {
-    return static_cast<std::size_t>(2 * N) * static_cast<std::size_t>(4 * N);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Cell count computation
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// For reduced Gaussian grids, cells are quadrilaterals connecting adjacent
-/// latitude circles. Between circles j and j+1 with nlon_j and nlon_{j+1}
-/// points, the number of cells is max(nlon_j, nlon_{j+1}).
-/// Total cells = sum_{j=0}^{2N-2} max(nlon[j], nlon[j+1])
-std::size_t reduced_total_cells(const std::vector<int> &nlons) {
-    std::size_t total = 0;
-    for (std::size_t j = 0; j + 1 < nlons.size(); ++j) {
-        total += static_cast<std::size_t>(std::max(nlons[j], nlons[j + 1]));
-    }
-    return total;
-}
-
-/// For regular Gaussian grids, cells are simply (2N-1) * 4N quadrilaterals
-/// (one ring of cells between each pair of adjacent latitude circles).
-std::size_t regular_total_cells(int N) {
-    return static_cast<std::size_t>(2 * N - 1) * static_cast<std::size_t>(4 * N);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Grid generation: Regular Gaussian (F family)
 // ─────────────────────────────────────────────────────────────────────────────
 
 template <class MemorySpace>
 UnstructuredMesh<MemorySpace> generate_regular_gaussian(int N) {
-    const int n_lat = 2 * N;
-    const int n_lon = 4 * N;
-    const std::size_t n_nodes = regular_total_nodes(N);
-    const std::size_t n_cells = regular_total_cells(N);
-
-    // Compute Gaussian latitudes
-    std::vector<double> lats = compute_gaussian_latitudes(N);
-
-    // ─── Build node coordinates on host ─────────────────────────────────────
-    // Nodes are stored as [n_nodes, 2] with col 0 = lon, col 1 = lat (degrees)
-    Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace> h_coords("h_coords", n_nodes, 2);
-
-    // Fill node coordinates: latitude circles from north to south,
-    // each with n_lon evenly spaced longitudes in [0, 360)
-    std::size_t node_idx = 0;
-    for (int j = 0; j < n_lat; ++j) {
-        double lat = lats[static_cast<std::size_t>(j)];
-        double dlon = 360.0 / static_cast<double>(n_lon);
-        for (int i = 0; i < n_lon; ++i) {
-            h_coords(node_idx, 0) = static_cast<double>(i) * dlon;
-            h_coords(node_idx, 1) = lat;
-            ++node_idx;
-        }
-    }
-
-    // ─── Build CSR connectivity on host ─────────────────────────────────────
-    // Each cell is a quadrilateral connecting 4 nodes between adjacent lat
-    // circles. Node ordering: bottom-left, bottom-right, top-right, top-left.
-    // "Bottom" = farther from north pole (larger j index), "Top" = closer to pole.
-    // Between lat circles j and j+1: n_lon cells (one per longitude column).
-    // Connectivity wraps around in longitude.
-    const std::size_t nnz = n_cells * 4;  // 4 nodes per quad cell
-
-    Kokkos::View<index_t *, Kokkos::HostSpace> h_offsets("h_offsets", n_cells + 1);
-    Kokkos::View<index_t *, Kokkos::HostSpace> h_indices("h_indices", nnz);
-
-    // Fill offsets: uniform 4 nodes per cell
-    for (std::size_t c = 0; c <= n_cells; ++c) {
-        h_offsets(c) = static_cast<index_t>(c * 4);
-    }
-
-    // Fill connectivity
-    std::size_t cell_idx = 0;
-    for (int j = 0; j < n_lat - 1; ++j) {
-        std::size_t row_start = static_cast<std::size_t>(j) * static_cast<std::size_t>(n_lon);
-        std::size_t next_row_start = static_cast<std::size_t>(j + 1) * static_cast<std::size_t>(n_lon);
-
-        for (int i = 0; i < n_lon; ++i) {
-            int i_next = (i + 1) % n_lon;
-
-            // Quad: top-left, top-right, bottom-right, bottom-left
-            // top = current row (j), bottom = next row (j+1)
-            std::size_t tl = row_start + static_cast<std::size_t>(i);
-            std::size_t tr = row_start + static_cast<std::size_t>(i_next);
-            std::size_t br = next_row_start + static_cast<std::size_t>(i_next);
-            std::size_t bl = next_row_start + static_cast<std::size_t>(i);
-
-            std::size_t base = cell_idx * 4;
-            h_indices(base + 0) = static_cast<index_t>(tl);
-            h_indices(base + 1) = static_cast<index_t>(tr);
-            h_indices(base + 2) = static_cast<index_t>(br);
-            h_indices(base + 3) = static_cast<index_t>(bl);
-            ++cell_idx;
-        }
-    }
-
-    // ─── Copy to target MemorySpace ─────────────────────────────────────────
-    if constexpr (std::is_same_v<MemorySpace, Kokkos::HostSpace>) {
-        return UnstructuredMesh<MemorySpace>(std::move(h_coords), std::move(h_offsets), std::move(h_indices), CoordinateSystem::SphericalDeg);
-    } else {
-        Kokkos::View<double **, Kokkos::LayoutLeft, MemorySpace> d_coords("d_coords", n_nodes, 2);
-        Kokkos::View<index_t *, MemorySpace> d_offsets("d_offsets", n_cells + 1);
-        Kokkos::View<index_t *, MemorySpace> d_indices("d_indices", nnz);
-
-        Kokkos::deep_copy(d_coords, h_coords);
-        Kokkos::deep_copy(d_offsets, h_offsets);
-        Kokkos::deep_copy(d_indices, h_indices);
-
-        return UnstructuredMesh<MemorySpace>(std::move(d_coords), std::move(d_offsets), std::move(d_indices), CoordinateSystem::SphericalDeg);
-    }
+    ingest::GridRulesParams rules;
+    rules.kind = "GaussianRegular";
+    rules.gaussian_n = N;
+    return RuleGenerator::generate<MemorySpace>(rules);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -246,120 +134,56 @@ UnstructuredMesh<MemorySpace> generate_regular_gaussian(int N) {
 
 template <class MemorySpace>
 UnstructuredMesh<MemorySpace> generate_octahedral_gaussian(int N) {
+    if (N <= 0 || N > std::numeric_limits<int>::max() / 2) {
+        throw std::invalid_argument("NamedGridRegistry: reduced Gaussian N must be positive and safely representable");
+    }
     const int n_lat = 2 * N;
     const std::vector<int> nlons = octahedral_nlons(N);
-    const std::size_t n_nodes = octahedral_total_nodes(N);
+    const std::vector<double> north_to_south = compute_gaussian_latitudes(N);
 
-    // For reduced grids, between adjacent latitude circles with different
-    // numbers of points, we generate quadrilateral cells that properly
-    // connect the two circles. The number of cells between circles j and j+1
-    // is max(nlons[j], nlons[j+1]).
-    const std::size_t n_cells = reduced_total_cells(nlons);
-
-    // Compute Gaussian latitudes
-    std::vector<double> lats = compute_gaussian_latitudes(N);
-
-    // ─── Build node coordinates on host ─────────────────────────────────────
-    Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace> h_coords("h_coords", n_nodes, 2);
-
-    // Compute row start offsets for quick node lookup
-    std::vector<std::size_t> row_starts(static_cast<std::size_t>(n_lat) + 1);
-    row_starts[0] = 0;
+    // Legendre weights partition mu = sin(latitude) into latitude strips.
+    // These are the Gaussian quadrature boundaries, not midpoint estimates
+    // between center latitudes. The ragged provider builds one polygon per
+    // longitude cell and explicitly splits hanging edges between rows.
+    const int degree = n_lat;
+    std::vector<double> weights(static_cast<std::size_t>(n_lat));
     for (int j = 0; j < n_lat; ++j) {
-        row_starts[static_cast<std::size_t>(j) + 1] =
-            row_starts[static_cast<std::size_t>(j)] + static_cast<std::size_t>(nlons[static_cast<std::size_t>(j)]);
+        const double x = std::sin(north_to_south[static_cast<std::size_t>(j)] * (M_PI / 180.0));
+        double p0 = 1.0;
+        double p1 = x;
+        for (int k = 2; k <= degree; ++k) {
+            const double pk = ((2.0 * k - 1.0) * x * p1 - (k - 1.0) * p0) / static_cast<double>(k);
+            p0 = p1;
+            p1 = pk;
+        }
+        const double derivative = degree * (x * p1 - p0) / (x * x - 1.0);
+        weights[static_cast<std::size_t>(j)] = 2.0 / ((1.0 - x * x) * derivative * derivative);
     }
 
-    // Fill node coordinates
+    std::vector<double> north_boundaries(static_cast<std::size_t>(n_lat) + 1);
+    north_boundaries.front() = 90.0;
+    double mu = 1.0;
     for (int j = 0; j < n_lat; ++j) {
-        double lat = lats[static_cast<std::size_t>(j)];
-        int nlon_j = nlons[static_cast<std::size_t>(j)];
-        double dlon = 360.0 / static_cast<double>(nlon_j);
-        std::size_t start = row_starts[static_cast<std::size_t>(j)];
+        mu -= weights[static_cast<std::size_t>(j)];
+        north_boundaries[static_cast<std::size_t>(j) + 1] = (j + 1 == n_lat) ? -90.0 : std::asin(std::clamp(mu, -1.0, 1.0)) * (180.0 / M_PI);
+    }
 
-        for (int i = 0; i < nlon_j; ++i) {
-            std::size_t idx = start + static_cast<std::size_t>(i);
-            h_coords(idx, 0) = static_cast<double>(i) * dlon;
-            h_coords(idx, 1) = lat;
+    std::vector<double> latitude_boundaries(north_boundaries.rbegin(), north_boundaries.rend());
+    std::vector<ReducedGaussianRow> rows;
+    rows.reserve(static_cast<std::size_t>(n_lat));
+    for (int j = n_lat - 1; j >= 0; --j) {
+        const int nlon = nlons[static_cast<std::size_t>(j)];
+        ReducedGaussianRow row;
+        row.longitude_boundaries.resize(static_cast<std::size_t>(nlon) + 1);
+        for (int i = 0; i <= nlon; ++i) {
+            row.longitude_boundaries[static_cast<std::size_t>(i)] = 360.0 * static_cast<double>(i) / static_cast<double>(nlon);
         }
+        rows.push_back(std::move(row));
     }
 
-    // ─── Build CSR connectivity on host ─────────────────────────────────────
-    // For reduced Gaussian grids, the connectivity between two adjacent
-    // latitude circles with different nlon counts uses a "zipper" algorithm:
-    // we walk both circles simultaneously, advancing the pointer on whichever
-    // circle is behind in longitude, creating quadrilateral cells.
-    //
-    // Each cell connects 4 nodes (quadrilateral). For simplicity and
-    // determinism, we use a straightforward proportional mapping approach:
-    // for each cell between rows j and j+1, we map longitude indices
-    // proportionally between the two rows.
-
-    // First pass: count total connectivity entries (always 4 per quad cell)
-    const std::size_t nnz = n_cells * 4;
-
-    Kokkos::View<index_t *, Kokkos::HostSpace> h_offsets("h_offsets", n_cells + 1);
-    Kokkos::View<index_t *, Kokkos::HostSpace> h_indices("h_indices", nnz);
-
-    // Fill offsets
-    for (std::size_t c = 0; c <= n_cells; ++c) {
-        h_offsets(c) = static_cast<index_t>(c * 4);
-    }
-
-    // Fill connectivity using proportional longitude mapping
-    std::size_t cell_idx = 0;
-    for (int j = 0; j < n_lat - 1; ++j) {
-        int nlon_top = nlons[static_cast<std::size_t>(j)];
-        int nlon_bot = nlons[static_cast<std::size_t>(j + 1)];
-        std::size_t top_start = row_starts[static_cast<std::size_t>(j)];
-        std::size_t bot_start = row_starts[static_cast<std::size_t>(j + 1)];
-        int n_cells_ring = std::max(nlon_top, nlon_bot);
-
-        for (int c = 0; c < n_cells_ring; ++c) {
-            // Map cell index proportionally to both rows
-            // Top row indices
-            double frac_top = static_cast<double>(c) / static_cast<double>(n_cells_ring);
-            double frac_top_next = static_cast<double>(c + 1) / static_cast<double>(n_cells_ring);
-
-            int top_i = static_cast<int>(std::floor(frac_top * nlon_top)) % nlon_top;
-            int top_i_next = static_cast<int>(std::floor(frac_top_next * nlon_top)) % nlon_top;
-
-            // Bottom row indices
-            double frac_bot = static_cast<double>(c) / static_cast<double>(n_cells_ring);
-            double frac_bot_next = static_cast<double>(c + 1) / static_cast<double>(n_cells_ring);
-
-            int bot_i = static_cast<int>(std::floor(frac_bot * nlon_bot)) % nlon_bot;
-            int bot_i_next = static_cast<int>(std::floor(frac_bot_next * nlon_bot)) % nlon_bot;
-
-            // Quad: top-left, top-right, bottom-right, bottom-left
-            std::size_t tl = top_start + static_cast<std::size_t>(top_i);
-            std::size_t tr = top_start + static_cast<std::size_t>(top_i_next);
-            std::size_t br = bot_start + static_cast<std::size_t>(bot_i_next);
-            std::size_t bl = bot_start + static_cast<std::size_t>(bot_i);
-
-            std::size_t base = cell_idx * 4;
-            h_indices(base + 0) = static_cast<index_t>(tl);
-            h_indices(base + 1) = static_cast<index_t>(tr);
-            h_indices(base + 2) = static_cast<index_t>(br);
-            h_indices(base + 3) = static_cast<index_t>(bl);
-            ++cell_idx;
-        }
-    }
-
-    // ─── Copy to target MemorySpace ─────────────────────────────────────────
-    if constexpr (std::is_same_v<MemorySpace, Kokkos::HostSpace>) {
-        return UnstructuredMesh<MemorySpace>(std::move(h_coords), std::move(h_offsets), std::move(h_indices), CoordinateSystem::SphericalDeg);
-    } else {
-        Kokkos::View<double **, Kokkos::LayoutLeft, MemorySpace> d_coords("d_coords", n_nodes, 2);
-        Kokkos::View<index_t *, MemorySpace> d_offsets("d_offsets", n_cells + 1);
-        Kokkos::View<index_t *, MemorySpace> d_indices("d_indices", nnz);
-
-        Kokkos::deep_copy(d_coords, h_coords);
-        Kokkos::deep_copy(d_offsets, h_offsets);
-        Kokkos::deep_copy(d_indices, h_indices);
-
-        return UnstructuredMesh<MemorySpace>(std::move(d_coords), std::move(d_offsets), std::move(d_indices), CoordinateSystem::SphericalDeg);
-    }
+    ReducedGaussianGrid grid(std::move(latitude_boundaries), std::move(rows), CoordinateSystem::SphericalDeg,
+                             LongitudePeriodicity{true, 360.0, true});
+    return grid.to_unstructured<MemorySpace>(true);
 }
 
 }  // anonymous namespace
@@ -535,6 +359,7 @@ inline UnstructuredMesh<MemorySpace> generate_regular_grid(std::size_t ni, std::
 
     Kokkos::View<index_t *, Kokkos::HostSpace> h_offsets("h_offsets", n_cells + 1);
     Kokkos::View<index_t *, Kokkos::HostSpace> h_indices("h_indices", n_cells * 4);
+    Kokkos::View<double *, Kokkos::HostSpace> h_areas("h_areas", n_cells);
 
     h_offsets(0) = 0;
     for (std::size_t j = 0; j < nj; ++j) {
@@ -552,14 +377,26 @@ inline UnstructuredMesh<MemorySpace> generate_regular_grid(std::size_t ni, std::
             h_indices(indices_start + 1) = n1;
             h_indices(indices_start + 2) = n2;
             h_indices(indices_start + 3) = n3;
+
+            const double radians = std::acos(-1.0) / 180.0;
+            const double south = lat_start + static_cast<double>(j) * dlat;
+            const double north = south + dlat;
+            h_areas(cell_idx) = dlon * radians * (std::sin(north * radians) - std::sin(south * radians));
         }
     }
 
     auto node_coords = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_coords);
     auto conn_offsets = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_offsets);
     auto conn_indices = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_indices);
+    auto areas = Kokkos::create_mirror_view_and_copy(MemorySpace(), h_areas);
 
-    return UnstructuredMesh<MemorySpace>(std::move(node_coords), std::move(conn_offsets), std::move(conn_indices), CoordinateSystem::SphericalDeg);
+    GeometryMetadata geometry;
+    geometry.provenance = GeometryProvenance::DeclaredGridModel;
+    geometry.boundary_model = BoundaryModel::ConstantLatitude;
+    geometry.area_model = AreaModel::ConstantLatitudeStrip;
+    geometry.longitude_periodicity = LongitudePeriodicity{false, 360.0, true};
+    return make_unstructured<MemorySpace>(std::move(node_coords), std::move(conn_offsets), std::move(conn_indices), CoordinateSystem::SphericalDeg,
+                                          std::move(areas), {}, geometry);
 }
 
 /// @brief Analytically generates a registered NOAA NWS GRIB grid.

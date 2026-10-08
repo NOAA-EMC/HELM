@@ -201,7 +201,10 @@ set(AXIS_SOURCES
     src/detail/raii_handles.cpp
     src/detail/tspack.cpp
     src/topology/unstructured_mesh.cpp
+    src/topology/mesh_builder.cpp
+    src/topology/multi_face_grid.cpp
     src/topology/structured_grid.cpp
+    src/topology/reduced_gaussian_grid.cpp
     src/topology/mesh_factory.cpp
     src/topology/named_grid_registry.cpp
     src/topology/rule_generator.cpp

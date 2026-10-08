@@ -82,6 +82,10 @@ set(AXIS_UNIT_TEST_SOURCES
     test_conservation_norm.cpp
     test_raii_handles.cpp
     test_spherical_geometry.cpp
+    test_mesh_builder.cpp
+    test_structured_grid_conversion.cpp
+    test_reduced_gaussian_grid.cpp
+    test_multi_face_grid.cpp
     test_gnomonic_projector.cpp
     test_masking.cpp
     test_morton_sort.cpp
@@ -138,6 +142,7 @@ if(rapidcheck_FOUND)
         prop_raii_handles.cpp
         prop_structured_to_unstructured.cpp
         prop_band_corner_synthesis.cpp
+        prop_reduced_gaussian_grid.cpp
         prop_csr_connectivity.cpp
         prop_named_grid_deterministic.cpp
         prop_named_grid_registration.cpp

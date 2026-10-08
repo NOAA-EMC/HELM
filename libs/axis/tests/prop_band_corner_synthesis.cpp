@@ -53,9 +53,9 @@ class KokkosEnvironment : public ::testing::Environment {
 static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnvironment);
 
 // Build whole-grid synthesized corners by running the real StructuredGrid path
-// (to_unstructured triggers synthesize_corners when corners are unset).
+// with the same explicit seam declaration supplied to the band helper.
 void global_synthesized_corners(std::size_t ni, std::size_t nj, const std::vector<double> &clon, const std::vector<double> &clat,
-                                std::vector<double> &out_lon, std::vector<double> &out_lat) {
+                                axis::topology::LongitudePeriodicity seam, std::vector<double> &out_lon, std::vector<double> &out_lat) {
     Kokkos::View<double *, MemSpace> lon("lon", clon.size());
     Kokkos::View<double *, MemSpace> lat("lat", clat.size());
     for (std::size_t k = 0; k < clon.size(); ++k) {
@@ -63,7 +63,7 @@ void global_synthesized_corners(std::size_t ni, std::size_t nj, const std::vecto
         lat(k) = clat[k];
     }
     axis::topology::StructuredGrid<MemSpace> grid(ni, nj, std::move(lon), std::move(lat), axis::topology::CoordinateSystem::SphericalDeg);
-    auto mesh = grid.to_unstructured();
+    auto mesh = grid.to_unstructured(axis::topology::CornerPolicy::CurvilinearApproximate, seam);
     auto nc = mesh.node_coords();
     const std::size_t nip1 = ni + 1;
     const std::size_t njp1 = nj + 1;
@@ -116,12 +116,16 @@ CenterLayout gen_layout(bool &periodic) {
 RC_GTEST_PROP(PropBandCornerSynthesis, BandSubsetOfGlobal, ()) {
     bool periodic = false;
     CenterLayout L = gen_layout(periodic);
+    // Two antipodal longitude centers do not determine which periodic arc is
+    // intended; the local unwrapping direction is ambiguous at 180 degrees.
+    RC_PRE(!periodic || L.ni > 2);
     const std::size_t ni = L.ni, nj = L.nj;
     const std::size_t j0 = *rc::gen::inRange<std::size_t>(0, nj + 1);
     const std::size_t j1 = *rc::gen::inRange<std::size_t>(j0, nj + 1);
 
     std::vector<double> g_lon, g_lat;
-    global_synthesized_corners(ni, nj, L.lon, L.lat, g_lon, g_lat);
+    const axis::topology::LongitudePeriodicity seam{periodic, 360.0, true};
+    global_synthesized_corners(ni, nj, L.lon, L.lat, seam, g_lon, g_lat);
 
     Kokkos::View<double *, MemSpace> clon("clon", L.lon.size());
     Kokkos::View<double *, MemSpace> clat("clat", L.lat.size());
@@ -130,7 +134,7 @@ RC_GTEST_PROP(PropBandCornerSynthesis, BandSubsetOfGlobal, ()) {
         clat(k) = L.lat[k];
     }
     Kokkos::View<double *, MemSpace> bclon, bclat;
-    axis::topology::synthesize_band_corners<MemSpace>(ni, nj, clon, clat, j0, j1, bclon, bclat);
+    axis::topology::synthesize_band_corners<MemSpace>(ni, nj, clon, clat, j0, j1, seam, bclon, bclat);
 
     const std::size_t nip1 = ni + 1;
     const std::size_t nrows = j1 - j0 + 1;
@@ -150,10 +154,12 @@ RC_GTEST_PROP(PropBandCornerSynthesis, BandSubsetOfGlobal, ()) {
 RC_GTEST_PROP(PropBandCornerSynthesis, WholeGridEqualsGlobal, ()) {
     bool periodic = false;
     CenterLayout L = gen_layout(periodic);
+    RC_PRE(!periodic || L.ni > 2);
     const std::size_t ni = L.ni, nj = L.nj;
 
     std::vector<double> g_lon, g_lat;
-    global_synthesized_corners(ni, nj, L.lon, L.lat, g_lon, g_lat);
+    const axis::topology::LongitudePeriodicity seam{periodic, 360.0, true};
+    global_synthesized_corners(ni, nj, L.lon, L.lat, seam, g_lon, g_lat);
 
     Kokkos::View<double *, MemSpace> clon("clon", L.lon.size());
     Kokkos::View<double *, MemSpace> clat("clat", L.lat.size());
@@ -162,7 +168,7 @@ RC_GTEST_PROP(PropBandCornerSynthesis, WholeGridEqualsGlobal, ()) {
         clat(k) = L.lat[k];
     }
     Kokkos::View<double *, MemSpace> bclon, bclat;
-    axis::topology::synthesize_band_corners<MemSpace>(ni, nj, clon, clat, 0, nj, bclon, bclat);
+    axis::topology::synthesize_band_corners<MemSpace>(ni, nj, clon, clat, 0, nj, seam, bclon, bclat);
 
     const std::size_t nip1 = ni + 1;
     RC_ASSERT(bclon.extent(0) == nip1 * (nj + 1));
@@ -176,6 +182,7 @@ RC_GTEST_PROP(PropBandCornerSynthesis, WholeGridEqualsGlobal, ()) {
 RC_GTEST_PROP(PropBandCornerSynthesis, AdjacentBandsShareSeam, ()) {
     bool periodic = false;
     CenterLayout L = gen_layout(periodic);
+    RC_PRE(!periodic || L.ni > 2);
     const std::size_t ni = L.ni, nj = L.nj;
     const std::size_t j0 = *rc::gen::inRange<std::size_t>(0, nj);
     const std::size_t jm = *rc::gen::inRange<std::size_t>(j0, nj + 1);
@@ -188,8 +195,9 @@ RC_GTEST_PROP(PropBandCornerSynthesis, AdjacentBandsShareSeam, ()) {
         clat(k) = L.lat[k];
     }
     Kokkos::View<double *, MemSpace> alon, alat, blon, blat;
-    axis::topology::synthesize_band_corners<MemSpace>(ni, nj, clon, clat, j0, jm, alon, alat);
-    axis::topology::synthesize_band_corners<MemSpace>(ni, nj, clon, clat, jm, j1, blon, blat);
+    const axis::topology::LongitudePeriodicity seam{periodic, 360.0, true};
+    axis::topology::synthesize_band_corners<MemSpace>(ni, nj, clon, clat, j0, jm, seam, alon, alat);
+    axis::topology::synthesize_band_corners<MemSpace>(ni, nj, clon, clat, jm, j1, seam, blon, blat);
 
     const std::size_t nip1 = ni + 1;
     // The bottom corner row (index 0) of the upper band [jm, j1) is global corner
