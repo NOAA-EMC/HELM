@@ -2311,22 +2311,27 @@ InterpolationMatrix<MemorySpace> generate_nearest_rect(const topology::Unstructu
             index_t d_i = j % dst_ni;
             index_t d_j = j / dst_ni;
 
-            double lon = dst_lon_start + static_cast<double>(d_i) * dst_dlon;
-            double lat = dst_lat_start + static_cast<double>(d_j) * dst_dlat;
+            // RegularGridInfo stores cell-boundary minima. Nearest-neighbor
+            // selection is between cell centers, so offset both grids by half
+            // a cell before computing source indices.
+            double lon = dst_lon_start + (static_cast<double>(d_i) + 0.5) * dst_dlon;
+            double lat = dst_lat_start + (static_cast<double>(d_j) + 0.5) * dst_dlat;
+            const double src_lon_center_start = src_lon_start + 0.5 * src_dlon;
+            const double src_lat_center_start = src_lat_start + 0.5 * src_dlat;
 
             // Safe, periodic longitude shift mapping to standard [0, 360) space
-            double relative_lon = lon - src_lon_start;
+            double relative_lon = lon - src_lon_center_start;
             while (relative_lon < 0.0) relative_lon += 360.0;
             while (relative_lon >= 360.0) relative_lon -= 360.0;
 
             // Rounding to nearest source coordinate index
-            index_t s_i = static_cast<index_t>(Kokkos::round((lon - src_lon_start) / src_dlon));
+            index_t s_i = static_cast<index_t>(Kokkos::round(relative_lon / src_dlon));
 
             // Wrap longitude periodically
             s_i = s_i % src_ni;
             if (s_i < 0) s_i += src_ni;
 
-            index_t s_j = static_cast<index_t>(Kokkos::round((lat - src_lat_start) / src_dlat));
+            index_t s_j = static_cast<index_t>(Kokkos::round((lat - src_lat_center_start) / src_dlat));
 
             // Clamp latitude safely
             if (s_j < 0) s_j = 0;
