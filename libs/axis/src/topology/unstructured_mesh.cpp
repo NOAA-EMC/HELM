@@ -84,12 +84,12 @@ double spherical_excess_triangle(double ax, double ay, double az, double bx, dou
     const double bc = dot3(bx, by, bz, cx, cy, cz);
     const double den = 1.0 + ab + ac + bc;
 
-    // Degenerate case: collinear points → zero area
-    if (den <= 0.0) {
-        // This can happen for hemispheric or larger cells; use PI as fallback.
-        return PI;
-    }
-
+    // atan2 must receive the signed denominator: a negative value is valid and
+    // identifies a spherical excess larger than a hemisphere. Replacing it
+    // with a fixed fallback loses the geometry (and can turn a valid polygon
+    // into exactly pi steradians). Exact antipodal/degenerate configurations
+    // remain branch-ambiguous and are rejected by source-grid validation when
+    // strict geometry is required.
     return 2.0 * Kokkos::atan2(num, den);
 }
 
@@ -205,6 +205,7 @@ void UnstructuredMesh<MemorySpace>::compute_areas() {
 
     // Fence to ensure areas are fully computed before any subsequent host access
     Kokkos::fence("UnstructuredMesh::compute_areas fence");
+    geometry_.area_model = coord_sys_ == CoordinateSystem::Cartesian3D ? AreaModel::PlanarPolygon : AreaModel::SphericalExcess;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -35,6 +35,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -310,6 +311,264 @@ std::vector<double> get_cell_areas(const topology::UnstructuredMesh<MemorySpace>
     }
 
     return areas;
+}
+
+struct ConstantLatitudeCell {
+    double south{};
+    double north{};
+    double west{};
+    double east{};
+};
+
+struct ConstantLatitudeBand {
+    double south{};
+    double north{};
+    std::vector<index_t> cells;
+};
+
+struct LongitudeSegment {
+    double west{};
+    double east{};
+    index_t cell{};
+};
+
+template <class MemorySpace>
+std::vector<ConstantLatitudeCell> extract_constant_latitude_cells(const topology::UnstructuredMesh<MemorySpace> &mesh, bool periodic, double period) {
+    const auto coords = mesh.node_coords();
+    const auto offsets = mesh.conn_offsets();
+    const auto indices = mesh.conn_indices();
+    std::vector<ConstantLatitudeCell> cells(mesh.n_cells());
+    const double rad_to_units = mesh.coord_system() == topology::CoordinateSystem::SphericalDeg ? 180.0 / std::acos(-1.0) : 1.0;
+    for (std::size_t cell = 0; cell < mesh.n_cells(); ++cell) {
+        const std::size_t begin = static_cast<std::size_t>(offsets[cell]);
+        const std::size_t end = static_cast<std::size_t>(offsets[cell + 1]);
+        double south = std::numeric_limits<double>::max();
+        double north = -std::numeric_limits<double>::max();
+        std::vector<double> longitudes;
+        longitudes.reserve(end - begin);
+        for (std::size_t k = begin; k < end; ++k) {
+            const std::size_t node = static_cast<std::size_t>(indices[k]);
+            const double lon = coords(node, 0);
+            const double lat = coords(node, 1);
+            south = std::min(south, lat);
+            north = std::max(north, lat);
+            if (periodic) {
+                double normalized = std::fmod(lon, period);
+                if (normalized < 0.0) normalized += period;
+                if (normalized >= period) normalized = 0.0;
+                longitudes.push_back(normalized);
+            } else {
+                longitudes.push_back(lon);
+            }
+        }
+        if (longitudes.empty()) throw std::invalid_argument("constant-latitude overlay: encountered an empty cell polygon");
+        double west = std::numeric_limits<double>::max();
+        double east = -std::numeric_limits<double>::max();
+        if (periodic) {
+            std::sort(longitudes.begin(), longitudes.end());
+            longitudes.erase(std::unique(longitudes.begin(), longitudes.end(),
+                                         [period](double a, double b) { return std::abs(a - b) <= 1e-12 * std::max(1.0, period); }),
+                             longitudes.end());
+            if (longitudes.size() == 1) {
+                west = longitudes.front();
+                east = west + period;
+            } else {
+                double largest_gap = -1.0;
+                std::size_t gap_after = 0;
+                for (std::size_t i = 0; i < longitudes.size(); ++i) {
+                    const double next = (i + 1 < longitudes.size()) ? longitudes[i + 1] : longitudes.front() + period;
+                    const double gap = next - longitudes[i];
+                    if (gap > largest_gap) {
+                        largest_gap = gap;
+                        gap_after = i;
+                    }
+                }
+                west = longitudes[(gap_after + 1) % longitudes.size()];
+                east = west + period - largest_gap;
+            }
+        } else {
+            for (double lon : longitudes) {
+                west = std::min(west, lon);
+                east = std::max(east, lon);
+            }
+        }
+        if (!(north > south) || !(east > west) || north - south > 180.0 * rad_to_units + 1e-10) {
+            throw std::invalid_argument("constant-latitude overlay: invalid cell latitude/longitude bounds");
+        }
+        cells[cell] = ConstantLatitudeCell{south, north, west, east};
+    }
+    return cells;
+}
+
+std::vector<LongitudeSegment> make_longitude_segments(const std::vector<ConstantLatitudeCell> &cells, const std::vector<index_t> &band_cells,
+                                                      bool periodic, double period) {
+    std::vector<LongitudeSegment> result;
+    result.reserve(band_cells.size() * 2);
+    for (index_t cell_id : band_cells) {
+        const auto &cell = cells[static_cast<std::size_t>(cell_id)];
+        const double width = cell.east - cell.west;
+        if (!periodic) {
+            result.push_back(LongitudeSegment{cell.west, cell.east, cell_id});
+        } else if (width >= period - 1e-10 * std::max(1.0, period)) {
+            result.push_back(LongitudeSegment{0.0, period, cell_id});
+        } else {
+            double west = std::fmod(cell.west, period);
+            if (west < 0.0) west += period;
+            const double east = west + width;
+            if (east <= period) {
+                result.push_back(LongitudeSegment{west, east, cell_id});
+            } else {
+                result.push_back(LongitudeSegment{west, period, cell_id});
+                result.push_back(LongitudeSegment{0.0, east - period, cell_id});
+            }
+        }
+    }
+    std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) { return a.west < b.west || (a.west == b.west && a.east < b.east); });
+    return result;
+}
+
+template <class MemorySpace>
+InterpolationMatrix<MemorySpace> generate_constant_latitude_conservative(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
+                                                                         const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
+                                                                         const RegridConfig &config) {
+    const auto src_geometry = src_mesh.geometry_metadata();
+    const auto dst_geometry = dst_mesh.geometry_metadata();
+    // Longitude is circular for spherical cell geometry even when the overall
+    // mesh is regional. Normalize each cell arc into a common period; this
+    // does not close a regional mesh or make its domain periodic.
+    constexpr bool normalize_longitudes = true;
+    const double period = src_geometry.longitude_periodicity.period;
+    if (std::abs(period - dst_geometry.longitude_periodicity.period) > 1e-10 * std::max(1.0, period)) {
+        throw std::invalid_argument("constant-latitude overlay requires matching longitude periods");
+    }
+    if (!std::isfinite(period) || period <= 0.0) throw std::invalid_argument("constant-latitude overlay requires a finite positive longitude period");
+
+    const std::size_t n_src = src_mesh.n_cells();
+    const std::size_t n_dst = dst_mesh.n_cells();
+    const auto src_cells = extract_constant_latitude_cells(src_mesh, normalize_longitudes, period);
+    const auto dst_cells = extract_constant_latitude_cells(dst_mesh, normalize_longitudes, period);
+    const double radians = src_mesh.coord_system() == topology::CoordinateSystem::SphericalDeg ? std::acos(-1.0) / 180.0 : 1.0;
+    const auto src_areas = get_cell_areas(src_mesh);
+    const auto dst_areas = get_cell_areas(dst_mesh);
+    const auto src_mask = src_mesh.cell_mask();
+    const auto dst_mask = dst_mesh.cell_mask();
+    const bool has_src_mask = src_mask.extent(0) == n_src;
+    const bool has_dst_mask = dst_mask.extent(0) == n_dst;
+
+    std::map<std::pair<double, double>, ConstantLatitudeBand> src_band_map;
+    std::map<std::pair<double, double>, ConstantLatitudeBand> dst_band_map;
+    for (std::size_t i = 0; i < n_src; ++i) {
+        auto &band = src_band_map[{src_cells[i].south, src_cells[i].north}];
+        band.south = src_cells[i].south;
+        band.north = src_cells[i].north;
+        band.cells.push_back(static_cast<index_t>(i));
+    }
+    for (std::size_t j = 0; j < n_dst; ++j) {
+        auto &band = dst_band_map[{dst_cells[j].south, dst_cells[j].north}];
+        band.south = dst_cells[j].south;
+        band.north = dst_cells[j].north;
+        band.cells.push_back(static_cast<index_t>(j));
+    }
+    std::vector<ConstantLatitudeBand> src_bands, dst_bands;
+    for (auto &[key, band] : src_band_map) src_bands.push_back(std::move(band));
+    for (auto &[key, band] : dst_band_map) dst_bands.push_back(std::move(band));
+
+    std::vector<std::vector<LongitudeSegment>> src_segments(src_bands.size()), dst_segments(dst_bands.size());
+    for (std::size_t b = 0; b < src_bands.size(); ++b)
+        src_segments[b] = make_longitude_segments(src_cells, src_bands[b].cells, normalize_longitudes, period);
+    for (std::size_t b = 0; b < dst_bands.size(); ++b)
+        dst_segments[b] = make_longitude_segments(dst_cells, dst_bands[b].cells, normalize_longitudes, period);
+
+    std::vector<double> frac_a(n_src, 0.0), frac_b(n_dst, 0.0);
+    std::vector<double> weights;
+    std::vector<index_t> rows, columns;
+    std::vector<bool> dst_has_entry(n_dst, false);
+    const double tol = 1e-12 * std::max(1.0, period);
+
+    for (std::size_t db = 0; db < dst_bands.size(); ++db) {
+        const auto &dst_band = dst_bands[db];
+        for (std::size_t sb = 0; sb < src_bands.size(); ++sb) {
+            const auto &src_band = src_bands[sb];
+            const double south = std::max(dst_band.south, src_band.south);
+            const double north = std::min(dst_band.north, src_band.north);
+            if (north <= south) continue;
+            const double lat_factor = std::sin(north * radians) - std::sin(south * radians);
+            if (lat_factor <= 0.0) continue;
+
+            const auto &ss = src_segments[sb];
+            const auto &ds = dst_segments[db];
+            std::size_t si = 0, di = 0;
+            std::map<std::pair<index_t, index_t>, double> band_overlaps;
+            while (si < ss.size() && di < ds.size()) {
+                const double lon_width = std::min(ss[si].east, ds[di].east) - std::max(ss[si].west, ds[di].west);
+                if (lon_width > tol) band_overlaps[{ds[di].cell, ss[si].cell}] += lon_width * radians * lat_factor;
+                if (ss[si].east < ds[di].east - tol) {
+                    ++si;
+                } else if (ds[di].east < ss[si].east - tol) {
+                    ++di;
+                } else {
+                    ++si;
+                    ++di;
+                }
+            }
+
+            for (const auto &[pair, overlap] : band_overlaps) {
+                const std::size_t dst = static_cast<std::size_t>(pair.first);
+                const std::size_t src = static_cast<std::size_t>(pair.second);
+                if (has_dst_mask && dst_mask[dst] == 0) continue;
+                if (has_src_mask && src_mask[src] == 0) continue;
+                const double area_dst = dst_areas[dst];
+                const double area_src = src_areas[src];
+                if (area_dst <= 0.0 || area_src <= 0.0) continue;
+                weights.push_back(overlap / area_dst);
+                rows.push_back(static_cast<index_t>(dst));
+                columns.push_back(static_cast<index_t>(src));
+                frac_a[src] += overlap / area_src;
+                frac_b[dst] += overlap / area_dst;
+                dst_has_entry[dst] = true;
+            }
+        }
+    }
+
+    if (config.unmapped == UnmappedAction::Error) {
+        for (std::size_t dst = 0; dst < n_dst; ++dst) {
+            if (has_dst_mask && dst_mask[dst] == 0) continue;
+            if (dst_areas[dst] > 0.0 && !dst_has_entry[dst]) {
+                throw std::runtime_error("WeightGenerator::generate_conservative: unmapped destination cell " + std::to_string(dst));
+            }
+        }
+    }
+    if (config.norm_type == NormType::FracArea) {
+        for (std::size_t k = 0; k < weights.size(); ++k) {
+            const std::size_t dst = static_cast<std::size_t>(rows[k]);
+            if (frac_b[dst] > 0.0) weights[k] /= frac_b[dst];
+        }
+    }
+    for (double &fraction : frac_a) fraction = std::min(fraction, 1.0);
+    for (double &fraction : frac_b) fraction = std::min(fraction, 1.0);
+
+    Kokkos::View<double *, MemorySpace> factor_list("constant_latitude_factor", weights.size());
+    Kokkos::View<index_t *, MemorySpace> factor_row("constant_latitude_row", rows.size());
+    Kokkos::View<index_t *, MemorySpace> factor_col("constant_latitude_col", columns.size());
+    Kokkos::View<double *, MemorySpace> frac_a_view("constant_latitude_frac_a", n_src);
+    Kokkos::View<double *, MemorySpace> frac_b_view("constant_latitude_frac_b", n_dst);
+    Kokkos::View<double *, MemorySpace> area_a_view("constant_latitude_area_a", n_src);
+    Kokkos::View<double *, MemorySpace> area_b_view("constant_latitude_area_b", n_dst);
+    for (std::size_t k = 0; k < weights.size(); ++k) {
+        factor_list(k) = weights[k];
+        factor_row(k) = rows[k];
+        factor_col(k) = columns[k];
+    }
+    for (std::size_t i = 0; i < n_src; ++i) {
+        frac_a_view(i) = frac_a[i];
+        area_a_view(i) = src_areas[i];
+    }
+    for (std::size_t j = 0; j < n_dst; ++j) {
+        frac_b_view(j) = frac_b[j];
+        area_b_view(j) = dst_areas[j];
+    }
+    return InterpolationMatrix<MemorySpace>(std::move(factor_list), std::move(factor_row), std::move(factor_col), std::move(frac_a_view),
+                                            std::move(frac_b_view), std::move(area_a_view), std::move(area_b_view), n_src, n_dst);
 }
 
 // ──────────────────── Sutherland-Hodgman polygon clipping ────────────────────
@@ -2052,22 +2311,27 @@ InterpolationMatrix<MemorySpace> generate_nearest_rect(const topology::Unstructu
             index_t d_i = j % dst_ni;
             index_t d_j = j / dst_ni;
 
-            double lon = dst_lon_start + static_cast<double>(d_i) * dst_dlon;
-            double lat = dst_lat_start + static_cast<double>(d_j) * dst_dlat;
+            // RegularGridInfo stores cell-boundary minima. Nearest-neighbor
+            // selection is between cell centers, so offset both grids by half
+            // a cell before computing source indices.
+            double lon = dst_lon_start + (static_cast<double>(d_i) + 0.5) * dst_dlon;
+            double lat = dst_lat_start + (static_cast<double>(d_j) + 0.5) * dst_dlat;
+            const double src_lon_center_start = src_lon_start + 0.5 * src_dlon;
+            const double src_lat_center_start = src_lat_start + 0.5 * src_dlat;
 
             // Safe, periodic longitude shift mapping to standard [0, 360) space
-            double relative_lon = lon - src_lon_start;
+            double relative_lon = lon - src_lon_center_start;
             while (relative_lon < 0.0) relative_lon += 360.0;
             while (relative_lon >= 360.0) relative_lon -= 360.0;
 
             // Rounding to nearest source coordinate index
-            index_t s_i = static_cast<index_t>(Kokkos::round((lon - src_lon_start) / src_dlon));
+            index_t s_i = static_cast<index_t>(Kokkos::round(relative_lon / src_dlon));
 
             // Wrap longitude periodically
             s_i = s_i % src_ni;
             if (s_i < 0) s_i += src_ni;
 
-            index_t s_j = static_cast<index_t>(Kokkos::round((lat - src_lat_start) / src_dlat));
+            index_t s_j = static_cast<index_t>(Kokkos::round((lat - src_lat_center_start) / src_dlat));
 
             // Clamp latitude safely
             if (s_j < 0) s_j = 0;
@@ -3252,6 +3516,19 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
     // fully device-resident pipeline that avoids host round-trips.
     if constexpr (is_device_space_v<MemorySpace>) {
         return generate_conservative_device(src_mesh, dst_mesh, config);
+    }
+
+    if constexpr (std::is_same_v<MemorySpace, Kokkos::HostSpace>) {
+        const auto src_geometry = src_mesh.geometry_metadata();
+        const auto dst_geometry = dst_mesh.geometry_metadata();
+        const auto spherical =
+            src_mesh.coord_system() != topology::CoordinateSystem::Cartesian3D && dst_mesh.coord_system() != topology::CoordinateSystem::Cartesian3D;
+        if (spherical && src_geometry.boundary_model == topology::BoundaryModel::ConstantLatitude &&
+            dst_geometry.boundary_model == topology::BoundaryModel::ConstantLatitude &&
+            src_geometry.area_model == topology::AreaModel::ConstantLatitudeStrip &&
+            dst_geometry.area_model == topology::AreaModel::ConstantLatitudeStrip) {
+            return generate_constant_latitude_conservative(src_mesh, dst_mesh, config);
+        }
     }
 
     // ── Optimization dispatch (Req 2.1, 2.5) ──
