@@ -1,0 +1,798 @@
+{
+  "schema_version": 1,
+  "id": "paper",
+  "engines": [
+    "axis",
+    "esmc"
+  ],
+  "threads": 1,
+  "ranks": 1,
+  "warmups": 2,
+  "repetitions": 10,
+  "reuse": [
+    1,
+    100
+  ],
+  "tolerances": {
+    "reference": 1e-10,
+    "area": 1e-10,
+    "constant": 1e-10,
+    "conservation": 1e-10,
+    "near_zero": 1e-12,
+    "reproduction": 1e-10,
+    "smooth_rms": 0.1,
+    "max_depth": 20,
+    "max_subtriangles": 1000000,
+    "override_rationale": null
+  },
+  "cases": [
+    {
+      "id": "rect-8-constant-forward",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "id": "rect-8-constant-reverse",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "id": "rect-8-smooth-forward",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "id": "rect-8-smooth-reverse",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "id": "rect-8-sharp-forward",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 16,
+        "lon": [
+          70,
+          110
+        ]
+      }
+    },
+    {
+      "id": "rect-8-sharp-reverse",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 16,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      }
+    },
+    {
+      "id": "rect-16-constant-forward",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "id": "rect-16-constant-reverse",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "id": "rect-16-smooth-forward",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "id": "rect-16-smooth-reverse",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "id": "rect-16-sharp-forward",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 16,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 32,
+        "lon": [
+          70,
+          110
+        ]
+      }
+    },
+    {
+      "id": "rect-16-sharp-reverse",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 32,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 16,
+        "lon": [
+          70,
+          110
+        ]
+      }
+    },
+    {
+      "id": "rect-32-constant-forward",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "id": "rect-32-constant-reverse",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "id": "rect-32-smooth-forward",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "id": "rect-32-smooth-reverse",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "id": "rect-32-sharp-forward",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 32,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 64,
+        "lon": [
+          70,
+          110
+        ]
+      }
+    },
+    {
+      "id": "rect-32-sharp-reverse",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 64,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 32,
+        "lon": [
+          70,
+          110
+        ]
+      }
+    },
+    {
+      "id": "lcc-constant-False",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 40,
+        "lon": [
+          -103,
+          -89
+        ],
+        "lat": [
+          34,
+          46
+        ]
+      }
+    },
+    {
+      "id": "mpas-constant-False-original",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": false
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      }
+    },
+    {
+      "id": "mpas-constant-False-triangulated",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      }
+    },
+    {
+      "id": "lcc-constant-True",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "rect",
+        "n": 40,
+        "lon": [
+          -103,
+          -89
+        ],
+        "lat": [
+          34,
+          46
+        ]
+      },
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "id": "mpas-constant-True-original",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      },
+      "destination": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": false
+      }
+    },
+    {
+      "id": "mpas-constant-True-triangulated",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      },
+      "destination": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": true
+      }
+    },
+    {
+      "id": "lcc-smooth-False",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 40,
+        "lon": [
+          -103,
+          -89
+        ],
+        "lat": [
+          34,
+          46
+        ]
+      }
+    },
+    {
+      "id": "mpas-smooth-False-original",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": false
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      }
+    },
+    {
+      "id": "mpas-smooth-False-triangulated",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      }
+    },
+    {
+      "id": "lcc-smooth-True",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "rect",
+        "n": 40,
+        "lon": [
+          -103,
+          -89
+        ],
+        "lat": [
+          34,
+          46
+        ]
+      },
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "id": "mpas-smooth-True-original",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      },
+      "destination": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": false
+      }
+    },
+    {
+      "id": "mpas-smooth-True-triangulated",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      },
+      "destination": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": true
+      }
+    },
+    {
+      "id": "lcc-sharp-False",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 40,
+        "lon": [
+          -103,
+          -89
+        ],
+        "lat": [
+          34,
+          46
+        ]
+      }
+    },
+    {
+      "id": "mpas-sharp-False-original",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": false
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      }
+    },
+    {
+      "id": "mpas-sharp-False-triangulated",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      }
+    },
+    {
+      "id": "lcc-sharp-True",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "rect",
+        "n": 40,
+        "lon": [
+          -103,
+          -89
+        ],
+        "lat": [
+          34,
+          46
+        ]
+      },
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "id": "mpas-sharp-True-original",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      },
+      "destination": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": false
+      }
+    },
+    {
+      "id": "mpas-sharp-True-triangulated",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "mpas",
+      "source": {
+        "kind": "rect",
+        "n": 36,
+        "m": 18,
+        "lon": [
+          -180,
+          180
+        ],
+        "lat": [
+          -89.9,
+          89.9
+        ]
+      },
+      "destination": {
+        "kind": "mpas",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "mesh": "x1.2562",
+        "triangulate": true
+      }
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+#include <axis/solver/paper_diagnostics.hpp>
 // SPDX-License-Identifier: Apache-2.0
 // AXIS — Arbitrary eXgrid Interpolation Solver
 // Copyright (c) HELM Project Contributors
@@ -431,6 +432,7 @@ template <class MemorySpace>
 InterpolationMatrix<MemorySpace> generate_constant_latitude_conservative(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
                                                                          const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
                                                                          const RegridConfig &config) {
+    paper_overlap_begin();
     const auto src_geometry = src_mesh.geometry_metadata();
     const auto dst_geometry = dst_mesh.geometry_metadata();
     // Longitude is circular for spherical cell geometry even when the overall
@@ -501,6 +503,7 @@ InterpolationMatrix<MemorySpace> generate_constant_latitude_conservative(const t
             std::map<std::pair<index_t, index_t>, double> band_overlaps;
             while (si < ss.size() && di < ds.size()) {
                 const double lon_width = std::min(ss[si].east, ds[di].east) - std::max(ss[si].west, ds[di].west);
+                paper_overlap_observation(std::max(0.0, lon_width) * radians * lat_factor, tol * radians * lat_factor);
                 if (lon_width > tol) band_overlaps[{ds[di].cell, ss[si].cell}] += lon_width * radians * lat_factor;
                 if (ss[si].east < ds[di].east - tol) {
                     ++si;
@@ -2043,8 +2046,13 @@ InterpolationMatrix<MemorySpace> coastal_renormalize_and_extrapolate(const topol
 
         if (h_mask(i) > 0) {
             double s = row_sums[j];
-            if (s > 0.0 && s < 1.0) {
-                w /= s;  // Renormalize wet weights
+            // Conservative weights already encode DstArea or FracArea. Coastal
+            // row renormalization would turn diluted DstArea values into covered
+            // averages and break conservation, even with an all-wet mask.
+            const bool conservative =
+                config.method == InterpolationMethod::Conservative1stOrder || config.method == InterpolationMethod::Conservative2ndOrder;
+            if (!conservative && s > 0.0 && s < 1.0) {
+                w /= s;
             }
             u_rows.push_back(j);
             u_cols.push_back(i);
@@ -3515,6 +3523,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
     // When MemorySpace is a device space (CudaSpace/HIPSpace), route to the
     // fully device-resident pipeline that avoids host round-trips.
     if constexpr (is_device_space_v<MemorySpace>) {
+        paper_path("device_spherical");
         return generate_conservative_device(src_mesh, dst_mesh, config);
     }
 
@@ -3527,6 +3536,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
             dst_geometry.boundary_model == topology::BoundaryModel::ConstantLatitude &&
             src_geometry.area_model == topology::AreaModel::ConstantLatitudeStrip &&
             dst_geometry.area_model == topology::AreaModel::ConstantLatitudeStrip) {
+            paper_path("constant_latitude_strip");
             return generate_constant_latitude_conservative(src_mesh, dst_mesh, config);
         }
     }
@@ -3552,6 +3562,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
         // the BVH path validates — so keep the stricter nnz()>0 accept there and
         // let an all-zero-coverage matrix fall through to BVH to raise.
         if (result.n_dst() > 0 && (config.unmapped != UnmappedAction::Error || result.nnz() > 0)) {
+            paper_path("regular_rectangle");
             return result;
         }
     }
@@ -3567,13 +3578,16 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
         // even a zero-nonzero one; under Error keep the stricter nnz()>0 so an
         // all-zero-coverage matrix falls through to BVH to be diagnosed.
         if (result.n_dst() > 0 && (config.unmapped != UnmappedAction::Error || result.nnz() > 0)) {
+            paper_path("nonuniform_rectangle");
             return result;
         }
     }
 
     if (config.line_type == LineType::GreatCircle) {
+        paper_path("host_spherical_greiner_hormann");
         return generate_conservative_impl<3, MemorySpace>(src_mesh, dst_mesh, config);
     } else {
+        paper_path("host_planar_sutherland_hodgman");
         return generate_conservative_impl<2, MemorySpace>(src_mesh, dst_mesh, config);
     }
 }
@@ -3884,6 +3898,12 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
         // (unchanged behavior)
         // ══════════════════════════════════════════════════════════════════════
 
+        if (paper_diagnostics) {
+            paper_diagnostics->candidates = 0;
+            paper_diagnostics->invalid = 0;
+            paper_diagnostics->zero_overlap = 0;
+            paper_diagnostics->discarded = 0;
+        }
         for (std::size_t k = 0; k < n_dst; ++k) {
             // Process destinations in Morton/Z-curve order for spatial locality (Req 5.2)
             std::size_t j = static_cast<std::size_t>(sorted_dst(k));
@@ -3926,6 +3946,7 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
 
             for (int vi = begin; vi < end; ++vi) {
                 auto src_i = static_cast<std::size_t>(values(vi).index);
+                if (paper_diagnostics) ++paper_diagnostics->candidates;
 
                 // Skip masked source cells (Req 8.1)
                 if (has_src_mask && src_mask[src_i] == 0) continue;
@@ -3956,7 +3977,19 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
 
                 double overlap_area = axis::detail::SphericalClipper::overlap_area<32>(src_sp, dst_sp);
 
-                if (overlap_area <= 0.0) continue;
+                if (!std::isfinite(overlap_area)) {
+                    if (paper_diagnostics) ++paper_diagnostics->invalid;
+                    continue;
+                }
+                if (overlap_area <= 0.0) {
+                    if (paper_diagnostics) {
+                        if (overlap_area < 0)
+                            ++paper_diagnostics->discarded;
+                        else
+                            ++paper_diagnostics->zero_overlap;
+                    }
+                    continue;
+                }
 
                 double w_ij = overlap_area / area_dst;
                 w_ij = std::max(w_ij, 0.0);

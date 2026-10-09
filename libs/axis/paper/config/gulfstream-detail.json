@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "id": "gulfstream-detail",
+  "engines": [
+    "axis",
+    "esmc"
+  ],
+  "threads": 1,
+  "ranks": 1,
+  "warmups": 2,
+  "repetitions": 10,
+  "reuse": [
+    1,
+    100
+  ],
+  "tolerances": {
+    "reference": 1e-07,
+    "area": 1e-10,
+    "constant": 1e-10,
+    "conservation": 1e-10,
+    "near_zero": 1e-12,
+    "reproduction": 1e-10,
+    "smooth_rms": 0.1,
+    "max_depth": 20,
+    "max_subtriangles": 1000000,
+    "override_rationale": "New non-polynomial Valcke fields use independent adaptive 6/12-point spherical triangle quadrature; empirical integration uncertainty and double/extended precision agreement must meet 1e-7 times field bound. Existing geometry/conservation tolerances are unchanged."
+  },
+  "cases": [
+    {
+      "id": "atlantic-gulfstream-dstarea-forward",
+      "family": "rectilinear",
+      "field": "gulfstream",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "rect",
+        "n": 40,
+        "m": 24,
+        "lon": [
+          -85,
+          -10
+        ],
+        "lat": [
+          20,
+          65
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 120,
+        "m": 72,
+        "lon": [
+          -85,
+          -10
+        ],
+        "lat": [
+          20,
+          65
+        ]
+      }
+    }
+  ]
+}

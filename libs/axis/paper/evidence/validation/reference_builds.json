@@ -1,0 +1,76 @@
+{
+  "production_binary_sha256": "814560a3986c5a441605db5e945c78a0cd84ee85d9935c069838111b5b394308",
+  "refined_binary_sha256": "1e7e8e787188729d8fc29d7eaa87df2fdebc456f26a849a52bc7a757610c6c88",
+  "sources": {
+    "result_writer.cpp": {
+      "production_sha256": "cd9d20e7296af2d6a983394c566861e6e9307c83a6af1a7245bc5430f1eec2d2",
+      "doubled_order_sha256": "cd9d20e7296af2d6a983394c566861e6e9307c83a6af1a7245bc5430f1eec2d2"
+    },
+    "analytical_fields.hpp": {
+      "production_sha256": "8f142abcf276680535ba3ce462609795932e2c728d58e19009553aa1636808c6",
+      "doubled_order_sha256": "8f142abcf276680535ba3ce462609795932e2c728d58e19009553aa1636808c6"
+    },
+    "timing.hpp": {
+      "production_sha256": "61720c576d8cca16a9aabe8d879d9bc773cede557f9105cbcc5b5e3fade16969",
+      "doubled_order_sha256": "61720c576d8cca16a9aabe8d879d9bc773cede557f9105cbcc5b5e3fade16969"
+    },
+    "records.hpp": {
+      "production_sha256": "3685396ec598de407c6b8946068f765f05682b0f81892d858f97d64a8fb96505",
+      "doubled_order_sha256": "3685396ec598de407c6b8946068f765f05682b0f81892d858f97d64a8fb96505"
+    },
+    "field_quadrature.hpp": {
+      "production_sha256": "2c5b2d730e2241498c86bf54ea7bd42ce2dc3419fa9ad760448032d63f239b9a",
+      "doubled_order_sha256": "62752bafc0d632ccd04e1374c3ad8d95b4dcd515271b8fdf87d070ff9dc8a608"
+    },
+    "metrics.cpp": {
+      "production_sha256": "2c649f0d71ea2059b8de7fb7ff0f26d7aa0d264c948aa8285d32be3646f9a54b",
+      "doubled_order_sha256": "2c649f0d71ea2059b8de7fb7ff0f26d7aa0d264c948aa8285d32be3646f9a54b"
+    },
+    "case_io.cpp": {
+      "production_sha256": "2470567fdba7051f3d68ae2d34328c144ced32e7eb05c0abefcbfc72fc50f8d1",
+      "doubled_order_sha256": "2470567fdba7051f3d68ae2d34328c144ced32e7eb05c0abefcbfc72fc50f8d1"
+    },
+    "case_io.hpp": {
+      "production_sha256": "eca76e154f6c6a764f40b4436dcf6a8803a812451d8d0dbb53d3779cc9a43ca5",
+      "doubled_order_sha256": "eca76e154f6c6a764f40b4436dcf6a8803a812451d8d0dbb53d3779cc9a43ca5"
+    },
+    "reference.cpp": {
+      "production_sha256": "6a256ea12da8903929aa3eb6a7f882bcfba2056153d9f95b8e2eacd859e1098b",
+      "doubled_order_sha256": "6a256ea12da8903929aa3eb6a7f882bcfba2056153d9f95b8e2eacd859e1098b"
+    },
+    "axis_worker.cpp": {
+      "production_sha256": "52e12d59e03f0a9a87c5af6440e04830dede136276048d4883c06694d4cd684e",
+      "doubled_order_sha256": "52e12d59e03f0a9a87c5af6440e04830dede136276048d4883c06694d4cd684e"
+    },
+    "result_writer.hpp": {
+      "production_sha256": "d8550eb6b466aac32228d3b57f41046d59a894392a6b1ae012ca5019b95de851",
+      "doubled_order_sha256": "d8550eb6b466aac32228d3b57f41046d59a894392a6b1ae012ca5019b95de851"
+    },
+    "provenance.hpp": {
+      "production_sha256": "98fa0edeea8aeaf1bf88fab6c8a496264ac6268929268f086e1a5cc7158604ba",
+      "doubled_order_sha256": "98fa0edeea8aeaf1bf88fab6c8a496264ac6268929268f086e1a5cc7158604ba"
+    },
+    "esmc_worker.cpp": {
+      "production_sha256": "dceef9e1bc881dd14be5d45f359a454eecf086646c52e57307ca492bae36aa7e",
+      "doubled_order_sha256": "dceef9e1bc881dd14be5d45f359a454eecf086646c52e57307ca492bae36aa7e"
+    },
+    "reference_geometry.hpp": {
+      "production_sha256": "5dd387ad50c6392a5ebf1ae35c78b6f44c6e574293261ae2eb32a00138faac63",
+      "doubled_order_sha256": "5dd387ad50c6392a5ebf1ae35c78b6f44c6e574293261ae2eb32a00138faac63"
+    }
+  },
+  "compile_command": [
+    "c++",
+    "-std=c++20",
+    "-O3",
+    "-DNDEBUG",
+    "-I/out/refined-reference-source",
+    "-I/out/build/paper",
+    "/out/refined-reference-source/reference.cpp",
+    "/out/build/paper/libaxis_paper_support.a",
+    "-lnetcdf",
+    "-o",
+    "/out/axis_paper_reference_refined"
+  ],
+  "difference": "Only tensor Gauss orders change from 6/12 to 12/24; both variants use the new phase bounds and 0.1 degree feature sampling."
+}

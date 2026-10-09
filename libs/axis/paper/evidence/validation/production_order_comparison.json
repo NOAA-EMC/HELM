@@ -1,0 +1,107 @@
+{
+  "absolute_tolerance": 5e-07,
+  "description": "Observed reference convergence under independently doubled Gauss orders",
+  "generator_sha256": "5adc41b745a667b27d7508d7bf40ee2b6b47987043272ddc5c1ec55179f04675",
+  "records": [
+    {
+      "case_id": "atlantic-gulfstream-dstarea-forward",
+      "dst": {
+        "maximum_absolute_difference": 4.909193052071714e-08,
+        "within_combined_empirical_estimates": false
+      },
+      "original_reference_sha256": "daa42418f1ec0047498293fc6e68b36dfd23cbec934aa264deae9db48cf1cd1b",
+      "passed": true,
+      "refined_reference_sha256": "c411f15fd26f82f2140d67d6a5efaf5aacac59c75856eec82634c74e6eaa4f9e",
+      "src": {
+        "maximum_absolute_difference": 7.690812431349059e-09,
+        "within_combined_empirical_estimates": true
+      }
+    },
+    {
+      "case_id": "lcc-gulfstream-dstarea-forward",
+      "dst": {
+        "maximum_absolute_difference": 2.5024514238580764e-08,
+        "within_combined_empirical_estimates": true
+      },
+      "original_reference_sha256": "8ad697d0b64c2898dbe117cec5be418ef0bbc9b3d5c74daf534fe89a62730b3e",
+      "passed": true,
+      "refined_reference_sha256": "f62f5623bbd78fc8f3f7e559f3568383ff351be81154b5d10fdb6bb4aacc3721",
+      "src": {
+        "maximum_absolute_difference": 2.949681965347395e-08,
+        "within_combined_empirical_estimates": true
+      }
+    },
+    {
+      "case_id": "lcc-gulfstream-dstarea-reverse",
+      "dst": {
+        "maximum_absolute_difference": 2.949681965347395e-08,
+        "within_combined_empirical_estimates": true
+      },
+      "original_reference_sha256": "a02c68e00a53aab583e6e18f3dd6f3b62b7fdfc6533a968b588470f323c88845",
+      "passed": true,
+      "refined_reference_sha256": "c8013bbcff5fd5e12ef3004903c121158b7aa785dd5753f763f2ae914f699b74",
+      "src": {
+        "maximum_absolute_difference": 2.5024514238580764e-08,
+        "within_combined_empirical_estimates": true
+      }
+    },
+    {
+      "case_id": "lcc-gulfstream-fracarea-forward",
+      "dst": {
+        "maximum_absolute_difference": 2.5024514238580764e-08,
+        "within_combined_empirical_estimates": true
+      },
+      "original_reference_sha256": "acd687f7775092a9103fd06c848ddb85a2d9fb920f993b5955e6cb6fec860c41",
+      "passed": true,
+      "refined_reference_sha256": "a84cc2d03230e5c334956e45caca5f086fc5c57dab6dcd60329121032f202f97",
+      "src": {
+        "maximum_absolute_difference": 2.949681965347395e-08,
+        "within_combined_empirical_estimates": true
+      }
+    },
+    {
+      "case_id": "lcc-gulfstream-fracarea-reverse",
+      "dst": {
+        "maximum_absolute_difference": 2.949681965347395e-08,
+        "within_combined_empirical_estimates": true
+      },
+      "original_reference_sha256": "862f70d91158f28142c1215e78a97aef6df9c0ad7daa2baa9d52f61a20275a76",
+      "passed": true,
+      "refined_reference_sha256": "a5e6a2b6191496610e0bd9a695083deba9b26e5bb96a4b79344b0d64859ffab4",
+      "src": {
+        "maximum_absolute_difference": 2.5024514238580764e-08,
+        "within_combined_empirical_estimates": true
+      }
+    },
+    {
+      "case_id": "mpas-gulfstream-dstarea-forward",
+      "dst": {
+        "maximum_absolute_difference": 1.5650636342456892e-09,
+        "within_combined_empirical_estimates": true
+      },
+      "original_reference_sha256": "7d0fe0c54e49954e23d6e927b52127d7817904effb4f965bd8bb25f8cbc91073",
+      "passed": true,
+      "refined_reference_sha256": "09941d27718b28c6f7297c746c4e73830a7bfb5d1b35b65a5119738bba6a3b76",
+      "src": {
+        "maximum_absolute_difference": 6.682270292657222e-09,
+        "within_combined_empirical_estimates": true
+      }
+    },
+    {
+      "case_id": "rectilinear-gulfstream-dstarea-forward",
+      "dst": {
+        "maximum_absolute_difference": 2.9339348728285586e-09,
+        "within_combined_empirical_estimates": true
+      },
+      "original_reference_sha256": "e407fa288bcb5cf42464e5d26581b0b440b0c249b9305a5651344f498ea3e886",
+      "passed": true,
+      "refined_reference_sha256": "87e092f2d11447a956aa532ba6d06d029467b37cdbd281c3dc84d466d63deb34",
+      "src": {
+        "maximum_absolute_difference": 1.5650636342456892e-09,
+        "within_combined_empirical_estimates": true
+      }
+    }
+  ],
+  "schema_version": 1,
+  "status": "pass"
+}

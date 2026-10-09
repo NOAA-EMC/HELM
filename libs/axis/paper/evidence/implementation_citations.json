@@ -1,0 +1,194 @@
+{
+  "citations": [
+    {
+      "description": "AXIS conservative dispatch: metadata strip shortcut, regular/rectilinear shortcuts, then general BVH and clipping",
+      "path": "libs/axis/src/solver/weight_generator.cpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "8772c0be4a2288fc21a8d89f838795a12b2ed26249678fcc74cb209284574045",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "generate_conservative"
+    },
+    {
+      "description": "Actual spherical great-circle half-space clipping (Sutherland\u2013Hodgman style, despite legacy Greiner\u2013Hormann labels)",
+      "path": "libs/axis/include/axis/detail/spherical_clipper.hpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "4fc97a31651355f4b9a0c85dd33a60c4501d612a3e591975c49bd3850f453f0b",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "SphericalClipper"
+    },
+    {
+      "description": "Cartesian Sutherland\u2013Hodgman clipping",
+      "path": "libs/axis/include/axis/detail/planar_clipper.hpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "5655b518d5a7339b5f2adeef513cbf92a4e29b5e83cfc1809fd1ad56a6799311",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "PlanarClipper"
+    },
+    {
+      "description": "Explicit normalization and extrapolation settings",
+      "path": "libs/axis/include/axis/solver/regrid_config.hpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "d46c0c792449a8efc69c1c4c4dfc1be38d7ebd78fad751eafbc396f2c74500a6",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "ExtrapolationAction"
+    },
+    {
+      "description": "Reusable sparse weights, fractions, areas, and CSR conversion",
+      "path": "libs/axis/include/axis/solver/interpolation_matrix.hpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "e8736033d249f8c21aeecd8cce13c95a1570931a126d79ba91d5f0937de8c84c",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "to_csr"
+    },
+    {
+      "description": "Native repeated weight application",
+      "path": "libs/axis/include/axis/solver/apply.hpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "f7425b2b28807142eb7273ac69148216e7841331c8c558449bdd1c93ac21cd10",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "void apply"
+    },
+    {
+      "description": "Independent analytic convex-polygon and rectangle references",
+      "path": "libs/axis/paper/native/reference.cpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "6a256ea12da8903929aa3eb6a7f882bcfba2056153d9f95b8e2eacd859e1098b",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "compute_reference"
+    },
+    {
+      "description": "Native ESMC store, apply, and release lifecycle",
+      "path": "libs/axis/paper/native/esmc_worker.cpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "dceef9e1bc881dd14be5d45f359a454eecf086646c52e57307ca492bae36aa7e",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "ESMC_FieldRegridStore"
+    },
+    {
+      "description": "Independent quality/conservation metrics",
+      "path": "libs/axis/paper/native/metrics.cpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "2c649f0d71ea2059b8de7fb7ff0f26d7aa0d264c948aa8285d32be3646f9a54b",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "conservation_absolute"
+    },
+    {
+      "description": "Independent analytic spherical/rectangle geometry and double/extended-precision evaluation",
+      "path": "libs/axis/paper/native/reference_geometry.hpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "5dd387ad50c6392a5ebf1ae35c78b6f44c6e574293261ae2eb32a00138faac63",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "ReferenceGeometry"
+    },
+    {
+      "description": "Native AXIS adapter, explicit geometry, supplied strip areas, and timing lifecycle",
+      "path": "libs/axis/paper/native/axis_worker.cpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "52e12d59e03f0a9a87c5af6440e04830dede136276048d4883c06694d4cd684e",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "make_axis_mesh"
+    },
+    {
+      "description": "Analytic regular-rectangle shortcut and optional host overlap counters",
+      "path": "libs/axis/src/solver/weight_generator_conservative_rect.cpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "16a21b724d6345baabef565ba23264552cd3334fd5a877dde1e279da60cfc391",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "generate_conservative_rect"
+    },
+    {
+      "description": "Nonuniform rectangle shortcut and its overlap threshold",
+      "path": "libs/axis/src/solver/weight_generator_conservative_rect_nonuniform.cpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "1d73ba4ef63f37dea37e1b78ec79370bcca398e649d7fc23d497b5c982087b5a",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "generate_conservative_rect_nonuniform"
+    },
+    {
+      "description": "Completed-work timing boundaries, reuse observations, and failure-safe sample journal",
+      "path": "libs/axis/paper/native/timing.hpp",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "61720c576d8cca16a9aabe8d879d9bc773cede557f9105cbcc5b5e3fade16969",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "measure_reused_operator"
+    },
+    {
+      "description": "xarray canonical fixtures, LCC projected corners, and distinct MPAS triangulations",
+      "path": "libs/axis/paper/scripts/prepare_cases.py",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "f4a78ada07a5aa8b2630f41d0dfe1a0fba0d20f0d3972ea5c1e7ac4658289733",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "write_case"
+    },
+    {
+      "description": "Four analytical mathematical fields from Valcke et al. (2022), Appendix A, independently implemented with explicit parameters",
+      "path": "libs/axis/paper/native/analytical_fields.hpp",
+      "review_status": "source inspected; native supplemental study and independent order validation accepted",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "8f142abcf276680535ba3ce462609795932e2c728d58e19009553aa1636808c6",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "analytical_value"
+    },
+    {
+      "description": "Independent adaptive spherical-triangle quadrature with global error budgets and largest-error refinement",
+      "path": "libs/axis/paper/native/field_quadrature.hpp",
+      "review_status": "source inspected; native supplemental study and independent order validation accepted",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "2c5b2d730e2241498c86bf54ea7bd42ce2dc3419fa9ad760448032d63f239b9a",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "FieldQuadrature"
+    },
+    {
+      "description": "Saved-result percentage-misfit, conservation, mesh/field and paired-error-map publication figures",
+      "path": "libs/axis/paper/scripts/make_comparison_figures.py",
+      "review_status": "source inspected; native supplemental study and independent order validation accepted",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "9102dcf72addc5cab92d422208d1e639c85dab3f50a1b4a29a399b39e6563652",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "metric_panels"
+    },
+    {
+      "description": "xarray validation of source and destination reference convergence under independently doubled native quadrature orders",
+      "path": "libs/axis/paper/scripts/compare_reference_orders.py",
+      "review_status": "source inspected; native supplemental study and independent order validation accepted",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "sha256": "5adc41b745a667b27d7508d7bf40ee2b6b47987043272ddc5c1ec55179f04675",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "symbol": "compare_reference"
+    },
+    {
+      "path": "libs/axis/paper/scripts/polar_mesh.py",
+      "symbol": "polar_coordinates",
+      "description": "Periodic spherical cap mesh with a single North Pole node",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "review_status": "source inspected; native polar study and reference validation accepted",
+      "sha256": "f19ad6463479b672654a8b3a36fbaa3e543fa9198aa74542289e49bac84dcd06"
+    },
+    {
+      "path": "libs/axis/paper/scripts/make_polar_figures.py",
+      "symbol": "polar_panel",
+      "description": "Pole-centered publication figures with common normalization comparison scales",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "snapshot_kind": "working_tree_at_base_revision",
+      "review_status": "source inspected; native polar study and reference validation accepted",
+      "sha256": "cd7e63182be56fea4b41f540d1d2f6255841d13c9dd9ebe1c5bdf08c18dc2865"
+    }
+  ],
+  "schema_version": 1
+}

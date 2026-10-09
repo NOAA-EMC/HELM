@@ -1,0 +1,65 @@
+{
+  "absolute_tolerance": 5e-07,
+  "description": "Observed reference convergence under independently doubled Gauss orders",
+  "generator_sha256": "5adc41b745a667b27d7508d7bf40ee2b6b47987043272ddc5c1ec55179f04675",
+  "records": [
+    {
+      "case_id": "rectilinear-gulfstream-dstarea-forward",
+      "dst": {
+        "maximum_absolute_difference": 9.542213907920427e-09,
+        "within_combined_empirical_estimates": true
+      },
+      "original_reference_sha256": "03ee5206ffac476284d1e4e09a8bace68f41072aabd9491e9f92b40271cd23a8",
+      "passed": true,
+      "refined_reference_sha256": "bd6587391b1e90978599d00dee35bd3bbd0c400c1f4e81649297bec7dd992c9e",
+      "src": {
+        "maximum_absolute_difference": 7.223095455088924e-10,
+        "within_combined_empirical_estimates": true
+      }
+    },
+    {
+      "case_id": "rectilinear-harmonic-dstarea-forward",
+      "dst": {
+        "maximum_absolute_difference": 1.4210854715202004e-14,
+        "within_combined_empirical_estimates": true
+      },
+      "original_reference_sha256": "f930ee8f4893847101976cc627a05989b70768b44e3651d253934b425ef3f82e",
+      "passed": true,
+      "refined_reference_sha256": "04bec68d516df1dbcbd2d321cdd2499b8585d9d18901e38c865c0763234889cb",
+      "src": {
+        "maximum_absolute_difference": 1.2234657731369225e-13,
+        "within_combined_empirical_estimates": true
+      }
+    },
+    {
+      "case_id": "rectilinear-sinusoid-dstarea-forward",
+      "dst": {
+        "maximum_absolute_difference": 8.008260721226179e-12,
+        "within_combined_empirical_estimates": true
+      },
+      "original_reference_sha256": "a3f22c27fed96ddc038b9e528752e8f2ddb3ad8d9049a4e4c2a0405763a8a8fa",
+      "passed": true,
+      "refined_reference_sha256": "dfa9ba8c37f225d9075f68fdec0389d588322c66673ee6ebae4670745ba63c03",
+      "src": {
+        "maximum_absolute_difference": 5.3170801095348e-12,
+        "within_combined_empirical_estimates": true
+      }
+    },
+    {
+      "case_id": "rectilinear-vortex-dstarea-forward",
+      "dst": {
+        "maximum_absolute_difference": 1.9984014443252818e-14,
+        "within_combined_empirical_estimates": true
+      },
+      "original_reference_sha256": "ebb8b8feff2990c403f2b1d51560ec9003a2107087719dc9367e54bab01f63f3",
+      "passed": true,
+      "refined_reference_sha256": "0762fa35943785f1feb530fd1fd259c8a803e3d209987d2b8934ec375b9d8311",
+      "src": {
+        "maximum_absolute_difference": 4.21773727055097e-12,
+        "within_combined_empirical_estimates": true
+      }
+    }
+  ],
+  "schema_version": 1,
+  "status": "pass"
+}

@@ -1,0 +1,282 @@
+{
+  "schema_version": 1,
+  "id": "polar",
+  "engines": [
+    "axis",
+    "esmc"
+  ],
+  "threads": 1,
+  "ranks": 1,
+  "warmups": 2,
+  "repetitions": 10,
+  "reuse": [
+    1,
+    100
+  ],
+  "tolerances": {
+    "reference": 1e-07,
+    "area": 1e-10,
+    "constant": 1e-10,
+    "conservation": 1e-10,
+    "near_zero": 1e-12,
+    "reproduction": 1e-10,
+    "smooth_rms": 0.1,
+    "max_depth": 20,
+    "max_subtriangles": 1000000,
+    "override_rationale": "New non-polynomial Valcke fields use independent adaptive 6/12-point spherical triangle quadrature; empirical integration uncertainty and double/extended precision agreement must meet 1e-7 times field bound. Existing geometry/conservation tolerances are unchanged."
+  },
+  "cases": [
+    {
+      "id": "polar-constant-dstarea-forward",
+      "family": "polar",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      }
+    },
+    {
+      "id": "polar-constant-dstarea-reverse",
+      "family": "polar",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      }
+    },
+    {
+      "id": "polar-constant-fracarea-forward",
+      "family": "polar",
+      "field": "constant",
+      "norm": "fracarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      }
+    },
+    {
+      "id": "polar-constant-fracarea-reverse",
+      "family": "polar",
+      "field": "constant",
+      "norm": "fracarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      }
+    },
+    {
+      "id": "polar-smooth-dstarea-forward",
+      "family": "polar",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      }
+    },
+    {
+      "id": "polar-smooth-dstarea-reverse",
+      "family": "polar",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      }
+    },
+    {
+      "id": "polar-smooth-fracarea-forward",
+      "family": "polar",
+      "field": "smooth",
+      "norm": "fracarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      }
+    },
+    {
+      "id": "polar-smooth-fracarea-reverse",
+      "family": "polar",
+      "field": "smooth",
+      "norm": "fracarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      }
+    },
+    {
+      "id": "polar-harmonic-dstarea-forward",
+      "family": "polar",
+      "field": "harmonic",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      }
+    },
+    {
+      "id": "polar-harmonic-dstarea-reverse",
+      "family": "polar",
+      "field": "harmonic",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      }
+    },
+    {
+      "id": "polar-harmonic-fracarea-forward",
+      "family": "polar",
+      "field": "harmonic",
+      "norm": "fracarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      }
+    },
+    {
+      "id": "polar-harmonic-fracarea-reverse",
+      "family": "polar",
+      "field": "harmonic",
+      "norm": "fracarea",
+      "geometry": "great_circle",
+      "source": {
+        "kind": "polar",
+        "n": 48,
+        "m": 16,
+        "minimum_latitude": 60,
+        "rotation": 3.75
+      },
+      "destination": {
+        "kind": "polar",
+        "n": 24,
+        "m": 8,
+        "minimum_latitude": 60,
+        "rotation": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "status": "rejected",
+  "acceptance_absolute": 5e-07,
+  "cause": "Both original Gauss rules could miss the narrow Gulf Stream feature. Initial valcke-final and gulfstream-detail bundles are excluded from final scientific claims.",
+  "records": [
+    {
+      "case_id": "rectilinear-gulfstream-dstarea-forward",
+      "source_max_difference": 1.1272425515462814e-05,
+      "destination_max_difference": 0.0019221789058585514,
+      "passed": false,
+      "old_reference_sha256": "73c65df537476be4c1392ef468ee0266d1198d2a7fa86598fa57eb8948b8f405",
+      "refined_reference_sha256": "d354a025ade9c3a14334d3cf9610e706c22a1203f9f4276fced6a73f49050a85"
+    },
+    {
+      "case_id": "rectilinear-harmonic-dstarea-forward",
+      "source_max_difference": 1.3167245072054357e-13,
+      "destination_max_difference": 1.4654943925052066e-14,
+      "passed": true,
+      "old_reference_sha256": "983da1bdbb6ae4d42137cd4d79ebfd5ef74c015ac6b185b267ab7eab17413dae",
+      "refined_reference_sha256": "42ad499e7c8adb95613611538a14fd2d2b5fb41db86141109eb23a631e52de7d"
+    },
+    {
+      "case_id": "rectilinear-sinusoid-dstarea-forward",
+      "source_max_difference": 5.3170801095348e-12,
+      "destination_max_difference": 8.008260721226179e-12,
+      "passed": true,
+      "old_reference_sha256": "2df85eab6173e60a2880fb557b5477ec289eb9528fcdda8a9c1dc94c6abea48b",
+      "refined_reference_sha256": "a4ad23cd68d3d6f288584e6bd8821f6a24cddfa6b970195b1afdb7609a8a3bab"
+    },
+    {
+      "case_id": "rectilinear-vortex-dstarea-forward",
+      "source_max_difference": 4.218403404365745e-12,
+      "destination_max_difference": 2.0872192862952943e-14,
+      "passed": true,
+      "old_reference_sha256": "71ca13f6cf321e2eb4848bd5bfec955d182a73da8fb966d0b15b8a706f2079cb",
+      "refined_reference_sha256": "f18ff0bb44475ff4a0e6e692cef16f4deac55e0953190b81915c403d3ef37e53"
+    }
+  ]
+}

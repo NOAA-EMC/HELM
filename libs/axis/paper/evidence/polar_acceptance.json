@@ -1,0 +1,216 @@
+{
+  "accuracy": [
+    {
+      "case_id": "polar-constant-dstarea-forward",
+      "engine": "axis",
+      "relative_rms_percent": 8.150348448481764e-13
+    },
+    {
+      "case_id": "polar-constant-dstarea-forward",
+      "engine": "esmc",
+      "relative_rms_percent": 2.426165213691059e-13
+    },
+    {
+      "case_id": "polar-constant-dstarea-reverse",
+      "engine": "axis",
+      "relative_rms_percent": 3.267403977150518e-13
+    },
+    {
+      "case_id": "polar-constant-dstarea-reverse",
+      "engine": "esmc",
+      "relative_rms_percent": 1.1219474005845192e-13
+    },
+    {
+      "case_id": "polar-constant-fracarea-forward",
+      "engine": "axis",
+      "relative_rms_percent": 1.1708675320537252e-14
+    },
+    {
+      "case_id": "polar-constant-fracarea-forward",
+      "engine": "esmc",
+      "relative_rms_percent": 1.2748475853894178e-14
+    },
+    {
+      "case_id": "polar-constant-fracarea-reverse",
+      "engine": "axis",
+      "relative_rms_percent": 2.0057551350074846e-14
+    },
+    {
+      "case_id": "polar-constant-fracarea-reverse",
+      "engine": "esmc",
+      "relative_rms_percent": 1.971319011053603e-14
+    },
+    {
+      "case_id": "polar-smooth-dstarea-forward",
+      "engine": "axis",
+      "relative_rms_percent": 0.5636045282222903
+    },
+    {
+      "case_id": "polar-smooth-dstarea-forward",
+      "engine": "esmc",
+      "relative_rms_percent": 0.563604528222296
+    },
+    {
+      "case_id": "polar-smooth-dstarea-reverse",
+      "engine": "axis",
+      "relative_rms_percent": 0.09350456119537796
+    },
+    {
+      "case_id": "polar-smooth-dstarea-reverse",
+      "engine": "esmc",
+      "relative_rms_percent": 0.09350456119539426
+    },
+    {
+      "case_id": "polar-smooth-fracarea-forward",
+      "engine": "axis",
+      "relative_rms_percent": 0.5636045282222966
+    },
+    {
+      "case_id": "polar-smooth-fracarea-forward",
+      "engine": "esmc",
+      "relative_rms_percent": 0.5636045282222976
+    },
+    {
+      "case_id": "polar-smooth-fracarea-reverse",
+      "engine": "axis",
+      "relative_rms_percent": 0.09350456119539226
+    },
+    {
+      "case_id": "polar-smooth-fracarea-reverse",
+      "engine": "esmc",
+      "relative_rms_percent": 0.0935045611953927
+    },
+    {
+      "case_id": "polar-harmonic-dstarea-forward",
+      "engine": "axis",
+      "relative_rms_percent": 0.5184176159750759
+    },
+    {
+      "case_id": "polar-harmonic-dstarea-forward",
+      "engine": "esmc",
+      "relative_rms_percent": 0.5184176159750928
+    },
+    {
+      "case_id": "polar-harmonic-dstarea-reverse",
+      "engine": "axis",
+      "relative_rms_percent": 0.12316369735131136
+    },
+    {
+      "case_id": "polar-harmonic-dstarea-reverse",
+      "engine": "esmc",
+      "relative_rms_percent": 0.12316369735127848
+    },
+    {
+      "case_id": "polar-harmonic-fracarea-forward",
+      "engine": "axis",
+      "relative_rms_percent": 0.5184176159750945
+    },
+    {
+      "case_id": "polar-harmonic-fracarea-forward",
+      "engine": "esmc",
+      "relative_rms_percent": 0.5184176159750945
+    },
+    {
+      "case_id": "polar-harmonic-fracarea-reverse",
+      "engine": "axis",
+      "relative_rms_percent": 0.12316369735129087
+    },
+    {
+      "case_id": "polar-harmonic-fracarea-reverse",
+      "engine": "esmc",
+      "relative_rms_percent": 0.1231636973512908
+    }
+  ],
+  "cases": 12,
+  "maximum_reproduction_difference": 0,
+  "maximum_source_conservation_percent": 5.059522191233536e-13,
+  "numerical_checks": [
+    "pass"
+  ],
+  "records": 48,
+  "reference_order_comparison": {
+    "absolute_tolerance": 5e-07,
+    "description": "Observed reference convergence under independently doubled Gauss orders",
+    "generator_sha256": "5adc41b745a667b27d7508d7bf40ee2b6b47987043272ddc5c1ec55179f04675",
+    "records": [
+      {
+        "case_id": "polar-harmonic-dstarea-forward",
+        "dst": {
+          "maximum_absolute_difference": 1.199040866595169e-14,
+          "within_combined_empirical_estimates": true
+        },
+        "original_reference_sha256": "eaf4ecaf8e0b2f84fe1d451768b41d776a61eb3b5f966e1d8d83ae06b32a7d9c",
+        "passed": true,
+        "refined_reference_sha256": "3ced4fab234cadf520579df20055d6487ed476632128616dd3f962e11075d0e6",
+        "src": {
+          "maximum_absolute_difference": 1.0880185641326534e-14,
+          "within_combined_empirical_estimates": true
+        }
+      },
+      {
+        "case_id": "polar-harmonic-dstarea-reverse",
+        "dst": {
+          "maximum_absolute_difference": 1.0880185641326534e-14,
+          "within_combined_empirical_estimates": true
+        },
+        "original_reference_sha256": "8844fca9f2f73049e93238a712982213fa68ce3bd6933cf8c931c1e9bdbb86d2",
+        "passed": true,
+        "refined_reference_sha256": "f98cf3264892f3939643dbbd3de85a9083cae7754b6fcdaf837bb19ce47f80b2",
+        "src": {
+          "maximum_absolute_difference": 1.199040866595169e-14,
+          "within_combined_empirical_estimates": true
+        }
+      },
+      {
+        "case_id": "polar-harmonic-fracarea-forward",
+        "dst": {
+          "maximum_absolute_difference": 1.199040866595169e-14,
+          "within_combined_empirical_estimates": true
+        },
+        "original_reference_sha256": "f70bd06aca2e34238c64b75e84b0c355eaa14a7ce2c15f52ac320236f12f3498",
+        "passed": true,
+        "refined_reference_sha256": "de43be4a97dab4851ea66bbea7138afc2588b8c41547574565fea5977cc1a4c1",
+        "src": {
+          "maximum_absolute_difference": 1.0880185641326534e-14,
+          "within_combined_empirical_estimates": true
+        }
+      },
+      {
+        "case_id": "polar-harmonic-fracarea-reverse",
+        "dst": {
+          "maximum_absolute_difference": 1.0880185641326534e-14,
+          "within_combined_empirical_estimates": true
+        },
+        "original_reference_sha256": "a045b01e9ba68dd352c128e6bc805cdddee93352c2558944613418204e5b0c35",
+        "passed": true,
+        "refined_reference_sha256": "77d1367811f72616cc3e8eb9baf54fb43384ceda30fb4306984f532fdc4a51b3",
+        "src": {
+          "maximum_absolute_difference": 1.199040866595169e-14,
+          "within_combined_empirical_estimates": true
+        }
+      }
+    ],
+    "schema_version": 1,
+    "status": "pass"
+  },
+  "reference_order_maximum_difference": 1.199040866595169e-14,
+  "schema_version": 1,
+  "status": "accepted",
+  "suite_sha256": "6f5c1e806603c41f7def608f3b7716677ea70168e362b57e5f379916077cfa89",
+  "topology": {
+    "destination": {
+      "boundary_edges": 48,
+      "cells": 1488,
+      "euler_characteristic": 1,
+      "minimum_cell_area": 6.988551800477609e-05,
+      "pole_nodes": 1
+    },
+    "source": {
+      "boundary_edges": 24,
+      "cells": 360,
+      "euler_characteristic": 1,
+      "minimum_cell_area": 0.0005541716436068115,
+      "pole_nodes": 1
+    }
+  }
+}

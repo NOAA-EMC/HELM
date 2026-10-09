@@ -1,0 +1,8 @@
+runs/
+data/
+build*/
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+*.tmp

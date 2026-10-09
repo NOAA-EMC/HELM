@@ -1,0 +1,22 @@
+{
+  "authors": "Valcke, Piacentini and Jonville",
+  "doi": "10.3390/mca27020031",
+  "download_sha256": "25bd4ca364c31fa63365c7f802e2b228d2abbaa10a576b6bbd221bbfcb5551a0",
+  "inspected_pages": [
+    4,
+    5,
+    8,
+    12,
+    13,
+    15,
+    21,
+    22,
+    23
+  ],
+  "license": "CC BY 4.0",
+  "method": "PDFKit text extraction and rendered appendix/figure page inspection; mathematical functions transcribed into independently written C++",
+  "schema_version": 1,
+  "title": "Benchmarking Regridding Libraries Used in Earth System Modelling",
+  "url": "https://cerfacs.fr/wp-content/uploads/2022/04/Globc_AR_Valcke_Math_Comput_Appl_AR-CMGC-22-28.pdf",
+  "year": 2022
+}
