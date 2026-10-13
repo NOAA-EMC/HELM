@@ -73,6 +73,8 @@ void ensure_kokkos() {
     }
 }
 
+#include "vertical_conservative_bindings.hpp"
+
 // ─── Helper: Build a regular lat-lon mesh from numpy arrays ──────────────────
 
 HostMesh make_regular_mesh(std::size_t ni, std::size_t nj, double lon_start, double lat_start, double dlon, double dlat) {
@@ -307,6 +309,7 @@ axis::solver::RegridConfig parse_regrid_config(const nb::dict &config) {
         cfg.use_limiter = nb::cast<bool>(config["use_limiter"]);
     }
 
+    if (cfg.method == axis::solver::InterpolationMethod::Conservative2ndOrder) cfg.extrap_method = axis::solver::ExtrapolationAction::None;
     return cfg;
 }
 
@@ -444,6 +447,7 @@ NB_MODULE(axis_py, m) {
         .def_prop_ro("n_src", &HostMatrix::n_src)
         .def_prop_ro("n_dst", &HostMatrix::n_dst)
         .def_prop_ro("is_csr", &HostMatrix::is_csr)
+        .def_prop_ro("has_linear_reconstruction", &HostMatrix::has_linear_reconstruction)
 
         .def_prop_ro(
             "factor_list",
@@ -452,7 +456,7 @@ NB_MODULE(axis_py, m) {
                 std::size_t shape[1] = {view.extent(0)};
                 return nb::ndarray<nb::numpy, const double>(view.data_handle(), 1, shape, nb::handle());
             },
-            nb::keep_alive<0, 1>(), "Interpolation weights list")
+            nb::keep_alive<0, 1>(), "Base weights; use apply for field-dependent linear reconstruction")
         .def_prop_ro(
             "factor_col",
             [](const HostMatrix &matrix) -> nb::ndarray<nb::numpy, const axis::index_t> {
@@ -1158,6 +1162,8 @@ NB_MODULE(axis_py, m) {
         },
         "filepath"_a, "Read the interpolation weights matrix from an ESMF netCDF file");
 #endif
+
+    bind_vertical_conservative(m);
 
     // ─── Vertical Tension Spline interpolation ──────────────────────────────
 

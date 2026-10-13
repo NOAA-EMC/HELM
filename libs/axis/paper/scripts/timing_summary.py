@@ -45,7 +45,7 @@ def summarize(path):
 
 
 def comparisons(runs):
-    """Compare only identical cases that both engines completed and validated."""
+    """Compare shared cases that both engines completed and validated; retain method pairing."""
     grouped = {}
     for run in runs:
         if run["mode"] == "timing":
@@ -73,7 +73,10 @@ def comparisons(runs):
                 "axis_run": axis["run_id"],
                 "esmc_run": esmc["run_id"],
                 "eligible": eligible,
-                "reason": "Identical case/options and passing quality/reproduction checks"
+                "method_pairing": axis.get(
+                    "method_pairing", {"comparison_kind": "same_method_family"}
+                ),
+                "reason": "Shared case/options and passing quality/reproduction checks; method pairing identifies cross-method comparisons"
                 if eligible
                 else "Unmatched geometry or failed numerical validation; no speedup claim",
                 "esmc_seconds_over_axis_seconds": ratios,

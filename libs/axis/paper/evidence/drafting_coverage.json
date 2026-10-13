@@ -1,5 +1,5 @@
 {
-  "description": "Original 99 drafting questions preserved with source/run evidence; sections 1\u20134 now answered in manuscript prose. Current outline inventory separately tracks remaining bullets.",
+  "description": "Original 99 drafting questions preserved with evidence; sections 1\u20135 now answered in manuscript prose, with numerical interpretation added to Section 7. The current outline inventory separately tracks remaining bullets.",
   "entries": [
     {
       "artifacts": [
@@ -13196,7 +13196,7 @@
         "tables/quality.md"
       ],
       "draft_location": "specs/AXIS_JAMES_outline.md#5-numerical-quality-results",
-      "draft_status": "outline or evidence appendix",
+      "draft_status": "answered in manuscript prose",
       "evidence_type": "recorded experiments and inspected implementation",
       "id": "e37bcbc3cc473efa",
       "limitations": [
@@ -13335,7 +13335,11 @@
         }
       ],
       "status": "limited",
-      "text": "Present constant-field and conservation results first, with the domain and normalization assumptions beside the results."
+      "text": "Present constant-field and conservation results first, with the domain and normalization assumptions beside the results.",
+      "supplemental_evidence": [
+        "libs/axis/paper/evidence/valcke_acceptance.md",
+        "libs/axis/paper/evidence/polar_acceptance.md"
+      ]
     },
     {
       "artifacts": [
@@ -13357,7 +13361,7 @@
         "tables/quality.md"
       ],
       "draft_location": "specs/AXIS_JAMES_outline.md#5-numerical-quality-results",
-      "draft_status": "outline or evidence appendix",
+      "draft_status": "answered in manuscript prose",
       "evidence_type": "recorded experiments and inspected implementation",
       "id": "14863a2bf2169e22",
       "limitations": [
@@ -13564,7 +13568,11 @@
         }
       ],
       "status": "limited",
-      "text": "Show mean, RMS, and maximum misfit for each field and mesh case."
+      "text": "Show mean, RMS, and maximum misfit for each field and mesh case.",
+      "supplemental_evidence": [
+        "libs/axis/paper/evidence/valcke_acceptance.md",
+        "libs/axis/paper/evidence/polar_acceptance.md"
+      ]
     },
     {
       "artifacts": [
@@ -13586,7 +13594,7 @@
         "tables/quality.md"
       ],
       "draft_location": "specs/AXIS_JAMES_outline.md#5-numerical-quality-results",
-      "draft_status": "outline or evidence appendix",
+      "draft_status": "answered in manuscript prose",
       "evidence_type": "recorded experiments and inspected implementation",
       "id": "f2209b6c838420d4",
       "limitations": [
@@ -13793,7 +13801,11 @@
         }
       ],
       "status": "limited",
-      "text": "Compare AXIS and ESMF only on matched cases and identify any non-matched cases in a separate panel or table."
+      "text": "Compare AXIS and ESMF only on matched cases and identify any non-matched cases in a separate panel or table.",
+      "supplemental_evidence": [
+        "libs/axis/paper/evidence/valcke_acceptance.md",
+        "libs/axis/paper/evidence/polar_acceptance.md"
+      ]
     },
     {
       "artifacts": [
@@ -13815,7 +13827,7 @@
         "tables/quality.md"
       ],
       "draft_location": "specs/AXIS_JAMES_outline.md#5-numerical-quality-results",
-      "draft_status": "outline or evidence appendix",
+      "draft_status": "answered in manuscript prose",
       "evidence_type": "recorded experiments and inspected implementation",
       "id": "297734e72cf9f9b7",
       "limitations": [
@@ -14022,7 +14034,11 @@
         }
       ],
       "status": "limited",
-      "text": "Use representative field and difference maps to expose spatially localized errors, especially near boundaries, seams, polar regions, or regional coverage limits when present."
+      "text": "Use representative field and difference maps to expose spatially localized errors, especially near boundaries, seams, polar regions, or regional coverage limits when present.",
+      "supplemental_evidence": [
+        "libs/axis/paper/evidence/valcke_acceptance.md",
+        "libs/axis/paper/evidence/polar_acceptance.md"
+      ]
     },
     {
       "artifacts": [
@@ -14044,7 +14060,7 @@
         "tables/quality.md"
       ],
       "draft_location": "specs/AXIS_JAMES_outline.md#5-numerical-quality-results",
-      "draft_status": "outline or evidence appendix",
+      "draft_status": "answered in manuscript prose",
       "evidence_type": "recorded experiments and inspected implementation",
       "id": "08761d8bc807691c",
       "limitations": [
@@ -14183,7 +14199,11 @@
         }
       ],
       "status": "limited",
-      "text": "Report bounds and overshoots for the sharply varying field, if tested."
+      "text": "Report bounds and overshoots for the sharply varying field, if tested.",
+      "supplemental_evidence": [
+        "libs/axis/paper/evidence/valcke_acceptance.md",
+        "libs/axis/paper/evidence/polar_acceptance.md"
+      ]
     },
     {
       "artifacts": [
@@ -14205,7 +14225,7 @@
         "tables/quality.md"
       ],
       "draft_location": "specs/AXIS_JAMES_outline.md#5-numerical-quality-results",
-      "draft_status": "outline or evidence appendix",
+      "draft_status": "answered in manuscript prose",
       "evidence_type": "recorded experiments and inspected implementation",
       "id": "075061574e31f357",
       "limitations": [
@@ -14412,7 +14432,11 @@
         }
       ],
       "status": "limited",
-      "text": "If multiple resolutions exist, report convergence trends only where the reference field, area treatment, and resolutions make a fitted rate meaningful. Present observed rates, not theoretical order as measured fact."
+      "text": "If multiple resolutions exist, report convergence trends only where the reference field, area treatment, and resolutions make a fitted rate meaningful. Present observed rates, not theoretical order as measured fact.",
+      "supplemental_evidence": [
+        "libs/axis/paper/evidence/valcke_acceptance.md",
+        "libs/axis/paper/evidence/polar_acceptance.md"
+      ]
     },
     {
       "artifacts": [
@@ -14434,7 +14458,7 @@
         "tables/quality.md"
       ],
       "draft_location": "specs/AXIS_JAMES_outline.md#5-numerical-quality-results",
-      "draft_status": "outline or evidence appendix",
+      "draft_status": "answered in manuscript prose",
       "evidence_type": "recorded experiments and inspected implementation",
       "id": "d612c13585c28587",
       "limitations": [
@@ -14641,7 +14665,11 @@
         }
       ],
       "status": "limited",
-      "text": "Table 1: Mean, RMS, and maximum misfit plus conservation residual by method and mesh case."
+      "text": "Table 1: Mean, RMS, and maximum misfit plus conservation residual by method and mesh case.",
+      "supplemental_evidence": [
+        "libs/axis/paper/evidence/valcke_acceptance.md",
+        "libs/axis/paper/evidence/polar_acceptance.md"
+      ]
     },
     {
       "artifacts": [
@@ -14663,7 +14691,7 @@
         "tables/quality.md"
       ],
       "draft_location": "specs/AXIS_JAMES_outline.md#5-numerical-quality-results",
-      "draft_status": "outline or evidence appendix",
+      "draft_status": "answered in manuscript prose",
       "evidence_type": "recorded experiments and inspected implementation",
       "id": "2f6f6a788ae8a1e3",
       "limitations": [
@@ -14870,7 +14898,11 @@
         }
       ],
       "status": "limited",
-      "text": "Figure 1: Representative source, destination/reference, AXIS result, and difference field."
+      "text": "Figure 1: Representative source, destination/reference, AXIS result, and difference field.",
+      "supplemental_evidence": [
+        "libs/axis/paper/evidence/valcke_acceptance.md",
+        "libs/axis/paper/evidence/polar_acceptance.md"
+      ]
     },
     {
       "artifacts": [
@@ -14892,7 +14924,7 @@
         "tables/quality.md"
       ],
       "draft_location": "specs/AXIS_JAMES_outline.md#5-numerical-quality-results",
-      "draft_status": "outline or evidence appendix",
+      "draft_status": "answered in manuscript prose",
       "evidence_type": "recorded experiments and inspected implementation",
       "id": "22f5b96d665fc511",
       "limitations": [
@@ -15099,7 +15131,11 @@
         }
       ],
       "status": "limited",
-      "text": "Figure 2: Accuracy versus resolution, only if the benchmark has a sound resolution ladder."
+      "text": "Figure 2: Accuracy versus resolution, only if the benchmark has a sound resolution ladder.",
+      "supplemental_evidence": [
+        "libs/axis/paper/evidence/valcke_acceptance.md",
+        "libs/axis/paper/evidence/polar_acceptance.md"
+      ]
     },
     {
       "artifacts": [

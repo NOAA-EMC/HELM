@@ -5,11 +5,14 @@
 
 #include "analytical_fields.hpp"
 #include "case_io.hpp"
+#include "methods.hpp"
 #include "result_writer.hpp"
 using namespace paper;
 int main(int argc, char **argv) {
     return guarded([&] {
         Args a(argc, argv);
+        const auto method = a.get("method", "conservative_first_order");
+        const bool conservative = conservative_method(method);
         auto c = read_case(a.require("case"));
         auto r = read_reference(a.require("reference"));
         std::filesystem::path dir = a.require("run");
@@ -36,6 +39,15 @@ int main(int argc, char **argv) {
                 area_delta =
                     std::max(area_delta, std::abs(o.src_area[i] - r.src_area[i]) / r.src_area[i]);
             }
+        bool full_source_coverage = true;
+        for (size_t i = 0; i < o.src.size(); ++i)
+            if (c.src.mask[i] &&
+                std::abs(r.src_covered[i] - r.src_area[i]) > c.area_tolerance * r.src_area[i])
+                full_source_coverage = false;
+        // Source mean * covered area omits the slope integral on partial cells.
+        const bool conservation_checked =
+            conservative && (!second_order_method(method) || full_source_coverage);
+        int partial_reference_excluded = 0;
         std::map<int, std::pair<double, double>> parents;
         for (size_t j = 0; j < o.dst.size(); ++j) {
             if (!c.dst.mask[j]) {
@@ -56,6 +68,10 @@ int main(int argc, char **argv) {
                 ++negligible_coverage;
                 if (o.dst_frac[j] > c.area_tolerance)
                     ++unexpected_mapped;
+                continue;
+            }
+            if (!conservative && r.dst_covered[j] < r.dst_area[j] * (1. - c.area_tolerance)) {
+                ++partial_reference_excluded;
                 continue;
             }
             ++eligible;
@@ -83,7 +99,7 @@ int main(int argc, char **argv) {
             double fraction = c.norm == "fracarea" ? o.dst_frac[j] : 1;
             di += o.dst[j] * o.dst_area[j] * fraction;
             canon_d += o.dst[j] * (c.norm == "fracarea" ? r.dst_covered[j] : r.dst_area[j]);
-            double expected = c.norm == "fracarea" ? 1 : o.dst_frac[j];
+            double expected = !conservative || c.norm == "fracarea" ? 1 : o.dst_frac[j];
             if (c.field == "constant")
                 constant = std::max(constant, std::abs(o.dst[j] - expected));
             rowerr = std::max(rowerr, std::abs(o.row_sum[j] - expected));
@@ -112,14 +128,16 @@ int main(int argc, char **argv) {
                         std::max(reproduction_error, std::abs(previous.dst[cell] - o.dst[cell]));
             }
         }
-        bool pass = eligible > 0 && nonfinite == 0 && missing_expected == 0 &&
-                    unexpected_mapped == 0 && rowerr <= c.constant_tolerance &&
-                    std::abs(residual) <= c.conservation_tolerance * scale &&
-                    (c.field != "constant" || (constant <= c.constant_tolerance * field_bound &&
-                                               maxerr <= c.constant_tolerance * field_bound)) &&
-                    (c.field != "smooth" ||
-                     std::sqrt(rms / weight) <= c.smooth_rms_tolerance * field_bound) &&
-                    (!comparing || reproduction_error <= c.reproduction_tolerance * field_bound);
+        bool pass =
+            eligible > 0 && nonfinite == 0 &&
+            (!conservative || (missing_expected == 0 && unexpected_mapped == 0)) &&
+            rowerr <= c.constant_tolerance &&
+            (!conservation_checked || std::abs(residual) <= c.conservation_tolerance * scale) &&
+            (c.field != "constant" || (constant <= c.constant_tolerance * field_bound &&
+                                       maxerr <= c.constant_tolerance * field_bound)) &&
+            (c.field != "smooth" ||
+             std::sqrt(rms / weight) <= c.smooth_rms_tolerance * field_bound) &&
+            (!comparing || reproduction_error <= c.reproduction_tolerance * field_bound);
         std::ostringstream out;
         out << "{\"schema_version\":1,\"eligible\":" << eligible
             << ",\"negligible_coverage\":" << negligible_coverage
@@ -131,6 +149,15 @@ int main(int argc, char **argv) {
             << ",\"bias\":" << number(weight > 0 ? bias / weight : NAN)
             << ",\"max_error\":" << number(maxerr) << ",\"source_integral\":" << number(si)
             << ",\"destination_integral\":" << number(di)
+            << ",\"conservation_checked\":" << (conservation_checked ? "true" : "false")
+            << ",\"conservation_check_reason\":"
+            << quote(!conservative ? "interpolation: integral drift is diagnostic"
+                     : conservation_checked
+                         ? "covered-domain first order or full-source-coverage second order"
+                         : "partial-source second order requires reconstructed covered-source "
+                           "integral")
+            << ",\"partial_reference_excluded\":" << partial_reference_excluded
+            << ",\"accuracy_objective\":\"cell_mean_transfer\""
             << ",\"conservation_absolute\":" << number(std::abs(residual))
             << ",\"conservation_relative\":" << number(relative) << ",\"relative_residual_reason\":"
             << quote(std::isfinite(relative) ? "defined" : "near-zero source integral")

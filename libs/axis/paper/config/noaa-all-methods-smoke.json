@@ -1,0 +1,1334 @@
+{
+  "schema_version": 1,
+  "id": "noaa-all-methods-smoke",
+  "engines": [
+    "axis",
+    "esmc"
+  ],
+  "threads": 1,
+  "ranks": 1,
+  "warmups": 1,
+  "repetitions": 3,
+  "reuse": [
+    1,
+    100
+  ],
+  "tolerances": {
+    "reference": 1e-09,
+    "area": 1e-10,
+    "constant": 1e-10,
+    "conservation": 1e-10,
+    "near_zero": 1e-12,
+    "reproduction": 1e-10,
+    "smooth_rms": 0.1,
+    "max_depth": 20,
+    "max_subtriangles": 1000000,
+    "override_rationale": null
+  },
+  "cases": [
+    {
+      "id": "constant-nearest",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "nearest"
+    },
+    {
+      "id": "constant-bilinear",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "bilinear"
+    },
+    {
+      "id": "constant-bicubic",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "bicubic"
+    },
+    {
+      "id": "constant-patch",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "patch"
+    },
+    {
+      "id": "constant-conservative_first_order",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_first_order"
+    },
+    {
+      "id": "constant-conservative_second_order",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_second_order"
+    },
+    {
+      "id": "constant-conservative_second_order_limited",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_second_order_limited"
+    },
+    {
+      "id": "smooth-nearest",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "nearest"
+    },
+    {
+      "id": "smooth-bilinear",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "bilinear"
+    },
+    {
+      "id": "smooth-bicubic",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "bicubic"
+    },
+    {
+      "id": "smooth-patch",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "patch"
+    },
+    {
+      "id": "smooth-conservative_first_order",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_first_order"
+    },
+    {
+      "id": "smooth-conservative_second_order",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_second_order"
+    },
+    {
+      "id": "smooth-conservative_second_order_limited",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_second_order_limited"
+    },
+    {
+      "id": "zero-nearest",
+      "field": "zero",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "nearest"
+    },
+    {
+      "id": "zero-bilinear",
+      "field": "zero",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "bilinear"
+    },
+    {
+      "id": "zero-bicubic",
+      "field": "zero",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "bicubic"
+    },
+    {
+      "id": "zero-patch",
+      "field": "zero",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "patch"
+    },
+    {
+      "id": "zero-conservative_first_order",
+      "field": "zero",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "conservative_first_order"
+    },
+    {
+      "id": "zero-conservative_second_order",
+      "field": "zero",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "conservative_second_order"
+    },
+    {
+      "id": "zero-conservative_second_order_limited",
+      "field": "zero",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "conservative_second_order_limited"
+    },
+    {
+      "id": "sharp-nearest",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "nearest"
+    },
+    {
+      "id": "sharp-bilinear",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "bilinear"
+    },
+    {
+      "id": "sharp-bicubic",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "bicubic"
+    },
+    {
+      "id": "sharp-patch",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "patch"
+    },
+    {
+      "id": "sharp-conservative_first_order",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "conservative_first_order"
+    },
+    {
+      "id": "sharp-conservative_second_order",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "conservative_second_order"
+    },
+    {
+      "id": "sharp-conservative_second_order_limited",
+      "field": "sharp",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          70,
+          110
+        ]
+      },
+      "method": "conservative_second_order_limited"
+    },
+    {
+      "id": "masked-dstarea-nearest",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "nearest"
+    },
+    {
+      "id": "masked-dstarea-bilinear",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "bilinear"
+    },
+    {
+      "id": "masked-dstarea-bicubic",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "bicubic"
+    },
+    {
+      "id": "masked-dstarea-patch",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "patch"
+    },
+    {
+      "id": "masked-dstarea-conservative_first_order",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_first_order"
+    },
+    {
+      "id": "masked-dstarea-conservative_second_order",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_second_order"
+    },
+    {
+      "id": "masked-dstarea-conservative_second_order_limited",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_second_order_limited"
+    },
+    {
+      "id": "masked-fracarea-conservative_first_order",
+      "field": "constant",
+      "norm": "fracarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_first_order"
+    },
+    {
+      "id": "masked-fracarea-conservative_second_order",
+      "field": "constant",
+      "norm": "fracarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_second_order"
+    },
+    {
+      "id": "masked-fracarea-conservative_second_order_limited",
+      "field": "constant",
+      "norm": "fracarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": true
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "method": "conservative_second_order_limited"
+    },
+    {
+      "id": "seam-nearest",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "method": "nearest"
+    },
+    {
+      "id": "seam-bilinear",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "method": "bilinear"
+    },
+    {
+      "id": "seam-bicubic",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "method": "bicubic"
+    },
+    {
+      "id": "seam-patch",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "method": "patch"
+    },
+    {
+      "id": "seam-conservative_first_order",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "method": "conservative_first_order"
+    },
+    {
+      "id": "seam-conservative_second_order",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "method": "conservative_second_order"
+    },
+    {
+      "id": "seam-conservative_second_order_limited",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lon": [
+          170,
+          190
+        ]
+      },
+      "method": "conservative_second_order_limited"
+    },
+    {
+      "id": "polar-nearest",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "method": "nearest"
+    },
+    {
+      "id": "polar-bilinear",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "method": "bilinear"
+    },
+    {
+      "id": "polar-bicubic",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "method": "bicubic"
+    },
+    {
+      "id": "polar-patch",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "method": "patch"
+    },
+    {
+      "id": "polar-conservative_first_order",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "method": "conservative_first_order"
+    },
+    {
+      "id": "polar-conservative_second_order",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "method": "conservative_second_order"
+    },
+    {
+      "id": "polar-conservative_second_order_limited",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "lat": [
+          70,
+          89
+        ]
+      },
+      "method": "conservative_second_order_limited"
+    },
+    {
+      "id": "lcc-nearest",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "lcc",
+        "n": 6
+      },
+      "destination": {
+        "kind": "lcc",
+        "n": 8
+      },
+      "method": "nearest"
+    },
+    {
+      "id": "lcc-bilinear",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "lcc",
+        "n": 6
+      },
+      "destination": {
+        "kind": "lcc",
+        "n": 8
+      },
+      "method": "bilinear"
+    },
+    {
+      "id": "lcc-bicubic",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "lcc",
+        "n": 6
+      },
+      "destination": {
+        "kind": "lcc",
+        "n": 8
+      },
+      "method": "bicubic"
+    },
+    {
+      "id": "lcc-patch",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "lcc",
+        "n": 6
+      },
+      "destination": {
+        "kind": "lcc",
+        "n": 8
+      },
+      "method": "patch"
+    },
+    {
+      "id": "lcc-conservative_first_order",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "lcc",
+        "n": 6
+      },
+      "destination": {
+        "kind": "lcc",
+        "n": 8
+      },
+      "method": "conservative_first_order"
+    },
+    {
+      "id": "lcc-conservative_second_order",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "lcc",
+        "n": 6
+      },
+      "destination": {
+        "kind": "lcc",
+        "n": 8
+      },
+      "method": "conservative_second_order"
+    },
+    {
+      "id": "lcc-conservative_second_order_limited",
+      "field": "smooth",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "lcc",
+      "source": {
+        "kind": "lcc",
+        "n": 6
+      },
+      "destination": {
+        "kind": "lcc",
+        "n": 8
+      },
+      "method": "conservative_second_order_limited"
+    },
+    {
+      "id": "destination-mask-nearest",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": false
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "masked": true
+      },
+      "method": "nearest"
+    },
+    {
+      "id": "destination-mask-bilinear",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": false
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "masked": true
+      },
+      "method": "bilinear"
+    },
+    {
+      "id": "destination-mask-bicubic",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": false
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "masked": true
+      },
+      "method": "bicubic"
+    },
+    {
+      "id": "destination-mask-patch",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": false
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "masked": true
+      },
+      "method": "patch"
+    },
+    {
+      "id": "destination-mask-conservative_first_order",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": false
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "masked": true
+      },
+      "method": "conservative_first_order"
+    },
+    {
+      "id": "destination-mask-conservative_second_order",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": false
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "masked": true
+      },
+      "method": "conservative_second_order"
+    },
+    {
+      "id": "destination-mask-conservative_second_order_limited",
+      "field": "constant",
+      "norm": "dstarea",
+      "geometry": "great_circle",
+      "family": "rectilinear",
+      "source": {
+        "kind": "rect",
+        "n": 6,
+        "masked": false
+      },
+      "destination": {
+        "kind": "rect",
+        "n": 8,
+        "masked": true
+      },
+      "method": "conservative_second_order_limited"
+    }
+  ]
+}

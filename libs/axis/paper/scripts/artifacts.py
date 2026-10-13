@@ -71,6 +71,17 @@ def profile(path):
         if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
             raise ValueError(f"Invalid tolerance: {name}")
     for case in p["cases"]:
+        from methods import pairing
+
+        pairing(case.get("method", "conservative_first_order"))
+        if (
+            case.get("method", "conservative_first_order")
+            in {"nearest", "bilinear", "bicubic", "patch"}
+            and case["norm"] != "dstarea"
+        ):
+            raise ValueError(
+                "Nonconservative methods use the full-cell transfer objective (dstarea)"
+            )
         if case["field"] not in {
             "constant",
             "smooth",

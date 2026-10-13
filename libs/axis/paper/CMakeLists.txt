@@ -46,3 +46,11 @@ if(AXIS_PAPER_ENABLE_ESMF)
   add_executable(axis_paper_esmc_probe cmake/esmc_probe.cpp)
   target_link_libraries(axis_paper_esmc_probe PRIVATE PaperESMF MPI::MPI_CXX)
 endif()
+
+# Analytic capability examples do not require ESMF.
+add_executable(axis_paper_capabilities native/capability_examples.cpp)
+target_link_libraries(axis_paper_capabilities PRIVATE axis)
+add_executable(axis_paper_scalar_pilot native/scalar_pilot.cpp)
+target_link_libraries(axis_paper_scalar_pilot PRIVATE axis)
+add_executable(axis_paper_vertical_conservative native/vertical_conservative_examples.cpp)
+target_link_libraries(axis_paper_vertical_conservative PRIVATE axis)

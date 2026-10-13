@@ -245,6 +245,7 @@ def main():
             continue
         configuration = {
             "engine": run["engine"],
+            "method": run["options"]["method"],
             "family": run["family"],
             "norm": run["norm"],
             "geometry": run["geometry"],

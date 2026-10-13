@@ -3,11 +3,14 @@
     {
       "description": "AXIS conservative dispatch: metadata strip shortcut, regular/rectilinear shortcuts, then general BVH and clipping",
       "path": "libs/axis/src/solver/weight_generator.cpp",
-      "review_status": "source inspected; native smoke and paper profiles executed",
-      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
-      "sha256": "8772c0be4a2288fc21a8d89f838795a12b2ed26249678fcc74cb209284574045",
-      "snapshot_kind": "working_tree_at_base_revision",
-      "symbol": "generate_conservative"
+      "review_status": "Current formatting/include order inspected against archived measured source; experiment identity retained separately",
+      "revision": "542189b1ffa97663b4b0b2c90551ef5f6ba4a48b",
+      "sha256": "4ac89a8910ba89300dc3cf81938cb1dabc4b3fb7164679f13ccdf7b75bfaae2a",
+      "snapshot_kind": "reviewed_formatting_and_include_order_update",
+      "symbol": "generate_conservative",
+      "measured_snapshot_sha256": "8772c0be4a2288fc21a8d89f838795a12b2ed26249678fcc74cb209284574045",
+      "measured_snapshot_path": "libs/axis/paper/runs/polar-archive/source/libs/axis/src/solver/weight_generator.cpp",
+      "measured_base_revision": "2b139b215482875e7a9332af1ba20df8dead5fa0"
     },
     {
       "description": "Actual spherical great-circle half-space clipping (Sutherland\u2013Hodgman style, despite legacy Greiner\u2013Hormann labels)",
@@ -102,20 +105,26 @@
     {
       "description": "Analytic regular-rectangle shortcut and optional host overlap counters",
       "path": "libs/axis/src/solver/weight_generator_conservative_rect.cpp",
-      "review_status": "source inspected; native smoke and paper profiles executed",
-      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
-      "sha256": "16a21b724d6345baabef565ba23264552cd3334fd5a877dde1e279da60cfc391",
-      "snapshot_kind": "working_tree_at_base_revision",
-      "symbol": "generate_conservative_rect"
+      "review_status": "Current formatting/include order inspected against archived measured source; experiment identity retained separately",
+      "revision": "542189b1ffa97663b4b0b2c90551ef5f6ba4a48b",
+      "sha256": "f1ac68c4c8b73bc9ec149e61b35b6a70249f19db49292eb9df3e424bd458cfb6",
+      "snapshot_kind": "reviewed_formatting_and_include_order_update",
+      "symbol": "generate_conservative_rect",
+      "measured_snapshot_sha256": "16a21b724d6345baabef565ba23264552cd3334fd5a877dde1e279da60cfc391",
+      "measured_snapshot_path": "libs/axis/paper/runs/polar-archive/source/libs/axis/src/solver/weight_generator_conservative_rect.cpp",
+      "measured_base_revision": "2b139b215482875e7a9332af1ba20df8dead5fa0"
     },
     {
       "description": "Nonuniform rectangle shortcut and its overlap threshold",
       "path": "libs/axis/src/solver/weight_generator_conservative_rect_nonuniform.cpp",
-      "review_status": "source inspected; native smoke and paper profiles executed",
-      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
-      "sha256": "1d73ba4ef63f37dea37e1b78ec79370bcca398e649d7fc23d497b5c982087b5a",
-      "snapshot_kind": "working_tree_at_base_revision",
-      "symbol": "generate_conservative_rect_nonuniform"
+      "review_status": "Current formatting/include order inspected against archived measured source; experiment identity retained separately",
+      "revision": "542189b1ffa97663b4b0b2c90551ef5f6ba4a48b",
+      "sha256": "d2e3d896c52730b0527f73adffaa1d86621dd5b1bacc3178f3be77fc80a87d45",
+      "snapshot_kind": "reviewed_formatting_and_include_order_update",
+      "symbol": "generate_conservative_rect_nonuniform",
+      "measured_snapshot_sha256": "1d73ba4ef63f37dea37e1b78ec79370bcca398e649d7fc23d497b5c982087b5a",
+      "measured_snapshot_path": "libs/axis/paper/runs/polar-archive/source/libs/axis/src/solver/weight_generator_conservative_rect_nonuniform.cpp",
+      "measured_base_revision": "2b139b215482875e7a9332af1ba20df8dead5fa0"
     },
     {
       "description": "Completed-work timing boundaries, reuse observations, and failure-safe sample journal",

@@ -335,6 +335,10 @@ def main():
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     _, all_runs = bundle(args.results)
+    if any(r["options"]["method"] != "conservative_first_order" for r in all_runs):
+        raise ValueError(
+            "This legacy figure layout is specific to the first-order Valcke study; use method-aware NOAA exports"
+        )
     runs = [
         r
         for r in all_runs

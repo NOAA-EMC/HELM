@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <axis/distributed/distributed_weight_generator.hpp>
 #include <axis/solver/weight_generator.hpp>
+#include <halo/collectives.hpp>
 #include <halo/communicator.hpp>
 #include <stdexcept>
 #include <vector>
@@ -15,14 +16,8 @@ template <typename MemorySpace>
 solver::InterpolationMatrix<MemorySpace> DistributedWeightGenerator<MemorySpace>::generate(
     const topology::UnstructuredMesh<MemorySpace> &local_src_mesh, const topology::UnstructuredMesh<MemorySpace> &local_dst_mesh,
     const solver::RegridConfig &config, MPI_Comm comm) {
-    // 1. Duplicate the raw MPI_Comm handle and wrap it inside halo::Communicator.
-    //    By duplicating the raw communicator first, we safely own the duplicated handle
-    //    without side-effects or risks of double-freeing the user's original communicator.
-    //    The halo::Communicator destructor will then safely call MPI_Comm_free on our
-    //    duplicated handle when leaving this function scope.
-    MPI_Comm raw_dup;
-    MPI_Comm_dup(comm, &raw_dup);
-    halo::Communicator h_comm(raw_dup);
+    // HALO duplicates the borrowed handle without adopting the caller's comm.
+    auto h_comm = halo::Communicator::duplicate_of(comm);
 
     const int rank = h_comm.rank();
     const int size = h_comm.size();
@@ -32,15 +27,16 @@ solver::InterpolationMatrix<MemorySpace> DistributedWeightGenerator<MemorySpace>
         return solver::WeightGenerator::template generate<MemorySpace>(local_src_mesh, local_dst_mesh, config);
     }
 
+    if (config.method == solver::InterpolationMethod::Conservative2ndOrder)
+        throw std::invalid_argument("multi-rank linear reconstruction requires gradient-stencil halos");
+
     const std::size_t n_src_local = local_src_mesh.n_cells();
     const std::size_t n_dst_local = local_dst_mesh.n_cells();
 
     // 2. Gather all destination mesh global cell offsets to map global indices
-    std::vector<int> dst_counts(size);
     int local_dst_count = static_cast<int>(n_dst_local);
 
-    // We execute the Allgather using the safe raw MPI handle managed by h_comm
-    MPI_Allgather(&local_dst_count, 1, MPI_INT, dst_counts.data(), 1, MPI_INT, h_comm.handle());
+    auto dst_counts = halo::allgather(h_comm, &local_dst_count, 1);
 
     std::vector<std::size_t> dst_offsets(size + 1, 0);
     for (int r = 0; r < size; ++r) {

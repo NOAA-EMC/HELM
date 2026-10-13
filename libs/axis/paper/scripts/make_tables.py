@@ -49,7 +49,11 @@ def main():
     rows = []
     for r in q:
         row = {k: r[k] for k in ("case_id", "engine", "family", "field", "norm", "matching")}
-        row["method"] = "conservative_first_order"
+        row["method"] = r["options"]["method"]
+        row["comparison_kind"] = r.get("method_pairing", {}).get(
+            "comparison_kind", "same_method_family"
+        )
+        row["conservation_checked"] = r["metrics"].get("conservation_checked", True)
         row.update(
             {
                 k: r["metrics"][k]
@@ -87,10 +91,13 @@ def main():
             "quality",
             rows,
             q,
-            "Errors are area-weighted on the common mapped domain; unmatched cases are identified. Null relative residuals have near-zero denominators.",
+            "Per-engine errors are area-weighted on each eligible mapped domain; use paired-quality.json for the shared population. Null relative residuals have near-zero denominators.",
             markdown_fields=[
                 "case_id",
                 "engine",
+                "method",
+                "comparison_kind",
+                "conservation_checked",
                 "norm",
                 "matching",
                 "rms_error",

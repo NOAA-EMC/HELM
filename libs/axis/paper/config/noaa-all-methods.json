@@ -1,0 +1,5658 @@
+{
+  "cases": [
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-forward-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-forward-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-forward-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-forward-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-forward-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-forward-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-forward-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-reverse-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-reverse-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-reverse-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-reverse-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-reverse-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-reverse-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-8-constant-reverse-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-forward-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-forward-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-forward-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-forward-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-forward-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-forward-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-forward-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-reverse-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-reverse-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-reverse-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-reverse-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-reverse-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-reverse-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-8-smooth-reverse-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-forward-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-forward-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-forward-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-forward-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-forward-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-forward-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-forward-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-reverse-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-reverse-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-reverse-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-reverse-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-reverse-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-reverse-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 8
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-8-sharp-reverse-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-forward-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-forward-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-forward-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-forward-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-forward-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-forward-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-forward-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-reverse-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-reverse-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-reverse-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-reverse-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-reverse-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-reverse-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-16-constant-reverse-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-forward-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-forward-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-forward-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-forward-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-forward-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-forward-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-forward-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-reverse-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-reverse-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-reverse-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-reverse-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-reverse-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-reverse-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-16-smooth-reverse-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-forward-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-forward-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-forward-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-forward-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-forward-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-forward-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-forward-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-reverse-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-reverse-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-reverse-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-reverse-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-reverse-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-reverse-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 16
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-16-sharp-reverse-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-forward-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-forward-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-forward-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-forward-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-forward-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-forward-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-forward-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-reverse-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-reverse-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-reverse-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-reverse-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-reverse-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-reverse-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "rect-32-constant-reverse-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-forward-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-forward-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-forward-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-forward-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-forward-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-forward-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-forward-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-reverse-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-reverse-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-reverse-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-reverse-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-reverse-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-reverse-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "rect-32-smooth-reverse-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-forward-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-forward-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-forward-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-forward-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-forward-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-forward-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-forward-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-reverse-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-reverse-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-reverse-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-reverse-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-reverse-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-reverse-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 32
+      },
+      "family": "rectilinear",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "rect-32-sharp-reverse-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lon": [
+          70,
+          110
+        ],
+        "n": 64
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-False-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-False-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-False-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-False-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-False-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-False-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-False-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-original-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-original-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-original-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-original-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-original-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-original-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-original-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-triangulated-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-triangulated-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-triangulated-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-triangulated-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-triangulated-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-triangulated-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-False-triangulated-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-True-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-True-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-True-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-True-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-True-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-True-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "lcc-constant-True-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-original-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-original-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-original-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-original-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-original-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-original-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-original-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-triangulated-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-triangulated-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-triangulated-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-triangulated-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-triangulated-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-triangulated-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "constant",
+      "geometry": "great_circle",
+      "id": "mpas-constant-True-triangulated-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-False-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-False-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-False-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-False-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-False-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-False-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-False-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-original-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-original-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-original-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-original-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-original-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-original-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-original-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-triangulated-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-triangulated-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-triangulated-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-triangulated-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-triangulated-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-triangulated-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-False-triangulated-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-True-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-True-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-True-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-True-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-True-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-True-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "lcc-smooth-True-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-original-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-original-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-original-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-original-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-original-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-original-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-original-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-triangulated-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-triangulated-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-triangulated-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-triangulated-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-triangulated-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-triangulated-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "smooth",
+      "geometry": "great_circle",
+      "id": "mpas-smooth-True-triangulated-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-False-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-False-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-False-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-False-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-False-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-False-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-False-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "lcc",
+        "n": 30
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-original-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-original-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-original-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-original-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-original-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-original-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-original-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-triangulated-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-triangulated-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-triangulated-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-triangulated-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-triangulated-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-triangulated-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-False-triangulated-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-True-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-True-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-True-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-True-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-True-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-True-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "lcc",
+        "n": 30
+      },
+      "family": "lcc",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "lcc-sharp-True-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          34,
+          46
+        ],
+        "lon": [
+          -103,
+          -89
+        ],
+        "n": 40
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-original-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-original-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-original-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-original-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-original-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-original-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": false
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-original-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-triangulated-nearest",
+      "method": "nearest",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-triangulated-bilinear",
+      "method": "bilinear",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-triangulated-bicubic",
+      "method": "bicubic",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-triangulated-patch",
+      "method": "patch",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-triangulated-conservative_first_order",
+      "method": "conservative_first_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-triangulated-conservative_second_order",
+      "method": "conservative_second_order",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    },
+    {
+      "destination": {
+        "kind": "mpas",
+        "mesh": "x1.2562",
+        "path": "libs/axis/data/mpas/x1.2562.grid.nc",
+        "triangulate": true
+      },
+      "family": "mpas",
+      "field": "sharp",
+      "geometry": "great_circle",
+      "id": "mpas-sharp-True-triangulated-conservative_second_order_limited",
+      "method": "conservative_second_order_limited",
+      "norm": "dstarea",
+      "source": {
+        "kind": "rect",
+        "lat": [
+          -89.9,
+          89.9
+        ],
+        "lon": [
+          -180,
+          180
+        ],
+        "m": 18,
+        "n": 36
+      }
+    }
+  ],
+  "engines": [
+    "axis",
+    "esmc"
+  ],
+  "id": "noaa-all-methods",
+  "ranks": 1,
+  "repetitions": 10,
+  "reuse": [
+    1,
+    100
+  ],
+  "schema_version": 1,
+  "threads": 1,
+  "tolerances": {
+    "area": 1e-10,
+    "conservation": 1e-10,
+    "constant": 1e-10,
+    "max_depth": 20,
+    "max_subtriangles": 1000000,
+    "near_zero": 1e-12,
+    "override_rationale": null,
+    "reference": 1e-10,
+    "reproduction": 1e-10,
+    "smooth_rms": 0.1
+  },
+  "warmups": 2
+}

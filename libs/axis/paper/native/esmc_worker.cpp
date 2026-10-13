@@ -7,6 +7,7 @@
 #include <numeric>
 
 #include "case_io.hpp"
+#include "methods.hpp"
 #include "provenance.hpp"
 #include "timing.hpp"
 using namespace paper;
@@ -142,7 +143,19 @@ int main(int argc, char **argv) {
             int masked = 0;
             ESMC_InterArrayInt mask;
             check_esmc(ESMC_InterArrayIntSet(&mask, &masked, 1));
-            auto method = ESMC_REGRIDMETHOD_CONSERVE;
+            const auto requested_method = arguments.get("method", "conservative_first_order");
+            validate_method(requested_method);
+            const bool conservative = conservative_method(requested_method);
+            const auto engine_method = requested_method == "bicubic" ? "patch"
+                                       : second_order_method(requested_method)
+                                           ? "conservative_second_order"
+                                           : requested_method;
+            auto method = engine_method == "nearest"    ? ESMC_REGRIDMETHOD_NEAREST_STOD
+                          : engine_method == "bilinear" ? ESMC_REGRIDMETHOD_BILINEAR
+                          : engine_method == "patch"    ? ESMC_REGRIDMETHOD_PATCH
+                          : engine_method == "conservative_second_order"
+                              ? ESMC_REGRIDMETHOD_CONSERVE_2ND
+                              : ESMC_REGRIDMETHOD_CONSERVE;
             auto pole = ESMC_POLEMETHOD_NONE;
             auto line = ESMC_LINETYPE_GREAT_CIRCLE;
             auto norm =
@@ -164,7 +177,11 @@ int main(int argc, char **argv) {
                             src.value, dst.value, &mask, &mask, &route.value, &method, &pole,
                             nullptr, &line, &norm, &vector, &extrap, nullptr, nullptr, nullptr,
                             &unmapped, &degenerate, nullptr, nullptr, nullptr,
-                            &source_fraction.value, &destination_fraction.value));
+                            engine_method == "conservative_first_order" ? &source_fraction.value
+                                                                        : nullptr,
+                            engine_method == "conservative_first_order"
+                                ? &destination_fraction.value
+                                : nullptr));
                         route.live = true;
                     },
                     fence);
@@ -197,24 +214,44 @@ int main(int argc, char **argv) {
             out.dst = get(dst, case_data.dst.size());
             out.src_area = get(source_area, case_data.src.size());
             out.dst_area = get(destination_area, case_data.dst.size());
-            out.src_frac = get(source_fraction, case_data.src.size());
-            out.dst_frac = get(destination_fraction, case_data.dst.size());
+            out.src_frac.resize(case_data.src.size());
+            out.dst_frac.resize(case_data.dst.size());
+            if (engine_method == "conservative_first_order") {
+                out.src_frac = get(source_fraction, case_data.src.size());
+                out.dst_frac = get(destination_fraction, case_data.dst.size());
+            } else if (conservative) {
+                // C API fraction fields are documented only for CONSERVE.
+                // Independent reference coverage supports diagnostics for second order.
+                for (size_t i = 0; i < out.src.size(); ++i)
+                    out.src_frac[i] = reference.src_covered[i] / reference.src_area[i];
+                for (size_t j = 0; j < out.dst.size(); ++j)
+                    out.dst_frac[j] = reference.dst_covered[j] / reference.dst_area[j];
+            }
             std::fill(src.data(), src.data() + case_data.src.size(), 1.);
             apply();
             out.row_sum = get(dst, case_data.dst.size());
+            if (!conservative) {
+                out.src_frac.assign(out.src.size(), 1.);
+                for (size_t j = 0; j < out.dst.size(); ++j)
+                    out.dst_frac[j] = std::abs(out.row_sum[j]) > 1e-12 ? 1. : 0.;
+            }
             write_output(output_directory / "fields.nc", out);
             observations(output_directory / "observations.csv", timing_observations);
             atomic_text(
                 output_directory / "native.json",
                 "{\"schema_version\":1,\"status\":\"complete\",\"engine\":\"esmc\",\"build\":" +
-                    build_provenance() + ",\"esmf_version\":" + quote(PAPER_ESMF_VERSION) +
-                    ",\"mpi_library_version\":" +
+                    build_provenance() + ",\"requested_method\":" + quote(requested_method) +
+                    ",\"engine_method\":" + quote(engine_method) +
+                    ",\"esmf_version\":" + quote(PAPER_ESMF_VERSION) + ",\"mpi_library_version\":" +
                     quote(std::string(mpi_version, mpi_version_length)) +
                     ",\"backend\":\"ESMF native single PET\",\"mode\":" +
-                    quote(timing ? "timing" : "quality") +
-                    ",\"instrumentation\":\"disabled\",\"algorithm\":\"ESMC_CONSERVE_GREAT_"
-                    "CIRCLE\",\"checksum\":" +
-                    number(std::accumulate(out.dst.begin(), out.dst.end(), 0.)) +
+                    quote(timing ? "timing" : "quality") + ",\"coverage_provenance\":" +
+                    quote(engine_method == "conservative_first_order" ? "native fraction fields"
+                          : conservative ? "independent reference geometry"
+                                         : "constant response mapping") +
+                    ",\"instrumentation\":\"disabled\",\"algorithm\":" +
+                    quote("ESMC_" + engine_method) +
+                    ",\"checksum\":" + number(std::accumulate(out.dst.begin(), out.dst.end(), 0.)) +
                     ",\"diagnostics\":{\"candidates\":null,\"invalid\":null,\"discarded\":null,"
                     "\"availability_reason\":\"ESMC does not expose overlap rejection "
                     "counters\"}}");

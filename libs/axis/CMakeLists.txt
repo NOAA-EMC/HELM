@@ -222,8 +222,11 @@ set(AXIS_SOURCES
     src/solver/conservation.cpp
     src/solver/gradient_reconstructor.cpp
     src/solver/vertical_regridder.cpp
+    src/solver/vertical_conservative.cpp
     src/solver/vector_regridder.cpp
     src/distributed/distributed_weight_generator.cpp
+    src/distributed/regridder.cpp
+    src/distributed/selective_geometry.cpp
 )
 
 # ##############################################################################

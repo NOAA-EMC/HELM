@@ -163,6 +163,8 @@ def write_case(path, case, policy, src, dst):
         max_depth=str(policy["max_depth"]),
         max_subtriangles=str(policy["max_subtriangles"]),
     )
+    if "method" in case:
+        attributes["requested_method"] = case["method"]
     xr.Dataset(attrs=attributes).to_netcdf(path, engine="netcdf4")
     for name, mesh in [("source", src), ("destination", dst)]:
         data = xr.Dataset(

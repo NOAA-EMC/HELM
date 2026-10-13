@@ -9,6 +9,7 @@
 #include <axis/topology/mesh_builder.hpp>
 #include <numeric>
 
+#include "axis_methods.hpp"
 #include "case_io.hpp"
 #include "provenance.hpp"
 #include "timing.hpp"
@@ -82,7 +83,8 @@ int main(int argc, char **argv) {
             if (timing)
                 timing_observations.push_back({0, "preparation", 1, preparation_seconds});
             axis::solver::RegridConfig config;
-            config.method = axis::solver::InterpolationMethod::Conservative1stOrder;
+            const auto method = arguments.get("method", "conservative_first_order");
+            select_axis_method(config, method);
             config.norm_type = case_data.norm == "fracarea" ? axis::solver::NormType::FracArea
                                                             : axis::solver::NormType::DstArea;
             config.extrap_method = axis::solver::ExtrapolationAction::None;
@@ -133,18 +135,30 @@ int main(int argc, char **argv) {
             out.dst_area = copy_host_view(weights.area_b());
             out.src_frac = copy_host_view(weights.frac_a());
             out.dst_frac = copy_host_view(weights.frac_b());
-            out.row_sum.assign(case_data.dst.size(), 0);
-            auto rows = weights.factor_row();
-            auto values = weights.factor_list();
-            for (size_t k = 0; k < weights.nnz(); ++k)
-                out.row_sum[rows(k)] += values(k);
+            // Applying a constant checks the complete operator, including reconstruction.
+            std::vector<double> ones(out.src.size(), 1.);
+            out.row_sum.resize(out.dst.size());
+            axis::field_view<const double, 1> one_values(ones.data(), ones.size());
+            axis::field_view<double, 1> sums(out.row_sum.data(), out.row_sum.size());
+            axis::solver::apply(weights, one_values, sums);
+            if (!conservative_method(method)) {
+                // Interpolation matrices do not carry physical overlap areas/fractions.
+                // These are diagnostics, not a conservative-operator certificate.
+                out.src_area = reference.src_area;
+                out.dst_area = reference.dst_area;
+                out.src_frac.assign(out.src.size(), 1.);
+                out.dst_frac.resize(out.dst.size());
+                for (size_t j = 0; j < out.dst.size(); ++j)
+                    out.dst_frac[j] = std::abs(out.row_sum[j]) > 1e-12 ? 1. : 0.;
+            }
             write_output(output_directory / "fields.nc", out);
             observations(output_directory / "observations.csv", timing_observations);
             auto count = [](std::int64_t n) { return n < 0 ? "null" : std::to_string(n); };
             atomic_text(
                 output_directory / "native.json",
                 "{\"schema_version\":1,\"status\":\"complete\",\"engine\":\"axis\",\"build\":" +
-                    build_provenance() + ",\"backend\":\"HostSpace\",\"host_concurrency\":" +
+                    build_provenance() + ",\"requested_method\":" + quote(method) +
+                    ",\"backend\":\"HostSpace\",\"host_concurrency\":" +
                     std::to_string(Kokkos::DefaultHostExecutionSpace().concurrency()) +
                     ",\"kokkos_version\":" + std::to_string(KOKKOS_VERSION) +
                     ",\"kokkoskernels_version\":" + std::to_string(KOKKOSKERNELS_VERSION) +

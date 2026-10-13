@@ -4,13 +4,14 @@ import argparse
 import os
 import shutil
 import subprocess
-import sys
 import xarray as xr
 from pathlib import Path
 from artifacts import digest, identity, load, profile, relative, save
 from provenance import capture
 from timing_summary import summarize, comparisons
 from native_execution import NativeExecution
+from methods import pairing
+from paired_metrics import common_cell_metrics
 
 
 def invoke(argv, log, environment):
@@ -85,6 +86,9 @@ def main():
         6: "invalid_reference",
     }
     for case in inventory["cases"]:
+        definition = next(item for item in settings["cases"] if item["id"] == case["id"])
+        method = definition.get("method", "conservative_first_order")
+        method_pair = pairing(method)
         if case["status"] != "prepared":
             for engine in settings["engines"]:
                 suite["runs"].append(
@@ -155,6 +159,8 @@ def main():
                     folder,
                     "--mode",
                     mode,
+                    "--method",
+                    method,
                     "--warmups",
                     settings["warmups"],
                     "--repetitions",
@@ -182,6 +188,8 @@ def main():
                         reference_path,
                         "--run",
                         folder,
+                        "--method",
+                        method,
                     ]
                     if mode == "timing" and quality:
                         metric_command += [
@@ -234,7 +242,7 @@ def main():
                                 else "unmatched"
                             )
                             reason = (
-                                "Shared great-circle fixture/options; areas agree within 1e-8"
+                                "Shared great-circle fixture/options; areas agree within 1e-8; see method_pairing for algorithm differences"
                                 if matching == "matched"
                                 else "Geometry or engine-area convention differs"
                             )
@@ -243,6 +251,7 @@ def main():
                                 schema_version=1,
                                 run_id=run_id,
                                 case_id=case["id"],
+                                method_pairing=method_pair,
                                 field=case["field"],
                                 family=case["family"],
                                 case_definition=next(
@@ -282,7 +291,7 @@ def main():
                                 reference_evidence=reference_evidence,
                                 reference_precision_reason="Analytic double/extended-precision agreement and roundoff estimate; not a formal interval certificate",
                                 options={
-                                    "method": "conservative_first_order",
+                                    "method": method,
                                     "precision": "float64",
                                     "normalization": case["norm"],
                                     "line_type": case["geometry"],
@@ -294,7 +303,7 @@ def main():
                                     {
                                         "fixture": digest(fixture),
                                         "reference": digest(reference_path),
-                                        "method": "conservative_first_order",
+                                        "method": method,
                                         "precision": "float64",
                                         "threads": settings["threads"],
                                         "ranks": 1,
@@ -382,12 +391,58 @@ def main():
         run["run_id"] for run in completed if run["metrics"]["numerical_validation"] != "pass"
     ]
     suite["comparisons"] = comparisons(completed)
+    paired_quality = []
+    for definition in settings["cases"]:
+        runs = {
+            r["engine"]: r
+            for r in completed
+            if r["case_id"] == definition["id"] and r["mode"] == "quality"
+        }
+        row = {
+            "case_id": definition["id"],
+            "method_pairing": pairing(definition.get("method", "conservative_first_order")),
+        }
+        if set(runs) != {"axis", "esmc"}:
+            row.update(status="unavailable", cause="Both completed quality workers required")
+        else:
+            axis_run, esmc_run = runs["axis"], runs["esmc"]
+            with (
+                xr.open_dataset(
+                    results_root / axis_run["case"]["path"], group="destination"
+                ) as mesh,
+                xr.open_dataset(results_root / axis_run["reference"]["path"]) as ref,
+                xr.open_dataset(results_root / axis_run["run_id"] / "fields.nc") as ax,
+                xr.open_dataset(results_root / esmc_run["run_id"] / "fields.nc") as es,
+            ):
+                row.update(
+                    common_cell_metrics(
+                        {k: ax[k].values for k in ("dst", "dst_frac")},
+                        {k: es[k].values for k in ("dst", "dst_frac")},
+                        ref.dst.values,
+                        ref.dst_area.values,
+                        ref.dst_covered.values,
+                        mesh.mask.values,
+                        definition.get("method", "conservative_first_order").startswith(
+                            "conservative_"
+                        ),
+                    )
+                )
+            row["axis_quality_run"] = axis_run["run_id"]
+            row["esmc_quality_run"] = esmc_run["run_id"]
+            row["quality_validated"] = all(
+                r["metrics"]["numerical_validation"] == "pass" for r in runs.values()
+            )
+        paired_quality.append(row)
+    save(results_root / "paired-quality.json", paired_quality)
+    suite["paired_quality_sha256"] = digest(results_root / "paired-quality.json")
     suite["numerical_validation"] = "fail" if numerical_failures else "pass"
     suite["numerical_failures"] = numerical_failures
     save(results_root / "suite.json", suite)
     print(
         f"{suite['status']}: {sum(r['status'] == 'complete' for r in suite['runs'])}/{len(suite['runs'])} runs in {results_root}; numerical validation {suite['numerical_validation']}"
     )
+    if numerical_failures:
+        return 5
     return 0 if suite["status"] == "complete" or arguments.allow_incomplete else 5
 
 

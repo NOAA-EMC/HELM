@@ -24,6 +24,7 @@ std::pair<InterpolationMatrix<MemorySpace>, InterpolationMatrix<MemorySpace>> Ve
     // 2. We extract the scalar sparse matrix underlying Views directly
     const auto &rows = W_scalar.factor_row_view();
     const auto &cols = W_scalar.factor_col_view();
+    if (W_scalar.has_linear_reconstruction()) throw std::invalid_argument("vector weights do not yet support field-dependent linear reconstruction");
     const auto &vals = W_scalar.factor_list_view();
 
     // Each scalar entry W_ji yields exactly 2 entries in W_u and 2 entries in W_v
