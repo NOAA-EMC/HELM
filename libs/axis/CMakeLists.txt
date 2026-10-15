@@ -132,6 +132,10 @@ if(NOT TARGET Kokkos::kokkoskernels AND AXIS_FETCH_KOKKOSKERNELS)
     # fetched KokkosKernels stays a light, fast configure/build.
     set(KokkosKernels_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
     set(KokkosKernels_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+    # ETI_ONLY controls whether consumers may instantiate templates; it does
+    # not disable the library's default explicit instantiations. Disable those
+    # separately so pip/uv builds compile only the kernels AXIS actually uses.
+    set(KokkosKernels_ADD_DEFAULT_ETI OFF CACHE BOOL "" FORCE)
     set(KokkosKernels_ETI_ONLY OFF CACHE BOOL "" FORCE)
     set(KokkosKernels_ENABLE_TPL_BLAS OFF CACHE BOOL "" FORCE)
     set(KokkosKernels_ENABLE_TPL_LAPACK OFF CACHE BOOL "" FORCE)

@@ -13,7 +13,7 @@ cmake --build libs/axis/paper/build --target \
 libs/axis/paper/build/paper/axis_paper_esmc_probe
 ```
 
-The probe now checks all five ESMC method constants. Native ESMC compilation has not been performed in this workspace. Keep configure/build logs and the ESMF version with the results.
+The probe checks all five ESMC method constants. Native AXIS and ESMC workers were built and used for the completed result bundles below. Keep configure/build logs and the ESMF version with any refreshed results.
 
 ## 2. Smoke suite, then the larger profile
 
@@ -35,7 +35,29 @@ Use new output directories for each run. For the larger suite, replace the profi
 - Per-worker `run.json`, `fields.nc`, `metrics.json`, `observations.csv`, and logs: retained raw evidence and provenance.
 - `--allow-incomplete` tolerates unavailable cases but does not turn numerical failures into successful exit status.
 - `conservation_checked=false` means the integral residual is diagnostic; do not publish it as a passed conservation test. Partially covered second-order source cells need the reconstructed covered-source integral.
-- Existing figure scripts were built around the earlier conservative study. Review method labels and use the shared-population metrics when generating the all-method paper figures.
+- The 168-case all-method publication profile has 672 completed executions. The seam/polar profile has 8, and the separate MPAS smooth and sharp profiles have 28 each. Their saved outputs are under `build-container/noaa-*-results/`.
+
+## 2.1 Generate the publication figures
+
+The saved bundles can be plotted without rerunning the native workers:
+
+```sh
+libs/axis/paper/.venv/bin/python libs/axis/paper/scripts/make_figures.py \
+  --results libs/axis/paper/build-container/noaa-all-methods-publish-results \
+  --output libs/axis/paper/build-container/noaa-all-methods-publish-results/figures
+libs/axis/paper/.venv/bin/python libs/axis/paper/scripts/make_noaa_method_figures.py \
+  --results libs/axis/paper/build-container/noaa-all-methods-publish-results \
+  --robustness-results libs/axis/paper/build-container/noaa-seam-polar-results \
+  --mpas-results libs/axis/paper/build-container/noaa-mpas-smooth-results \
+  --mpas-sharp-results libs/axis/paper/build-container/noaa-mpas-sharp-results \
+  --output libs/axis/paper/build-container/noaa-all-methods-publish-results/figures/methods \
+  --size 32
+libs/axis/paper/.venv/bin/python libs/axis/paper/scripts/make_tables.py \
+  --results libs/axis/paper/build-container/noaa-all-methods-publish-results \
+  --output libs/axis/paper/build-container/noaa-all-methods-publish-results/tables
+```
+
+Each figure is exported as PDF, SVG, and PNG with a JSON sidecar recording its source runs and hashes. The MPAS panels use synthetic fields on public x1.2562 geometry; they are not NOAA observations. The seam and polar robustness panels have independent color scales.
 
 ## 3. AXIS capability examples
 

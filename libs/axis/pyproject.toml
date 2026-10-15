@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 dependencies = [
-    "cf-xarray",
     "numpy",
     "xarray",
 ]
@@ -20,12 +19,16 @@ netcdf = [
     "netCDF4",
 ]
 dask = [
-    "dask",
+    "dask>=2026.7.1",
+]
+distributed = [
+    "dask[distributed]>=2026.7.1",
 ]
 
 [dependency-groups]
 test = [
-    "dask",
+    "dask>=2026.7.1",
+    "distributed>=2026.7.1",
     "netCDF4",
     "pyproj",
     "pytest",

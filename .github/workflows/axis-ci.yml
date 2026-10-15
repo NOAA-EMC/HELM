@@ -120,6 +120,8 @@ jobs:
             set -e
             cd libs/axis
             uv sync --no-managed-python --all-groups --verbose
+            uv run python -c "import axis; axis.make_regular_mesh(4, 4, 0.0, 0.0, 1.0, 1.0); print(axis.axis_py.__file__)"
+            uv run axis-regrid --help >/dev/null
             uv run pytest -v -ra
             uv run mypy
           '

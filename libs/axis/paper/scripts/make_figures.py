@@ -6,8 +6,7 @@ import numpy as np
 import xarray as xr
 from publication import bundle, export, finish, plt, COLORS
 from matplotlib.collections import PolyCollection
-from matplotlib.patches import Patch
-from artifacts import identity
+from matplotlib.ticker import LogFormatterSciNotation, LogLocator, NullFormatter
 
 
 def polygons(mesh):
@@ -42,81 +41,57 @@ def draw(ax, cells, values, title, vmin, vmax, cmap="viridis"):
 
 
 def performance_display(runs, output):
-    """Facet costs by family; group engine bars so print labels remain legible."""
-    families = sorted({run["family"] for run in runs})
-    fig, axes = plt.subplots(
-        len(families), 3, figsize=(7.1, 2.6 * len(families)), squeeze=False, layout="constrained"
+    """Compare all method families at one common, largest rectilinear size."""
+    selected = [
+        run for run in runs
+        if run["family"] == "rectilinear"
+        and run["field"] == "smooth"
+        and run["case_id"].startswith("rect-32-smooth-forward-")
+    ]
+    methods = (
+        "nearest", "bilinear", "bicubic", "patch", "conservative_first_order",
+        "conservative_second_order", "conservative_second_order_limited",
     )
+    labels = (
+        "Nearest neighbor", "Bilinear", "Bicubic", "Patch recovery", "First order",
+        "Second order, unlimited", "Second order, limited",
+    )
+    lookup = {(run["options"]["method"], run["engine"]): run for run in selected}
+    if any((method, engine) not in lookup for method in methods for engine in COLORS):
+        raise ValueError("Missing timing records for the common rectilinear method comparison")
+    fig, axes = plt.subplots(1, 3, figsize=(7.1, 4.0), sharey=True, layout="constrained")
+    keys = ("setup:1", "apply:1", "setup_and_reuse:100")
+    titles = ("Weight setup", "One apply", "Setup + 100 applies")
     used = []
-    for row, family in enumerate(families):
-        candidates = [run for run in runs if run["family"] == family]
-        field = (
-            "constant"
-            if any(run["field"] == "constant" for run in candidates)
-            else candidates[0]["field"]
-        )
-        selected = [run for run in candidates if run["field"] == field]
-        case_ids = list(dict.fromkeys(run["case_id"] for run in selected))
-        labels = []
-        for case_index, case_id in enumerate(case_ids):
-            case_runs = [run for run in selected if run["case_id"] == case_id]
-            first = case_runs[0]
-            labels.append(
-                f"{first['source_cells']}→{first['destination_cells']}\n{first['norm']}"
-                + (" *" if any(run["matching"] != "matched" for run in case_runs) else "")
-            )
-            for run in case_runs:
-                position = case_index + (-0.18 if run["engine"] == "axis" else 0.18)
-                for column, key in enumerate(("setup:1", "apply:1")):
-                    sample = run["timing"][key]
-                    axes[row, column].bar(
-                        position,
-                        sample["median"],
-                        width=0.32,
-                        color=COLORS[run["engine"]],
-                        yerr=[
-                            [sample["median"] - sample["q25"]],
-                            [sample["q75"] - sample["median"]],
-                        ],
-                        capsize=2,
-                    )
-                for count, marker in ((1, "o"), (100, "s")):
-                    sample = run["timing"].get(f"setup_and_reuse:{count}")
-                    if sample:
-                        axes[row, 2].errorbar(
-                            position,
-                            sample["median"],
-                            fmt=marker,
-                            color=COLORS[run["engine"]],
-                            markersize=4,
-                            yerr=[
-                                [sample["median"] - sample["q25"]],
-                                [sample["q75"] - sample["median"]],
-                            ],
-                            capsize=2,
-                        )
+    for column, (ax, key, title) in enumerate(zip(axes, keys, titles)):
+        for index, (method, label) in enumerate(zip(methods, labels)):
+            for engine, offset in (("axis", -0.14), ("esmc", 0.14)):
+                run = lookup[(method, engine)]
+                sample = run["timing"][key]
+                ax.errorbar(
+                    sample["median"], index + offset,
+                    xerr=[[sample["median"] - sample["q25"]], [sample["q75"] - sample["median"]]],
+                    fmt="o", color=COLORS[engine], markersize=4, capsize=2,
+                    label=engine.upper() if index == 0 else None,
+                )
                 used.append(run)
-        for column, title in enumerate(
-            ("Setup", "One application", "Setup + reuse\nCircles N=1; squares N=100")
-        ):
-            ax = axes[row, column]
-            ax.set_title(title, fontsize=9)
-            ax.set_yscale("log")
-            ax.set_ylabel(f"{family}\nSeconds" if column == 0 else "Seconds")
-            ax.set_xticks(range(len(case_ids)), labels, rotation=90, fontsize=7)
-            ax.set_xlabel("Source → destination cells", fontsize=8)
-    axes[0, 0].legend(
-        handles=[Patch(facecolor=color, label=engine.upper()) for engine, color in COLORS.items()],
-        fontsize=7,
-    )
+        ax.set_xscale("log")
+        ax.xaxis.set_major_locator(LogLocator(base=10, subs=(1.0,)))
+        ax.xaxis.set_major_formatter(LogFormatterSciNotation(labelOnlyBase=True))
+        ax.xaxis.set_minor_formatter(NullFormatter())
+        ax.set_title(title)
+        ax.set_xlabel("Seconds (median and IQR)")
+        ax.grid(axis="x", color="#dddddd", linewidth=0.6)
+        ax.set_yticks(range(len(labels)), labels)
+    axes[0].set_ylabel("Method")
+    axes[0].legend(fontsize=7)
     return export(
         fig,
         output,
         "performance",
         used,
-        "Native median/IQR on constant fields where available, otherwise the first available field; families are separate rows. "
-        "Missing engine bars indicate unsupported cases, not zero cost. Asterisk marks unmatched geometry. "
-        "Totals sum measured setup and N reuse intervals on one fresh operator; estimates remain separate in records.",
+        "Native median and interquartile range for the smooth rectilinear forward case at source resolution 32 (2,048 source cells) and destination resolution 64 (8,192 cells). "
+        "Panels show setup, one application, and setup plus 100 repeated applications. Bicubic is paired with ESMC PATCH; limited second order is paired with ESMC's unlimited second-order method.",
     )
 
 
@@ -228,78 +203,81 @@ def main():
         products["performance"] = performance_display(timing, out)
     else:
         omitted["performance"] = "No completed native timing records"
-    # A resolution ladder must keep domains, fields, masks, and refinement
-    # direction fixed. Family names alone do not establish compatibility.
-    groups = {}
+    # Keep one controlled rectilinear coarse-to-fine direction in the display.
+    # For ESMC, collapse duplicate case pairings onto the native method family.
+    groups = {"axis": {}, "esmc": {}}
     for run in quality:
         definition = run.get("case_definition", {})
         source, destination = definition.get("source", {}), definition.get("destination", {})
-        if not source.get("n") or not destination.get("n"):
-            continue
         if (
             run["field"] != "smooth"
-            or run["matching"] != "matched"
+            or run["family"] != "rectilinear"
+            or run["norm"] != "dstarea"
+            or run["geometry"] != "great_circle"
             or run["metrics"]["numerical_validation"] != "pass"
             or not run.get("reference_precision_verified")
+            or source.get("n") not in {8, 16, 32}
+            or destination.get("n") != 2 * source.get("n", 0)
+            or "reverse" in run["case_id"]
         ):
             continue
-        configuration = {
-            "engine": run["engine"],
-            "method": run["options"]["method"],
-            "family": run["family"],
-            "norm": run["norm"],
-            "geometry": run["geometry"],
-            "source": {key: value for key, value in source.items() if key not in {"n", "m"}},
-            "destination": {
-                key: value for key, value in destination.items() if key not in {"n", "m"}
-            },
-            "refinement_ratio": destination["n"] / source["n"],
-            "aspect_ratio": source.get("m", source["n"]) / source["n"],
-        }
-        groups.setdefault(identity(configuration), []).append(run)
-    ladders = []
-    for records in groups.values():
-        if len({run["source_cells"] for run in records}) < 3:
-            continue
-        if any(
-            run["metrics"]["rms_error"] <= 0
-            or run["reference_evidence"]["max_uncertainty"] >= 0.01 * run["metrics"]["rms_error"]
-            for run in records
-        ):
-            continue
-        ladders.append(sorted(records, key=lambda run: run["source_cells"]))
-    if ladders:
-        fig, ax = plt.subplots(figsize=(7.1, 3.5))
+        method = run["method_pairing"]["esmc_method"] if run["engine"] == "esmc" else definition["method"]
+        groups[run["engine"]].setdefault(method, {}).setdefault(source["n"], run)
+    method_labels = {
+        "nearest": "Nearest neighbor",
+        "bilinear": "Bilinear",
+        "bicubic": "Bicubic",
+        "patch": "Patch recovery",
+        "conservative_first_order": "Conservative, first order",
+        "conservative_second_order": "Conservative, second order",
+        "conservative_second_order_limited": "Conservative, limited second order",
+    }
+    methods = (
+        "nearest", "bilinear", "bicubic", "patch", "conservative_first_order",
+        "conservative_second_order", "conservative_second_order_limited",
+    )
+    ladders = {engine: [] for engine in groups}
+    for engine, by_method in groups.items():
+        for method in methods:
+            records = by_method.get(method, {})
+            if set(records) != {8, 16, 32}:
+                continue
+            ladder = [records[size] for size in (8, 16, 32)]
+            if any(
+                run["metrics"]["rms_error"] <= 0
+                or run["reference_evidence"]["max_uncertainty"] >= 0.01 * run["metrics"]["rms_error"]
+                for run in ladder
+            ):
+                continue
+            ladders[engine].append((method, ladder))
+    if all(ladders.values()):
+        fig, axes = plt.subplots(1, 2, figsize=(7.1, 4.5), sharey=True, layout="constrained")
+        method_colors = {method: plt.get_cmap("tab10")(index) for index, method in enumerate(methods)}
         used = []
-        for ladder_index, records in enumerate(ladders):
-            spacing = np.array([run["source_cells"] ** -0.5 for run in records])
-            errors = np.array([run["metrics"]["rms_error"] for run in records])
-            observed_rate = float(np.polyfit(np.log(spacing), np.log(errors), 1)[0])
-            first = records[0]
-            ratio = (
-                first["case_definition"]["destination"]["n"]
-                / first["case_definition"]["source"]["n"]
-            )
-            label = f"{first['engine']} / {first['family']} / ratio {ratio:g}; observed slope {observed_rate:.2f}"
-            ax.loglog(
-                spacing,
-                errors,
-                marker=("o", "s", "^", "D")[ladder_index % 4],
-                linestyle="-" if ratio >= 1 else "--",
-                color=COLORS[first["engine"]],
-                label=label,
-            )
-            used.extend(records)
-        ax.set_xlabel("Nominal source spacing: source cell count to power -1/2")
-        ax.set_ylabel("Covered-area-weighted RMS error")
-        ax.legend(fontsize=7)
-        fig.tight_layout()
+        for ax, engine in zip(axes, ("axis", "esmc")):
+            for method, records in ladders[engine]:
+                spacing = np.array([run["source_cells"] ** -0.5 for run in records])
+                errors = np.array([run["metrics"]["rms_error"] for run in records])
+                slope = float(np.polyfit(np.log(spacing), np.log(errors), 1)[0])
+                label = f"{method_labels[method]} ({slope:.2f})"
+                ax.loglog(
+                    spacing, errors, marker="o", linewidth=1.2,
+                    color=method_colors[method], label=label,
+                )
+                used.extend(records)
+            ax.set_title(engine.upper())
+            ax.set_xlabel("Nominal source spacing, N⁻¹ᐟ²")
+            ax.grid(True, which="both", color="#dddddd", linewidth=0.55)
+            ax.legend(fontsize=6.0, loc="upper center", bbox_to_anchor=(0.5, -0.18), ncol=2)
+        axes[0].set_ylabel("Covered-area-weighted RMS error")
         products["convergence"] = export(
             fig,
             out,
             "convergence",
             used,
-            "Observed smooth-field trends on compatible domain/direction ladders. Reference precision estimates are below 1% of included errors; slopes are empirical.",
+            "Smooth analytic cell-mean transfer on matched rectilinear forward refinements (8→16, 16→32, and 32→64 grid dimensions). "
+            "Each legend gives the empirical slope from these three levels; slopes are descriptive, not formal asymptotic order proofs. "
+            "ESMC bicubic pairings use PATCH and its two second-order pairings collapse to the same ESMC second-order method.",
         )
     else:
         omitted["convergence"] = (

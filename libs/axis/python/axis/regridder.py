@@ -2,13 +2,14 @@
 import logging
 import time
 import uuid
+import weakref
 from typing import Any, cast
 
 import numpy as np
 import xarray as xr
 
 from . import axis_py
-from .core import _apply_weights_core, _setup_worker_cache
+from .core import _WORKER_CACHE, _apply_weights_core, _register_weight_plugin, _setup_worker_cache, _validate_core_dimension_chunks
 from .grid import (
     CurvilinearGrid,
     Geometry,
@@ -17,8 +18,6 @@ from .grid import (
     _get_mesh_info,
 )
 
-# Client-side cache on the driver node to avoid redundant worker cache syncs
-_DRIVER_CACHE: dict[Any, Any] = {}
 logger = logging.getLogger("axis")
 
 
@@ -26,8 +25,8 @@ class Regridder:
     """
     Exascale-ready spatial regridder wrapping AXIS's compiled Kokkos-parallel engine.
 
-    Seamlessly supports NumPy eager arrays, xarray Datasets/DataArrays, and Dask
-    distributed lazy arrays.
+    Supports NumPy eager arrays, xarray Datasets/DataArrays, and Dask-backed lazy
+    arrays on synchronous, threaded, or Dask Distributed schedulers.
     """
 
     source_grid_ds: xr.Dataset | None
@@ -63,6 +62,7 @@ class Regridder:
         self._weights_matrix: axis_py.Matrix | None = None
         self._serialized_weights: bytes | None = None
         self._total_weights: np.ndarray | None = None
+        self._registered_clients = weakref.WeakKeyDictionary()
 
         self._method_map = {
             "bilinear": axis_py.Method.Bilinear,
@@ -111,6 +111,8 @@ class Regridder:
         """
         Generate spatial interpolation weights (SpMV matrices) from source to destination.
         """
+        self.close()
+        self._uid = str(uuid.uuid4())
         t0 = time.perf_counter()
         logger.info("AXIS: Initiating high-performance weight matrix generation...")
 
@@ -262,6 +264,52 @@ class Regridder:
         with open(filename, "wb") as f:
             f.write(self._serialized_weights)
 
+    def close(self) -> None:
+        """Release this regridder's local cache entries and worker plugins."""
+        weights_key = f"weights_{self._uid}"
+        total_key = f"tw_{self._uid}_sum"
+        _WORKER_CACHE.pop(weights_key, None)
+        _WORKER_CACHE.pop(total_key, None)
+        for client, plugin_name in list(self._registered_clients.items()):
+            try:
+                client.unregister_worker_plugin(plugin_name)
+            except Exception:
+                logger.debug("Could not unregister AXIS worker plugin %s", plugin_name, exc_info=True)
+        self._registered_clients.clear()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            # Cleanup must not mask interpreter shutdown or an earlier exception.
+            pass
+
+    def _prepare_distributed_weights(self, client, weights_key: str) -> None:
+        """Register matrix and optional skipna sums on current and future workers."""
+        if self.skipna and not self._weights_matrix.is_csr:
+            self._weights_matrix.to_csr()
+            self._serialized_weights = self._weights_matrix.to_bytes()
+        if self._serialized_weights is None:
+            self._serialized_weights = self._weights_matrix.to_bytes()
+
+        total_key = f"tw_{self._uid}_sum" if self._total_weights is not None else None
+        plugin_name = f"axis-weights-{self._uid}"
+        if client not in self._registered_clients:
+            _register_weight_plugin(
+                client,
+                plugin_name,
+                weights_key,
+                self._serialized_weights,
+                total_key,
+                self._total_weights,
+            )
+            self._registered_clients[client] = plugin_name
+
+        # Explicit local schedulers used by the driver can share this process cache.
+        _setup_worker_cache(weights_key, self._weights_matrix)
+        if total_key is not None:
+            _setup_worker_cache(total_key, self._total_weights)
+
     def to_esmf(self, filename: str) -> None:
         """
         Save the compiled sparse regridding weights to an ESMF/SCRIP-compliant NetCDF file.
@@ -289,6 +337,7 @@ class Regridder:
         regridder.na_thres = 1.0
         regridder.norm_type = "fracarea"
         regridder._uid = str(uuid.uuid4())
+        regridder._registered_clients = weakref.WeakKeyDictionary()
 
         regridder._weights_matrix = axis_py.read_esmf(filename)
         regridder._serialized_weights = None
@@ -416,44 +465,41 @@ class Regridder:
         weights_key_arg = None
 
         if is_dask:
-            # Sync C++ compiled weights to remote Dask workers via serialization
+            _validate_core_dimension_chunks(
+                da_in,
+                self._dims_source,
+                "horizontal regridding",
+                input_name="field",
+            )
+
+            # Register serialized weights through Dask's worker lifecycle API.
             try:
                 import dask.distributed
 
                 client = dask.distributed.get_client()
-            except (ImportError, ValueError):
+            except ImportError as exc:
+                import dask
+
+                if dask.config.get("scheduler") == "distributed":
+                    raise RuntimeError(
+                        "The distributed scheduler was requested, but Dask Distributed is not installed. "
+                        "Install AXIS with `pip install 'axis-regrid[distributed]'` or `uv sync --extra distributed`."
+                    ) from exc
+                client = None
+            except ValueError:
                 client = None
 
             weights_key_arg = f"weights_{self._uid}"
 
             if client is not None:
-                client_id = getattr(client, "id", id(client))
-
-                # If workers are not synchronized, replicate the serialized bytes and deserialize
-                if (client_id, weights_key_arg) not in _DRIVER_CACHE:
-                    # Deserialize directly inside the worker node's memory space (zero copying)
-                    def _deserialize_and_cache(bytes_data, key):
-                        from axis import axis_py
-                        from axis.core import _setup_worker_cache
-
-                        mat = axis_py.Matrix.from_bytes(bytes_data)
-                        _setup_worker_cache(key, mat)
-                        return True
-
-                    client.run(_deserialize_and_cache, self._serialized_weights, weights_key_arg)
-                    _DRIVER_CACHE[(client_id, weights_key_arg)] = True
-
+                self._prepare_distributed_weights(client, weights_key_arg)
                 weights_arg = weights_key_arg
 
                 if self._total_weights is not None:
                     tw_key = f"tw_{self._uid}_sum"
-                    if (client_id, tw_key) not in _DRIVER_CACHE:
-                        client.run(_setup_worker_cache, tw_key, self._total_weights)
-                        _DRIVER_CACHE[(client_id, tw_key)] = True
                     total_weights_arg = tw_key
             else:
-                # Fallback: register locally in our _WORKER_CACHE so that local multiprocessing or thread schedulers
-                # can lookup the weights matrix by string key, completely avoiding PicklingErrors!
+                # Synchronous and threaded schedulers execute in this process and can use the local cache.
                 _setup_worker_cache(weights_key_arg, self._weights_matrix)
                 weights_arg = weights_key_arg
 
@@ -482,7 +528,7 @@ class Regridder:
             output_dtypes=[da_in.dtype],
             dask_gufunc_kwargs={
                 "output_sizes": dict(zip(temp_output_core_dims, self._shape_target, strict=False)),
-                "allow_rechunk": True,
+                "allow_rechunk": False,
             },
         )
 
@@ -509,6 +555,8 @@ class Regridder:
 
         if target_coords:
             out = out.assign_coords(target_coords)
+        out.name = da_in.name
+        out.attrs = da_in.attrs.copy()
         return out
 
     def regrid_categorical(
