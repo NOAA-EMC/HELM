@@ -15,27 +15,19 @@ target_include_directories(axis_py PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/ArborX/src
 )
 
-# On macOS, make the OpenMP runtime resolve against RPATHs at runtime instead of
-# a build-host-specific absolute path. This is done generically (no hardcoded
-# library locations) so the extension is portable across machines and avoids the
-# duplicate OpenMP runtime crash (OMP: Error #15) when the host process (NumPy,
-# SciPy, PyTorch, ...) has already loaded its own libomp.
+# On macOS, retain native dependency search paths in both build and installed
+# extensions, and align the OpenMP runtime with shared Kokkos when applicable.
 if(APPLE)
-    # ── RPATH search order (all discovered, none hardcoded) ───────────────────
-    #   1. @loader_path            — libomp co-installed next to the extension
-    #   2. active Python env /lib  — where NumPy/SciPy/PyTorch ship their libomp
-    #   3. the libomp CMake found  — the OpenMP install used at configure time
+    # Use the actual linked library locations. During pip/uv build isolation,
+    # Python's sys.prefix points at a temporary build environment, which does
+    # not contain native libraries discovered in Conda or a system prefix.
     set(_axis_py_rpaths "@loader_path")
-
-    # Active Python environment prefix. Works even inside PEP 517 build isolation.
-    execute_process(
-        COMMAND ${Python_EXECUTABLE} -c "import sys; print(sys.prefix)"
-        OUTPUT_VARIABLE ACTIVE_PYTHON_PREFIX
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    if(ACTIVE_PYTHON_PREFIX)
-        message(STATUS "AXIS C++: prioritizing active Python environment lib in RPATH: ${ACTIVE_PYTHON_PREFIX}/lib")
-        list(APPEND _axis_py_rpaths "${ACTIVE_PYTHON_PREFIX}/lib")
+    if(AXIS_ENABLE_PROJ)
+        if(TARGET PROJ::proj)
+            list(APPEND _axis_py_rpaths "$<TARGET_FILE_DIR:PROJ::proj>")
+        elseif(TARGET PkgConfig::PROJ)
+            list(APPEND _axis_py_rpaths ${PROJ_LIBRARY_DIRS})
+        endif()
     endif()
 
     # Directory of whatever OpenMP runtime CMake actually discovered.
@@ -57,6 +49,7 @@ if(APPLE)
     list(REMOVE_DUPLICATES _axis_py_rpaths)
     set_target_properties(axis_py PROPERTIES
         INSTALL_RPATH "${_axis_py_rpaths}"
+        INSTALL_RPATH_USE_LINK_PATH ON
         BUILD_WITH_INSTALL_RPATH ON
     )
 
@@ -65,11 +58,21 @@ if(APPLE)
     # rather than enumerating known absolute paths.
     find_program(OTOOL_EXECUTABLE otool)
     if(OTOOL_EXECUTABLE AND CMAKE_INSTALL_NAME_TOOL)
+        # A shared Kokkos library may already load a different OpenMP runtime
+        # than the compiler discovers. Keep the extension on that same runtime.
+        set(_axis_kokkos_runtime_arg "")
+        if(TARGET Kokkos::kokkoscore)
+            get_target_property(_axis_kokkos_type Kokkos::kokkoscore TYPE)
+            if(_axis_kokkos_type STREQUAL "SHARED_LIBRARY")
+                set(_axis_kokkos_runtime_arg "-DKOKKOS_LIBRARY=$<TARGET_FILE:Kokkos::kokkoscore>")
+            endif()
+        endif()
         add_custom_command(TARGET axis_py POST_BUILD
             COMMAND ${CMAKE_COMMAND}
                     -DTARGET_FILE=$<TARGET_FILE:axis_py>
                     -DINSTALL_NAME_TOOL=${CMAKE_INSTALL_NAME_TOOL}
                     -DOTOOL=${OTOOL_EXECUTABLE}
+                    ${_axis_kokkos_runtime_arg}
                     -P ${CMAKE_CURRENT_SOURCE_DIR}/relocate_openmp.cmake
             COMMENT "AXIS C++: normalizing OpenMP runtime reference to @rpath"
             VERBATIM

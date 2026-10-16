@@ -51,9 +51,13 @@ KOKKOS_FUNCTION void solve_column_spline(const double *x, const double *y, std::
         return;
     }
 
-    // Standard forward-elimination/backward-substitution Thomas algorithm
-    d[0] = 0.0;
-    temp_scratch[0] = 0.0;
+    // Solve for knot derivatives with natural (zero second derivative)
+    // boundary conditions. In derivative form, the endpoint equations are
+    // 2*d[0] + d[1] = 3*slope[0] and
+    // d[n-2] + 2*d[n-1] = 3*slope[n-2].
+    const double first_slope = (y[1] - y[0]) / (x[1] - x[0]);
+    d[0] = 1.5 * first_slope;
+    temp_scratch[0] = 0.5;
     for (std::size_t i = 1; i < n - 1; ++i) {
         double dx1 = x[i] - x[i - 1];
         double dx2 = x[i + 1] - x[i];
@@ -62,12 +66,18 @@ KOKKOS_FUNCTION void solve_column_spline(const double *x, const double *y, std::
         double dy1 = (y[i] - y[i - 1]) / dx1;
         double dy2 = (y[i + 1] - y[i]) / dx2;
 
-        double denom = 2.0 * (dx1 + dx2) - dx1 * temp_scratch[i - 1];
+        const double lower = dx2;
+        const double diagonal = 2.0 * (dx1 + dx2);
+        const double upper = dx1;
+        const double rhs = 3.0 * (dx2 * dy1 + dx1 * dy2);
+        double denom = diagonal - lower * temp_scratch[i - 1];
         if (denom == 0.0) denom = 1e-15;
-        temp_scratch[i] = dx2 / denom;
-        d[i] = (3.0 * (dy2 - dy1) - dx1 * d[i - 1]) / denom;
+        temp_scratch[i] = upper / denom;
+        d[i] = (rhs - lower * d[i - 1]) / denom;
     }
-    d[n - 1] = 0.0;
+    const double last_slope = (y[n - 1] - y[n - 2]) / (x[n - 1] - x[n - 2]);
+    const double last_denom = 2.0 - temp_scratch[n - 2];
+    d[n - 1] = (3.0 * last_slope - d[n - 2]) / last_denom;
     for (int i = static_cast<int>(n) - 2; i >= 0; --i) {
         d[i] = d[i] - temp_scratch[i] * d[i + 1];
     }

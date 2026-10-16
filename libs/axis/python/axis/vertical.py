@@ -5,6 +5,7 @@ import numpy as np
 import xarray as xr
 
 from . import axis_py
+from .core import _validate_core_dimension_chunks
 
 
 class VerticalRegridder:
@@ -102,6 +103,48 @@ class VerticalRegridder:
         input_core_dims = [[vert_dim], [da_src_levels.dims[-1]], [da_dst_levels.dims[-1]]]
         output_core_dims = [[da_dst_levels.dims[-1]]]
 
+        if hasattr(da_field.data, "dask"):
+            # Match level-coordinate batch chunks to the field. Eager level arrays
+            # become Dask-backed here; existing core chunks remain unchanged so
+            # split core dimensions are still reported below instead of hidden.
+            field_chunks = dict(da_field.chunksizes)
+            for level_name, levels, core_dim in (
+                ("source", da_src_levels, input_core_dims[1][0]),
+                ("destination", da_dst_levels, input_core_dims[2][0]),
+            ):
+                level_chunks = {}
+                for dim in levels.dims:
+                    if dim == core_dim:
+                        current_chunks = levels.chunksizes.get(dim)
+                        level_chunks[dim] = current_chunks if current_chunks else -1
+                    elif dim in field_chunks:
+                        level_chunks[dim] = field_chunks[dim]
+                if level_chunks:
+                    levels = levels.chunk(level_chunks)
+                    if level_name == "source":
+                        da_src_levels = levels
+                    else:
+                        da_dst_levels = levels
+
+            _validate_core_dimension_chunks(
+                da_field,
+                input_core_dims[0],
+                "vertical interpolation",
+                input_name="field",
+            )
+            _validate_core_dimension_chunks(
+                da_src_levels,
+                input_core_dims[1],
+                "vertical interpolation",
+                input_name="source levels",
+            )
+            _validate_core_dimension_chunks(
+                da_dst_levels,
+                input_core_dims[2],
+                "vertical interpolation",
+                input_name="destination levels",
+            )
+
         out = xr.apply_ufunc(
             _core_interpolate,
             da_field,
@@ -114,7 +157,7 @@ class VerticalRegridder:
             output_dtypes=[da_field.dtype],
             dask_gufunc_kwargs={
                 "output_sizes": {da_dst_levels.dims[-1]: da_dst_levels.shape[-1]},
-                "allow_rechunk": True,
+                "allow_rechunk": False,
             },
         )
 

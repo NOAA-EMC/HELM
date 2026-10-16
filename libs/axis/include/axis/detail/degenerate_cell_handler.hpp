@@ -180,12 +180,58 @@ struct DegenerateCellHandler {
 
         const std::size_t n_cells = report.total_cells;
         const std::size_t ndim = coords_view.extent(1);
+        const bool cartesian = mesh.coord_system() == topology::CoordinateSystem::Cartesian3D;
 
         for (std::size_t ci = 0; ci < n_cells; ++ci) {
             // Build a SphericalPolygon from the mesh cell connectivity.
             index_t start = offsets_view[ci];
             index_t end = offsets_view[ci + 1];
             int n_verts = static_cast<int>(end - start);
+
+            // Cartesian3D stores coordinates in physical x/y/z units, not
+            // unit-sphere vectors. Classifying those values with SphericalPolygon
+            // can discard valid planar cells (and suppress UnmappedAction::Error).
+            if (cartesian) {
+                if (n_verts < 3) {
+                    report.excluded_indices.push_back(static_cast<index_t>(ci));
+                    report.excluded_types.push_back(DegenerateType::ZeroArea);
+                    ++report.degenerate_count;
+                    continue;
+                }
+                double nx = 0.0, ny = 0.0, nz = 0.0;
+                int unique_vertices = 0;
+                for (int vi = 0; vi < n_verts; ++vi) {
+                    const std::size_t node = static_cast<std::size_t>(indices_view[start + vi]);
+                    const std::size_t next_node = static_cast<std::size_t>(indices_view[start + (vi + 1) % n_verts]);
+                    const double x = coords_view(node, 0), y = coords_view(node, 1), z = coords_view(node, 2);
+                    const double xn = coords_view(next_node, 0), yn = coords_view(next_node, 1), zn = coords_view(next_node, 2);
+                    nx += y * zn - z * yn;
+                    ny += z * xn - x * zn;
+                    nz += x * yn - y * xn;
+
+                    bool duplicate = false;
+                    for (int previous = 0; previous < vi; ++previous) {
+                        const std::size_t prior_node = static_cast<std::size_t>(indices_view[start + previous]);
+                        const double dx = x - coords_view(prior_node, 0);
+                        const double dy = y - coords_view(prior_node, 1);
+                        const double dz = z - coords_view(prior_node, 2);
+                        if (dx * dx + dy * dy + dz * dz < edge_threshold * edge_threshold) {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (!duplicate) ++unique_vertices;
+                }
+                const double area = 0.5 * Kokkos::sqrt(nx * nx + ny * ny + nz * nz);
+                const DegenerateType dtype =
+                    area < area_threshold ? DegenerateType::ZeroArea : (unique_vertices < 3 ? DegenerateType::CollapsedEdge : DegenerateType::None);
+                if (dtype != DegenerateType::None) {
+                    report.excluded_indices.push_back(static_cast<index_t>(ci));
+                    report.excluded_types.push_back(dtype);
+                    ++report.degenerate_count;
+                }
+                continue;
+            }
 
             // Use MaxVerts = 32 (matches the default throughout AXIS).
             constexpr int MaxVerts = 32;

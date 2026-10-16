@@ -110,8 +110,12 @@ Communicator Communicator::split(int color, int key) const {
 }
 
 Communicator Communicator::duplicate() const {
+    return duplicate_of(comm_);
+}
+
+Communicator Communicator::duplicate_of(MPI_Comm comm) {
     MPI_Comm new_comm = MPI_COMM_NULL;
-    int rc = MPI_Comm_dup(comm_, &new_comm);
+    int rc = MPI_Comm_dup(comm, &new_comm);
     if (rc != MPI_SUCCESS) {
         char err_str[MPI_MAX_ERROR_STRING];
         int len = 0;

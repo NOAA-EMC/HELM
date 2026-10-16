@@ -78,6 +78,9 @@ class Communicator {
     /// @throws std::runtime_error if MPI_Comm_dup fails.
     [[nodiscard]] Communicator duplicate() const;
 
+    /// Duplicate a borrowed raw communicator without adopting/freeing it.
+    [[nodiscard]] static Communicator duplicate_of(MPI_Comm comm);
+
    private:
     MPI_Comm comm_{MPI_COMM_NULL};
 

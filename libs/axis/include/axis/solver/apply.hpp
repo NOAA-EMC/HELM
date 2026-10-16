@@ -33,6 +33,7 @@
 #include <functional>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace axis::solver {
@@ -80,6 +81,11 @@ void apply(const InterpolationMatrix<MemorySpace> &matrix, field_view<const doub
     Kokkos::View<const double *, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> src_view(src.data_handle(), src.extent(0));
 
     using exec_space = typename MemorySpace::execution_space;
+
+    if (matrix.has_linear_reconstruction()) {
+        apply_linear<MemorySpace>(matrix, src_view, dst_view);
+        return;
+    }
 
     if (matrix.is_csr()) {
         // ── CSR path: KokkosSparse::spmv (required dependency) ──────────────
@@ -151,6 +157,8 @@ void apply(const InterpolationMatrix<MemorySpace> &matrix, field_view<const doub
 template <class MemorySpace>
 void apply(const InterpolationMatrix<MemorySpace> &matrix, const HaloPattern &pattern, field_view<const double, 1> local_src,
            field_view<const double, 1> gathered_halo_src, field_view<double, 1> dst) {
+    if (matrix.has_linear_reconstruction())
+        throw std::invalid_argument("distributed linear reconstruction requires gradient-stencil halos; use local apply");
     // ── Extent validation (throw BEFORE touching dst) ────────────────────────
     if (dst.extent(0) != matrix.n_dst()) {
         throw std::invalid_argument("axis::solver::apply (distributed): dst.extent(0) (" + std::to_string(dst.extent(0)) + ") != matrix.n_dst() (" +
@@ -290,6 +298,11 @@ void batch_apply(const InterpolationMatrix<MemorySpace> &matrix,
                                     std::to_string(dst.extent(1)) + ")");
     }
 
+    if (matrix.has_linear_reconstruction()) {
+        batch_apply_linear<MemorySpace>(matrix, src, dst);
+        return;
+    }
+
     // ── Obtain common metadata ──────────────────────────────────────────────
     const std::size_t n_dst = matrix.n_dst();
     const std::size_t n_src = matrix.n_src();
@@ -298,12 +311,25 @@ void batch_apply(const InterpolationMatrix<MemorySpace> &matrix,
     using exec_space = typename MemorySpace::execution_space;
 
     if (matrix.is_csr()) {
-        // ── CSR path: KokkosSparse::spmv with multivector (rank-2) views ────
-        // The cached CrsMatrix (built once on first use by the rank-1 apply
-        // path) is reused here; KokkosSparse::spmv accepts rank-2
-        // (multivector) x/y views against the same operator.
-        const auto &A = matrix.kk_crs_matrix();
-        KokkosSparse::spmv("N", 1.0, A, src, 0.0, dst);
+        if constexpr (std::is_same_v<Layout, Kokkos::LayoutStride>) {
+            // KokkosKernels 5.1's multivector path constructs a rank-one
+            // LayoutStride view from extents, which is not supported by Kokkos.
+            // Keep strided inputs zero-copy using a row-owned CSR kernel.
+            auto row = matrix.row_ptr();
+            auto col = matrix.col_idx();
+            auto weights = matrix.csr_values();
+            Kokkos::parallel_for(
+                "axis::batch_apply::strided_csr", Kokkos::RangePolicy<exec_space>(0, n_dst), KOKKOS_LAMBDA(std::size_t j) {
+                    for (std::size_t v = 0; v < n_vars; ++v) {
+                        double sum = 0;
+                        for (index_t k = row(j); k < row(j + 1); ++k) sum += weights(k) * src(col(k), v);
+                        dst(j, v) = sum;
+                    }
+                });
+        } else {
+            const auto &A = matrix.kk_crs_matrix();
+            KokkosSparse::spmv("N", 1.0, A, src, 0.0, dst);
+        }
     } else {
         // ── COO scatter-add path ─────────────────────────────────────────────
         const auto &S = matrix.factor_list_view();   // [nnz]
@@ -393,6 +419,8 @@ void nan_batch_apply(const InterpolationMatrix<MemorySpace> &matrix,
             const auto start = row_ptr(j);
             const auto end = row_ptr(j + 1);
 
+            if (matrix.has_linear_reconstruction())
+                throw std::invalid_argument("NaN-aware linear reconstruction is not supported; use finite cell averages");
             // Compute total weight for row j (sum of S)
             double total_row_weight = 0.0;
             for (auto k = start; k < end; ++k) {
@@ -465,6 +493,23 @@ void apply(const InterpolationMatrix<MemorySpace> &matrix, field_view<const doub
     if (dst.extent(0) != matrix.n_dst()) {
         throw std::invalid_argument("axis::solver::apply (masked): dst.extent(0) (" + std::to_string(dst.extent(0)) + ") != matrix.n_dst() (" +
                                     std::to_string(matrix.n_dst()) + ")");
+    }
+
+    if (matrix.has_linear_reconstruction()) {
+        if (dst_mask.extent(0) != 0 && dst_mask.extent(0) != matrix.n_dst())
+            throw std::invalid_argument("axis::solver::apply: invalid destination mask extent");
+        Kokkos::View<double *, MemorySpace> result("linear_masked_result", matrix.n_dst());
+        apply(matrix, src, field_view<double, 1>{result.data(), matrix.n_dst()});
+        Kokkos::View<double *, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> out(dst.data_handle(), dst.extent(0));
+        Kokkos::View<const int *, MemorySpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> mask(dst_mask.data_handle(), dst_mask.extent(0));
+        const bool has_mask = dst_mask.extent(0) > 0;
+        using Exec = typename MemorySpace::execution_space;
+        Kokkos::parallel_for(
+            "axis::linear::masked_copy", Kokkos::RangePolicy<Exec>(0, matrix.n_dst()), KOKKOS_LAMBDA(std::size_t j) {
+                if (!has_mask || mask(j) != 0) out(j) = result(j);
+            });
+        Kokkos::fence();
+        return;
     }
 
     const std::size_t n_dst = matrix.n_dst();

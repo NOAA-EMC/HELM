@@ -67,13 +67,14 @@ class UnstructuredMesh {
     /// masked/inactive cell. Defaults to an empty View.
     UnstructuredMesh(Kokkos::View<double **, Kokkos::LayoutLeft, MemorySpace> node_coords, Kokkos::View<index_t *, MemorySpace> conn_offsets,
                      Kokkos::View<index_t *, MemorySpace> conn_indices, CoordinateSystem coord_sys, Kokkos::View<double *, MemorySpace> areas = {},
-                     Kokkos::View<int *, MemorySpace> mask = {})
+                     Kokkos::View<int *, MemorySpace> mask = {}, GeometryMetadata geometry = {})
         : node_coords_(std::move(node_coords)),
           conn_offsets_(std::move(conn_offsets)),
           conn_indices_(std::move(conn_indices)),
           coord_sys_(coord_sys),
           cell_areas_(std::move(areas)),
-          cell_mask_(std::move(mask)) {}
+          cell_mask_(std::move(mask)),
+          geometry_(geometry) {}
 
     // ─────────────────────────────────────────────────────────────────────────
     // Scalar accessors
@@ -96,6 +97,11 @@ class UnstructuredMesh {
     /// @return The CoordinateSystem enum value representing the mesh's coordinate system.
     [[nodiscard]] CoordinateSystem coord_system() const noexcept {
         return coord_sys_;
+    }
+
+    /// @brief Query how boundary coordinates and cell areas should be interpreted.
+    [[nodiscard]] GeometryMetadata geometry_metadata() const noexcept {
+        return geometry_;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -217,6 +223,7 @@ class UnstructuredMesh {
     CoordinateSystem coord_sys_{CoordinateSystem::SphericalDeg};
     Kokkos::View<double *, MemorySpace> cell_areas_;
     Kokkos::View<int *, MemorySpace> cell_mask_;
+    GeometryMetadata geometry_{};
 };
 
 }  // namespace axis::topology

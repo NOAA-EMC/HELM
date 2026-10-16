@@ -12,7 +12,10 @@ namespace axis::solver {
 /// @class VerticalRegridder
 /// @brief Thread-safe, device-resident solver for 1D vertical tension spline interpolation.
 ///
-/// This class handles vertical regridding of meteorology and oceanography fields. It supports
+/// This class handles vertical regridding of meteorology and oceanography fields.
+/// Natural boundary conditions set endpoint second derivatives to zero. Source coordinates
+/// must be strictly monotone with at least two levels. Tension is dimensionless per interval;
+/// zero gives a natural cubic spline. The solver supports
 /// both uniform 1D vertical coordinates and column-varying 2D coordinates (e.g. terrain-following
 /// sigma levels). It leverages parallel execution over horizontal columns on Host or Device.
 ///
@@ -25,7 +28,7 @@ class VerticalRegridder {
     /// @param dst_field   Destination field of shape (N_col, N_dst_lev).
     /// @param src_levels  Source level coordinates of shape (N_src_lev).
     /// @param dst_levels  Destination level coordinates of shape (N_dst_lev).
-    /// @param tension     Tension parameter (>= 0.0). 0.0 corresponds to standard cubic splines.
+    /// @param tension     Finite tension parameter (>= 0.0). 0.0 gives natural cubic splines.
     static void interpolate(Kokkos::View<const double **, MemorySpace> src_field, Kokkos::View<double **, MemorySpace> dst_field,
                             Kokkos::View<const double *, MemorySpace> src_levels, Kokkos::View<const double *, MemorySpace> dst_levels,
                             double tension = 0.0);
@@ -35,7 +38,7 @@ class VerticalRegridder {
     /// @param dst_field   Destination field of shape (N_col, N_dst_lev).
     /// @param src_levels  Source level coordinates of shape (N_col, N_src_lev).
     /// @param dst_levels  Destination level coordinates of shape (N_col, N_dst_lev).
-    /// @param tension     Tension parameter (>= 0.0). 0.0 corresponds to standard cubic splines.
+    /// @param tension     Finite tension parameter (>= 0.0). 0.0 gives natural cubic splines.
     static void interpolate(Kokkos::View<const double **, MemorySpace> src_field, Kokkos::View<double **, MemorySpace> dst_field,
                             Kokkos::View<const double **, MemorySpace> src_levels, Kokkos::View<const double **, MemorySpace> dst_levels,
                             double tension = 0.0);

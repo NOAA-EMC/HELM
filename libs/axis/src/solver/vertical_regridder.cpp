@@ -4,6 +4,7 @@
 
 #include <axis/detail/tspack.hpp>
 #include <axis/solver/vertical_regridder.hpp>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 
@@ -29,8 +30,11 @@ KOKKOS_INLINE_FUNCTION void get_column_scratch_pointers(double *scratch_data, st
 }
 
 inline void validate_vertical_regrid_params(std::size_t n_src, std::size_t n_dst, double tension) {
-    if (tension < 0.0) {
-        throw std::invalid_argument("VerticalRegridder: Tension parameter must be non-negative");
+    if (!std::isfinite(tension) || tension < 0.0) {
+        throw std::invalid_argument("VerticalRegridder: Tension parameter must be finite and non-negative");
+    }
+    if (n_src < 2) {
+        throw std::invalid_argument("VerticalRegridder: At least two source levels are required");
     }
     constexpr std::size_t MAX_LEVELS = 256;
     if (n_src > MAX_LEVELS || n_dst > MAX_LEVELS) {
