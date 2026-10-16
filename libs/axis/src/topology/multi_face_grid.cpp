@@ -75,6 +75,76 @@ std::size_t edge_node_count(const StructuredFace<MemorySpace> &face, FaceEdge ed
     return (edge == FaceEdge::East || edge == FaceEdge::West) ? face.nj + 1 : face.ni + 1;
 }
 
+struct NodeMapping {
+    std::vector<index_t> local_to_global;
+    std::vector<std::size_t> representatives;
+};
+
+template <class MemorySpace>
+NodeMapping build_node_mapping(const std::vector<StructuredFace<MemorySpace>> &faces, const std::vector<std::size_t> &face_node_offsets,
+                               const std::vector<FaceConnection> &connections, const std::vector<std::vector<FaceVertexRef>> &vertex_equivalences,
+                               std::size_t local_nodes) {
+    DisjointSet sets(local_nodes);
+    const auto flat_local = [&](std::size_t face, std::size_t local_node) { return face_node_offsets[face] + local_node; };
+    for (const auto &connection : connections) {
+        const auto &a = faces[connection.face_a];
+        const auto &b = faces[connection.face_b];
+        const std::size_t count = edge_node_count(a, connection.edge_a);
+        for (std::size_t k = 0; k < count; ++k) {
+            const std::size_t kb = connection.reversed ? count - 1 - k : k;
+            sets.unite(flat_local(connection.face_a, face_node_index(a, connection.edge_a, k)),
+                       flat_local(connection.face_b, face_node_index(b, connection.edge_b, kb)));
+        }
+    }
+
+    const auto validate_ref = [&](const FaceVertexRef &ref) {
+        if (ref.face >= faces.size() || ref.i > faces[ref.face].ni || ref.j > faces[ref.face].nj) {
+            throw std::invalid_argument("MultiFaceGrid: explicit vertex equivalence references an invalid face vertex");
+        }
+        return flat_local(ref.face, ref.i + ref.j * (faces[ref.face].ni + 1));
+    };
+    for (const auto &group : vertex_equivalences) {
+        if (group.size() < 2) throw std::invalid_argument("MultiFaceGrid: vertex-equivalence groups must contain at least two vertices");
+        const std::size_t first = validate_ref(group.front());
+        for (std::size_t k = 1; k < group.size(); ++k) sets.unite(first, validate_ref(group[k]));
+    }
+
+    NodeMapping mapping{std::vector<index_t>(local_nodes), {}};
+    mapping.representatives.reserve(local_nodes);
+    std::vector<std::size_t> root_to_global(local_nodes, std::numeric_limits<std::size_t>::max());
+    for (std::size_t local = 0; local < local_nodes; ++local) {
+        const std::size_t root = sets.find(local);
+        if (root_to_global[root] == std::numeric_limits<std::size_t>::max()) {
+            root_to_global[root] = mapping.representatives.size();
+            mapping.representatives.push_back(local);
+        }
+        mapping.local_to_global[local] = static_cast<index_t>(root_to_global[root]);
+    }
+    return mapping;
+}
+
+template <class MemorySpace>
+void build_cell_connectivity(const std::vector<StructuredFace<MemorySpace>> &faces, const std::vector<std::size_t> &face_node_offsets,
+                             const std::vector<std::size_t> &face_cell_offsets, const std::vector<index_t> &local_to_global,
+                             std::vector<index_t> &offsets, std::vector<index_t> &indices) {
+    for (std::size_t f = 0; f < faces.size(); ++f) {
+        const auto &face = faces[f];
+        const std::size_t stride = face.ni + 1;
+        for (std::size_t cell = 0; cell < face.ni * face.nj; ++cell) {
+            const std::size_t i = cell % face.ni;
+            const std::size_t j = cell / face.ni;
+            const std::size_t local_ids[4] = {i + j * stride, i + 1 + j * stride, i + 1 + (j + 1) * stride, i + (j + 1) * stride};
+            const std::size_t global_cell = face_cell_offsets[f] + cell;
+            offsets[global_cell] = static_cast<index_t>(global_cell * 4);
+            for (std::size_t k = 0; k < 4; ++k) {
+                const std::size_t source_k = face.reverse_cell_orientation ? (4 - k) % 4 : k;
+                const std::size_t local = face_node_offsets[f] + local_ids[source_k];
+                indices[global_cell * 4 + k] = local_to_global[local];
+            }
+        }
+    }
+}
+
 }  // namespace
 
 template <class MemorySpace>
@@ -123,61 +193,13 @@ UnstructuredMesh<MemorySpace> MultiFaceGrid<MemorySpace>::to_unstructured() cons
         throw std::overflow_error("MultiFaceGrid: mesh extents exceed index_t range");
     }
 
-    DisjointSet sets(local_nodes);
-    auto flat_local = [&](std::size_t f, std::size_t local_node) { return face_node_offsets[f] + local_node; };
-    for (const auto &connection : connections_) {
-        const auto &a = faces_[connection.face_a];
-        const auto &b = faces_[connection.face_b];
-        const std::size_t count = edge_node_count(a, connection.edge_a);
-        for (std::size_t k = 0; k < count; ++k) {
-            const std::size_t kb = connection.reversed ? count - 1 - k : k;
-            sets.unite(flat_local(connection.face_a, face_node_index(a, connection.edge_a, k)),
-                       flat_local(connection.face_b, face_node_index(b, connection.edge_b, kb)));
-        }
-    }
-    auto validate_ref = [&](const FaceVertexRef &ref) {
-        if (ref.face >= faces_.size() || ref.i > faces_[ref.face].ni || ref.j > faces_[ref.face].nj) {
-            throw std::invalid_argument("MultiFaceGrid: explicit vertex equivalence references an invalid face vertex");
-        }
-        return flat_local(ref.face, ref.i + ref.j * (faces_[ref.face].ni + 1));
-    };
-    for (const auto &group : vertex_equivalences_) {
-        if (group.size() < 2) throw std::invalid_argument("MultiFaceGrid: vertex-equivalence groups must contain at least two vertices");
-        const std::size_t first = validate_ref(group.front());
-        for (std::size_t k = 1; k < group.size(); ++k) sets.unite(first, validate_ref(group[k]));
-    }
-
     // IDs follow first occurrence in face order, then local row-major node order.
-    std::vector<index_t> local_to_global(local_nodes);
-    std::vector<std::size_t> representative;
-    std::vector<std::size_t> root_to_global(local_nodes, std::numeric_limits<std::size_t>::max());
-    for (std::size_t local = 0; local < local_nodes; ++local) {
-        const std::size_t root = sets.find(local);
-        if (root_to_global[root] == std::numeric_limits<std::size_t>::max()) {
-            root_to_global[root] = representative.size();
-            representative.push_back(local);
-        }
-        local_to_global[local] = static_cast<index_t>(root_to_global[root]);
-    }
-    const std::size_t n_nodes = representative.size();
+    auto node_mapping = build_node_mapping(faces_, face_node_offsets, connections_, vertex_equivalences_, local_nodes);
+    const std::size_t n_nodes = node_mapping.representatives.size();
 
     std::vector<index_t> host_offsets(n_cells + 1);
     std::vector<index_t> host_indices(nnz);
-    for (std::size_t f = 0; f < faces_.size(); ++f) {
-        const auto &face = faces_[f];
-        const std::size_t stride = face.ni + 1;
-        for (std::size_t cell = 0; cell < face.ni * face.nj; ++cell) {
-            const std::size_t i = cell % face.ni;
-            const std::size_t j = cell / face.ni;
-            const std::size_t local_ids[4] = {i + j * stride, i + 1 + j * stride, i + 1 + (j + 1) * stride, i + (j + 1) * stride};
-            const std::size_t global_cell = face_cell_offsets[f] + cell;
-            host_offsets[global_cell] = static_cast<index_t>(global_cell * 4);
-            for (std::size_t k = 0; k < 4; ++k) {
-                const std::size_t source_k = face.reverse_cell_orientation ? (4 - k) % 4 : k;
-                host_indices[global_cell * 4 + k] = local_to_global[flat_local(f, local_ids[source_k])];
-            }
-        }
-    }
+    build_cell_connectivity(faces_, face_node_offsets, face_cell_offsets, node_mapping.local_to_global, host_offsets, host_indices);
     host_offsets[n_cells] = static_cast<index_t>(nnz);
 
     Kokkos::View<double **, Kokkos::LayoutLeft, MemorySpace> local_coords("MultiFaceGrid::local_coords", local_nodes, ndim);
@@ -198,7 +220,7 @@ UnstructuredMesh<MemorySpace> MultiFaceGrid<MemorySpace>::to_unstructured() cons
     Kokkos::View<double **, Kokkos::LayoutLeft, MemorySpace> node_coords("MultiFaceGrid::node_coords", n_nodes, ndim);
     auto representative_view = Kokkos::View<std::size_t *, MemorySpace>("MultiFaceGrid::representatives", n_nodes);
     auto rep_host = Kokkos::create_mirror_view(representative_view);
-    for (std::size_t n = 0; n < n_nodes; ++n) rep_host(n) = representative[n];
+    for (std::size_t n = 0; n < n_nodes; ++n) rep_host(n) = node_mapping.representatives[n];
     Kokkos::deep_copy(representative_view, rep_host);
     auto reps = representative_view;
     auto output_coords = node_coords;
@@ -220,7 +242,7 @@ UnstructuredMesh<MemorySpace> MultiFaceGrid<MemorySpace>::to_unstructured() cons
     std::size_t invalid_coordinates = 0;
     auto local_map = Kokkos::View<index_t *, MemorySpace>("MultiFaceGrid::local_to_global", local_nodes);
     auto map_host = Kokkos::create_mirror_view(local_map);
-    for (std::size_t k = 0; k < local_nodes; ++k) map_host(k) = local_to_global[k];
+    for (std::size_t k = 0; k < local_nodes; ++k) map_host(k) = node_mapping.local_to_global[k];
     Kokkos::deep_copy(local_map, map_host);
     auto map = local_map;
     const double period = coordinate_system_ == CoordinateSystem::SphericalRad ? 2.0 * std::acos(-1.0) : 360.0;

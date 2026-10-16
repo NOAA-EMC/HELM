@@ -357,8 +357,6 @@ def _triangulate_mpas_mesh(ds: xr.Dataset) -> tuple[np.ndarray, np.ndarray, np.n
     v2 = conn_raw[:, 2:] - 1
 
     element_conn = np.stack([v0[mask], v1[mask], v2[mask]], axis=1).flatten()
-    np.repeat(np.arange(n_cells), max_tris)[mask.flatten()]
-
     return node_lon, node_lat, element_conn.astype(np.int64)
 
 
@@ -422,7 +420,12 @@ def _get_ugrid_info(ds: xr.Dataset) -> tuple[np.ndarray, np.ndarray, np.ndarray]
 
 
 def create_axis_mesh(ds: xr.Dataset, method: str | None = None) -> axis_py.Mesh:
-    """Build a native C++ Kokkos-parallel AXIS Mesh from an xarray dataset."""
+    """Adapt xarray/CF metadata to the native C++ mesh constructors.
+
+    This layer handles Python-specific dataset discovery and dimension selection;
+    geometry construction, corner policies, triangulation, and mesh assembly are
+    delegated to the AXIS C++ bindings.
+    """
     lon, lat, shape, dims, is_unstructured = _get_mesh_info(ds, method)
 
     if is_unstructured:

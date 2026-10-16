@@ -32,6 +32,11 @@ namespace axis::topology {
 /// configuration of corner coordinates, and can be converted into the common internal finite-element
 /// `UnstructuredMesh` format via the `to_unstructured()` member function.
 ///
+/// Rectilinear, Gaussian, and curvilinear inputs share this same logical topology;
+/// their differences are corner and area policies, not connectivity. Keeping the
+/// conversion in one class shares validation and mesh assembly without duplicating
+/// those paths across topology subclasses.
+///
 /// @tparam MemorySpace The Kokkos memory space used for internal array storage (e.g., Kokkos::HostSpace, Kokkos::CudaSpace, Kokkos::HIPSpace).
 template <class MemorySpace = Kokkos::HostSpace>
 class StructuredGrid {

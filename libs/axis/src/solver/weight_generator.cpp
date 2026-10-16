@@ -427,6 +427,51 @@ std::vector<LongitudeSegment> make_longitude_segments(const std::vector<Constant
     return result;
 }
 
+struct ConstantLatitudeOverlap {
+    index_t dst;
+    index_t src;
+    double area;
+};
+
+std::vector<ConstantLatitudeOverlap> find_constant_latitude_overlaps(const std::vector<ConstantLatitudeBand> &src_bands,
+                                                                     const std::vector<ConstantLatitudeBand> &dst_bands,
+                                                                     const std::vector<std::vector<LongitudeSegment>> &src_segments,
+                                                                     const std::vector<std::vector<LongitudeSegment>> &dst_segments, double radians,
+                                                                     double tolerance) {
+    std::vector<ConstantLatitudeOverlap> overlaps;
+    for (std::size_t db = 0; db < dst_bands.size(); ++db) {
+        const auto &dst_band = dst_bands[db];
+        for (std::size_t sb = 0; sb < src_bands.size(); ++sb) {
+            const double south = std::max(dst_band.south, src_bands[sb].south);
+            const double north = std::min(dst_band.north, src_bands[sb].north);
+            if (north <= south) continue;
+            const double lat_factor = std::sin(north * radians) - std::sin(south * radians);
+            if (lat_factor <= 0.0) continue;
+
+            const auto &source = src_segments[sb];
+            const auto &destination = dst_segments[db];
+            std::size_t si = 0, di = 0;
+            std::map<std::pair<index_t, index_t>, double> band_overlaps;
+            while (si < source.size() && di < destination.size()) {
+                const double lon_width = std::min(source[si].east, destination[di].east) - std::max(source[si].west, destination[di].west);
+                if (lon_width > tolerance) {
+                    band_overlaps[{destination[di].cell, source[si].cell}] += lon_width * radians * lat_factor;
+                }
+                if (source[si].east < destination[di].east - tolerance) {
+                    ++si;
+                } else if (destination[di].east < source[si].east - tolerance) {
+                    ++di;
+                } else {
+                    ++si;
+                    ++di;
+                }
+            }
+            for (const auto &[cells, area] : band_overlaps) overlaps.push_back({cells.first, cells.second, area});
+        }
+    }
+    return overlaps;
+}
+
 template <class MemorySpace>
 InterpolationMatrix<MemorySpace> generate_constant_latitude_conservative(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
                                                                          const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
@@ -485,49 +530,21 @@ InterpolationMatrix<MemorySpace> generate_constant_latitude_conservative(const t
     std::vector<bool> dst_has_entry(n_dst, false);
     const double tol = 1e-12 * std::max(1.0, period);
 
-    for (std::size_t db = 0; db < dst_bands.size(); ++db) {
-        const auto &dst_band = dst_bands[db];
-        for (std::size_t sb = 0; sb < src_bands.size(); ++sb) {
-            const auto &src_band = src_bands[sb];
-            const double south = std::max(dst_band.south, src_band.south);
-            const double north = std::min(dst_band.north, src_band.north);
-            if (north <= south) continue;
-            const double lat_factor = std::sin(north * radians) - std::sin(south * radians);
-            if (lat_factor <= 0.0) continue;
-
-            const auto &ss = src_segments[sb];
-            const auto &ds = dst_segments[db];
-            std::size_t si = 0, di = 0;
-            std::map<std::pair<index_t, index_t>, double> band_overlaps;
-            while (si < ss.size() && di < ds.size()) {
-                const double lon_width = std::min(ss[si].east, ds[di].east) - std::max(ss[si].west, ds[di].west);
-                if (lon_width > tol) band_overlaps[{ds[di].cell, ss[si].cell}] += lon_width * radians * lat_factor;
-                if (ss[si].east < ds[di].east - tol) {
-                    ++si;
-                } else if (ds[di].east < ss[si].east - tol) {
-                    ++di;
-                } else {
-                    ++si;
-                    ++di;
-                }
-            }
-
-            for (const auto &[pair, overlap] : band_overlaps) {
-                const std::size_t dst = static_cast<std::size_t>(pair.first);
-                const std::size_t src = static_cast<std::size_t>(pair.second);
-                if (has_dst_mask && dst_mask[dst] == 0) continue;
-                if (has_src_mask && src_mask[src] == 0) continue;
-                const double area_dst = dst_areas[dst];
-                const double area_src = src_areas[src];
-                if (area_dst <= 0.0 || area_src <= 0.0) continue;
-                weights.push_back(overlap / area_dst);
-                rows.push_back(static_cast<index_t>(dst));
-                columns.push_back(static_cast<index_t>(src));
-                frac_a[src] += overlap / area_src;
-                frac_b[dst] += overlap / area_dst;
-                dst_has_entry[dst] = true;
-            }
-        }
+    const auto overlaps = find_constant_latitude_overlaps(src_bands, dst_bands, src_segments, dst_segments, radians, tol);
+    for (const auto &overlap : overlaps) {
+        const std::size_t dst = static_cast<std::size_t>(overlap.dst);
+        const std::size_t src = static_cast<std::size_t>(overlap.src);
+        if (has_dst_mask && dst_mask[dst] == 0) continue;
+        if (has_src_mask && src_mask[src] == 0) continue;
+        const double area_dst = dst_areas[dst];
+        const double area_src = src_areas[src];
+        if (area_dst <= 0.0 || area_src <= 0.0) continue;
+        weights.push_back(overlap.area / area_dst);
+        rows.push_back(overlap.dst);
+        columns.push_back(overlap.src);
+        frac_a[src] += overlap.area / area_src;
+        frac_b[dst] += overlap.area / area_dst;
+        dst_has_entry[dst] = true;
     }
 
     if (config.unmapped == UnmappedAction::Error) {
