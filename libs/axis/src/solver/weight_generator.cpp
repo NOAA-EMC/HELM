@@ -45,6 +45,217 @@
 
 namespace axis::solver {
 
+namespace {
+
+topology::UnstructuredMesh<Kokkos::HostSpace> make_sample_point_mesh(const SampleGrid &samples, topology::CoordinateSystem coordinate_system) {
+    const std::size_t n = samples.positions.extent(0);
+    if (samples.positions.extent(1) != 2 || (n > 0 && samples.positions.data() == nullptr)) {
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: positions must have shape [n, 2]");
+    }
+    if ((samples.nx == 0) != (samples.ny == 0) ||
+        (samples.nx != 0 && (samples.nx > std::numeric_limits<std::size_t>::max() / samples.ny || samples.nx * samples.ny != n))) {
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: logical shape must be empty or match the number of positions");
+    }
+    if (samples.mask.extent(0) != 0 && samples.mask.extent(0) != n) {
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: mask length must match the number of positions");
+    }
+    const bool spherical =
+        coordinate_system == topology::CoordinateSystem::SphericalDeg || coordinate_system == topology::CoordinateSystem::SphericalRad;
+    const double lat_limit = coordinate_system == topology::CoordinateSystem::SphericalDeg ? 90.0 : (3.14159265358979323846 / 2.0);
+    for (std::size_t i = 0; i < n; ++i) {
+        const double x = samples.positions(i, 0), y = samples.positions(i, 1);
+        if (!std::isfinite(x) || !std::isfinite(y) || (spherical && std::abs(y) > lat_limit)) {
+            throw std::invalid_argument("WeightGenerator::generate_from_samples: coordinates must be finite and spherical latitude must be valid");
+        }
+        if (samples.mask.extent(0) != 0 && samples.mask(i) != 0 && samples.mask(i) != 1) {
+            throw std::invalid_argument("WeightGenerator::generate_from_samples: mask values must be zero or one");
+        }
+    }
+    if (n > static_cast<std::size_t>(std::numeric_limits<index_t>::max())) {
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: too many positions");
+    }
+    Kokkos::View<index_t *, Kokkos::HostSpace> offsets("sample_offsets", n + 1);
+    Kokkos::View<index_t *, Kokkos::HostSpace> indices("sample_indices", n);
+    for (std::size_t i = 0; i <= n; ++i) offsets(i) = static_cast<index_t>(i);
+    for (std::size_t i = 0; i < n; ++i) indices(i) = static_cast<index_t>(i);
+    return topology::UnstructuredMesh<Kokkos::HostSpace>(samples.positions, std::move(offsets), std::move(indices), coordinate_system, {},
+                                                         samples.mask);
+}
+
+InterpolationMatrix<Kokkos::HostSpace> empty_sample_matrix(std::size_t n_src, std::size_t n_dst) {
+    Kokkos::View<double *, Kokkos::HostSpace> weights("sample_weights", 0), frac_a("sample_frac_a", n_src), frac_b("sample_frac_b", n_dst),
+        area_a("sample_area_a", n_src), area_b("sample_area_b", n_dst);
+    Kokkos::View<index_t *, Kokkos::HostSpace> rows("sample_rows", 0), cols("sample_cols", 0);
+    for (std::size_t i = 0; i < n_src; ++i) {
+        frac_a(i) = 0.0;
+        area_a(i) = 0.0;
+    }
+    for (std::size_t i = 0; i < n_dst; ++i) {
+        frac_b(i) = 0.0;
+        area_b(i) = 0.0;
+    }
+    return InterpolationMatrix<Kokkos::HostSpace>(std::move(weights), std::move(rows), std::move(cols), std::move(frac_a), std::move(frac_b),
+                                                  std::move(area_a), std::move(area_b), n_src, n_dst);
+}
+
+}  // namespace
+
+InterpolationMatrix<Kokkos::HostSpace> WeightGenerator::generate_from_samples(const SampleGrid &src, const SampleGrid &dst,
+                                                                              topology::CoordinateSystem coordinate_system,
+                                                                              const RegridConfig &config) {
+    if (config.method != InterpolationMethod::NearestNeighbor && config.method != InterpolationMethod::Bilinear &&
+        config.method != InterpolationMethod::Bicubic) {
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: method requires cell geometry");
+    }
+    if ((config.method == InterpolationMethod::Bilinear || config.method == InterpolationMethod::Bicubic) && (src.nx == 0 || src.ny == 0))
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: bilinear and bicubic methods require structured source topology");
+    if (config.method == InterpolationMethod::Bicubic && (src.nx < 4 || src.ny < 4))
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: bicubic interpolation requires at least a 4 by 4 source stencil");
+    if (config.method != InterpolationMethod::NearestNeighbor) {
+        const auto contains_masked_sample = [](const SampleGrid &grid) {
+            for (std::size_t i = 0; i < grid.mask.extent(0); ++i)
+                if (grid.mask(i) == 0) return true;
+            return false;
+        };
+        if (contains_masked_sample(src) || contains_masked_sample(dst))
+            throw std::invalid_argument("WeightGenerator::generate_from_samples: masked structured bilinear/bicubic stencils are not supported");
+    }
+    auto src_mesh = make_sample_point_mesh(src, coordinate_system);
+    auto dst_mesh = make_sample_point_mesh(dst, coordinate_system);
+    const std::size_t local_source_count = src_mesh.n_cells();
+    std::vector<index_t> global_source_ids(local_source_count);
+    std::size_t global_source_count = src.global_source_count;
+    std::vector<bool> seen;
+    if (src.global_indices.extent(0) != 0 && src.global_indices.extent(0) != local_source_count)
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: global source index length must match source positions");
+    if (src.global_indices.extent(0) == 0 && global_source_count == 0) global_source_count = local_source_count;
+    if (src.global_indices.extent(0) == 0 && global_source_count < local_source_count)
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: global source count is smaller than the local source count");
+    seen.assign(global_source_count, false);
+    for (std::size_t i = 0; i < local_source_count; ++i) {
+        const index_t id = src.global_indices.extent(0) == 0 ? static_cast<index_t>(i) : src.global_indices(i);
+        if (id < 0 || static_cast<std::size_t>(id) >= global_source_count || seen[static_cast<std::size_t>(id)])
+            throw std::invalid_argument(
+                "WeightGenerator::generate_from_samples: global source indices must be unique and within global_source_count");
+        global_source_ids[i] = id;
+        seen[static_cast<std::size_t>(id)] = true;
+    }
+    const std::size_t local_destination_count = dst_mesh.n_cells();
+    std::vector<index_t> global_destination_ids(local_destination_count);
+    std::size_t global_destination_count = dst.global_destination_count;
+    if (dst.global_indices.extent(0) != 0 && dst.global_indices.extent(0) != local_destination_count)
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: global destination index length must match destination positions");
+    if (dst.global_indices.extent(0) == 0 && global_destination_count == 0) global_destination_count = local_destination_count;
+    if (dst.global_indices.extent(0) == 0 && global_destination_count < local_destination_count)
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: global destination count is smaller than the local destination count");
+    seen.assign(global_destination_count, false);
+    for (std::size_t j = 0; j < local_destination_count; ++j) {
+        const index_t id = dst.global_indices.extent(0) == 0 ? static_cast<index_t>(j) : dst.global_indices(j);
+        if (id < 0 || static_cast<std::size_t>(id) >= global_destination_count || seen[static_cast<std::size_t>(id)])
+            throw std::invalid_argument(
+                "WeightGenerator::generate_from_samples: global destination indices must be unique and within global_destination_count");
+        global_destination_ids[j] = id;
+        seen[static_cast<std::size_t>(id)] = true;
+    }
+    auto with_global_indices = [&](const InterpolationMatrix<Kokkos::HostSpace> &local_matrix) {
+        if (src.global_indices.extent(0) == 0 && global_source_count == local_source_count && dst.global_indices.extent(0) == 0 &&
+            global_destination_count == local_destination_count)
+            return local_matrix;
+        const std::size_t nnz = local_matrix.nnz();
+        Kokkos::View<double *, Kokkos::HostSpace> weights("global_sample_weights", nnz), frac_a("global_sample_frac_a", global_source_count),
+            frac_b("global_sample_frac_b", global_destination_count), area_a("global_sample_area_a", global_source_count),
+            area_b("global_sample_area_b", global_destination_count);
+        Kokkos::View<index_t *, Kokkos::HostSpace> rows("global_sample_rows", nnz), cols("global_sample_cols", nnz);
+        for (std::size_t i = 0; i < global_source_count; ++i) frac_a(i) = area_a(i) = 0.0;
+        for (std::size_t j = 0; j < global_destination_count; ++j) frac_b(j) = area_b(j) = 0.0;
+        for (std::size_t j = 0; j < local_destination_count; ++j) {
+            frac_b(static_cast<std::size_t>(global_destination_ids[j])) = local_matrix.frac_b()(j);
+            area_b(static_cast<std::size_t>(global_destination_ids[j])) = local_matrix.area_b()(j);
+        }
+        for (std::size_t i = 0; i < local_source_count; ++i) {
+            frac_a(static_cast<std::size_t>(global_source_ids[i])) = local_matrix.frac_a()(i);
+            area_a(static_cast<std::size_t>(global_source_ids[i])) = local_matrix.area_a()(i);
+        }
+        for (std::size_t k = 0; k < nnz; ++k) {
+            weights(k) = local_matrix.factor_list()(k);
+            rows(k) = global_destination_ids[static_cast<std::size_t>(local_matrix.factor_row()(k))];
+            cols(k) = global_source_ids[static_cast<std::size_t>(local_matrix.factor_col()(k))];
+        }
+        return InterpolationMatrix<Kokkos::HostSpace>(std::move(weights), std::move(rows), std::move(cols), std::move(frac_a), std::move(frac_b),
+                                                      std::move(area_a), std::move(area_b), global_source_count, global_destination_count);
+    };
+    if (dst_mesh.n_cells() == 0 || src_mesh.n_cells() == 0) {
+        if (src_mesh.n_cells() == 0 && dst_mesh.n_cells() != 0 && config.unmapped == UnmappedAction::Error) {
+            throw std::runtime_error("WeightGenerator::generate_from_samples: no source samples for nonempty destination");
+        }
+        return with_global_indices(empty_sample_matrix(src_mesh.n_cells(), dst_mesh.n_cells()));
+    }
+    if (config.method == InterpolationMethod::NearestNeighbor && (src.mask.extent(0) != 0 || dst.mask.extent(0) != 0)) {
+        std::vector<std::size_t> source_indices, destination_indices;
+        source_indices.reserve(src_mesh.n_cells());
+        destination_indices.reserve(dst_mesh.n_cells());
+        for (std::size_t i = 0; i < src_mesh.n_cells(); ++i)
+            if (src.mask.extent(0) == 0 || src.mask(i) == 1) source_indices.push_back(i);
+        for (std::size_t j = 0; j < dst_mesh.n_cells(); ++j)
+            if (dst.mask.extent(0) == 0 || dst.mask(j) == 1) destination_indices.push_back(j);
+
+        SampleGrid active_src, active_dst;
+        active_src.positions = Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace>("active_source_positions", source_indices.size(), 2);
+        active_dst.positions =
+            Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace>("active_destination_positions", destination_indices.size(), 2);
+        for (std::size_t i = 0; i < source_indices.size(); ++i)
+            for (int d = 0; d < 2; ++d) active_src.positions(i, d) = src.positions(source_indices[i], d);
+        for (std::size_t j = 0; j < destination_indices.size(); ++j)
+            for (int d = 0; d < 2; ++d) active_dst.positions(j, d) = dst.positions(destination_indices[j], d);
+
+        auto active_src_mesh = make_sample_point_mesh(active_src, coordinate_system);
+        auto active_dst_mesh = make_sample_point_mesh(active_dst, coordinate_system);
+        InterpolationMatrix<Kokkos::HostSpace> active_matrix;
+        if (active_dst_mesh.n_cells() == 0 || active_src_mesh.n_cells() == 0) {
+            if (active_src_mesh.n_cells() == 0 && active_dst_mesh.n_cells() != 0 && config.unmapped == UnmappedAction::Error)
+                throw std::runtime_error("WeightGenerator::generate_from_samples: no active source samples for active destination");
+            active_matrix = empty_sample_matrix(active_src_mesh.n_cells(), active_dst_mesh.n_cells());
+        } else {
+            active_matrix = generate_nearest(active_src_mesh, active_dst_mesh, config);
+        }
+
+        const std::size_t nnz = active_matrix.nnz();
+        Kokkos::View<double *, Kokkos::HostSpace> weights("sample_weights", nnz), frac_a("sample_frac_a", src_mesh.n_cells()),
+            frac_b("sample_frac_b", dst_mesh.n_cells()), area_a("sample_area_a", src_mesh.n_cells()), area_b("sample_area_b", dst_mesh.n_cells());
+        Kokkos::View<index_t *, Kokkos::HostSpace> rows("sample_rows", nnz), cols("sample_cols", nnz);
+        for (std::size_t i = 0; i < src_mesh.n_cells(); ++i) frac_a(i) = area_a(i) = 0.0;
+        for (std::size_t j = 0; j < dst_mesh.n_cells(); ++j) frac_b(j) = area_b(j) = 0.0;
+        for (std::size_t i = 0; i < source_indices.size(); ++i) {
+            frac_a(source_indices[i]) = active_matrix.frac_a()(i);
+            area_a(source_indices[i]) = active_matrix.area_a()(i);
+        }
+        for (std::size_t j = 0; j < destination_indices.size(); ++j) {
+            frac_b(destination_indices[j]) = active_matrix.frac_b()(j);
+            area_b(destination_indices[j]) = active_matrix.area_b()(j);
+        }
+        for (std::size_t k = 0; k < nnz; ++k) {
+            weights(k) = active_matrix.factor_list()(k);
+            rows(k) = static_cast<index_t>(destination_indices[active_matrix.factor_row()(k)]);
+            cols(k) = static_cast<index_t>(source_indices[active_matrix.factor_col()(k)]);
+        }
+        return with_global_indices(InterpolationMatrix<Kokkos::HostSpace>(std::move(weights), std::move(rows), std::move(cols), std::move(frac_a),
+                                                                          std::move(frac_b), std::move(area_a), std::move(area_b), src_mesh.n_cells(),
+                                                                          dst_mesh.n_cells()));
+    }
+
+    switch (config.method) {
+        case InterpolationMethod::NearestNeighbor:
+            return with_global_indices(generate_nearest(src_mesh, dst_mesh, config));
+        case InterpolationMethod::Bilinear:
+            return with_global_indices(generate_bilinear(src_mesh, dst_mesh, config));
+        case InterpolationMethod::Bicubic:
+            return with_global_indices(generate_bicubic(src_mesh, dst_mesh, config));
+        default:
+            break;
+    }
+    throw std::invalid_argument("WeightGenerator::generate_from_samples: unsupported method");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers (anonymous namespace)
 // ─────────────────────────────────────────────────────────────────────────────

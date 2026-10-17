@@ -132,6 +132,20 @@ gtest_discover_tests(axis_unit_tests
     DISCOVERY_TIMEOUT 30
 )
 
+# Keep this suite in its own executable: several legacy AXIS suites finalize
+# Kokkos from their global test environments, so combining another Kokkos
+# lifecycle into axis_unit_tests can leave later suites running after finalize.
+add_executable(axis_sample_position_tests test_sample_position_weights.cpp)
+target_link_libraries(axis_sample_position_tests PRIVATE axis GTest::gtest_main)
+set_target_properties(axis_sample_position_tests PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+)
+gtest_discover_tests(axis_sample_position_tests
+    PROPERTIES LABELS "unit"
+    DISCOVERY_TIMEOUT 30
+)
+
 # ##############################################################################
 # Property-based test sources (RapidCheck + GTest)
 # ##############################################################################

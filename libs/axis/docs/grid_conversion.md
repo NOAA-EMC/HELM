@@ -61,12 +61,19 @@ has declared the structured model. Curvilinear center-only reconstruction
 remains an opt-in approximation, and generic spherical-area recomputation
 interprets its edges as great-circle arcs; constant-latitude Gaussian and
 reduced-Gaussian edges use their provider-specific strip-area model instead.
-Conservative overlay does not yet consume the `ConstantLatitude` boundary
-metadata: Gaussian strip areas are exact for their declared parallel/meridian
-boundaries, but the current generic overlay clips its polygon representation
-using Cartesian or great-circle edges. Conservative remapping across these
-providers is therefore not yet guaranteed to conserve under that exact area
-model.
+The host first-order conservative overlay consumes `ConstantLatitude`
+boundaries and `ConstantLatitudeStrip` areas when both grids declare that same
+model and a matching positive longitude period. It clips overlap rectangles in
+longitude and `sin(latitude)`, preserving the parallel/meridian edge model.
+The device path and second-order conservative path do not consume this
+metadata; they use their generic polygon interpretation. Do not use strip
+geometry with those paths or mix strip and great-circle geometry and assume
+that the area model is preserved.
+
+Center-only interpolation can use `WeightGenerator::generate_from_samples`
+with explicit sample positions. It does not synthesize cell corners. Its
+nearest, bilinear and bicubic methods are sample operations; conservative
+methods require cell geometry and use the mesh-based interface.
 
 ## Limitations
 

@@ -104,6 +104,12 @@ class UnstructuredMesh {
         return geometry_;
     }
 
+    /// Preserve the actual origin and mathematical interpretation of prepared
+    /// boundaries when a mesh is sliced or reconstructed from retained geometry.
+    void set_geometry_metadata(GeometryMetadata geometry) noexcept {
+        geometry_ = geometry;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Non-owning field_view accessors (zero-copy, layout_left)
     //
