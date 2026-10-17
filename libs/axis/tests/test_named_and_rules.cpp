@@ -41,12 +41,40 @@ TEST(NamedAndRules, O4GeneratesNonEmptyMesh) {
     EXPECT_EQ(offsets.extent(0), mesh.n_cells() + 1);
 }
 
+TEST(NamedAndRules, O4UsesGaussianLatitudeStripsAndRaggedCellRows) {
+    auto mesh = topology::NamedGridRegistry::generate<MemSpace>("O4");
+
+    // The octahedral rows contain 20, 24, 28, 32, 32, 28, 24, and 20 cells.
+    EXPECT_EQ(mesh.n_cells(), std::size_t(208));
+    const auto offsets = mesh.conn_offsets();
+    const auto indices = mesh.conn_indices();
+    bool has_non_quad = false;
+    for (std::size_t cell = 0; cell < mesh.n_cells(); ++cell) {
+        const auto arity = offsets(cell + 1) - offsets(cell);
+        EXPECT_GE(arity, axis::index_t(4));
+        has_non_quad = has_non_quad || arity != axis::index_t(4);
+        for (axis::index_t entry = offsets(cell); entry < offsets(cell + 1); ++entry) {
+            EXPECT_GE(indices(static_cast<std::size_t>(entry)), axis::index_t(0));
+            EXPECT_LT(indices(static_cast<std::size_t>(entry)), static_cast<axis::index_t>(mesh.n_nodes()));
+        }
+    }
+    EXPECT_TRUE(has_non_quad);  // conforming edge splits at row transitions
+
+    const auto areas = mesh.cell_areas();
+    double total_area = 0.0;
+    for (std::size_t cell = 0; cell < mesh.n_cells(); ++cell) {
+        EXPECT_GT(areas(cell), 0.0);
+        total_area += areas(cell);
+    }
+    EXPECT_NEAR(total_area, 4.0 * M_PI, 1e-10);
+}
+
 // Test: generate("F4") produces a non-empty mesh
 TEST(NamedAndRules, F4GeneratesNonEmptyMesh) {
     auto mesh = topology::NamedGridRegistry::generate<MemSpace>("F4");
 
     constexpr std::size_t N = 4;
-    EXPECT_EQ(mesh.n_nodes(), std::size_t(4 * N * 2 * N));  // used as cell centers
+    EXPECT_EQ(mesh.n_nodes(), std::size_t((4 * N + 1) * (2 * N + 1)));  // shared corner lattice
     EXPECT_GT(mesh.n_cells(), std::size_t(0));
 
     // Verify expected range
@@ -62,9 +90,9 @@ TEST(NamedAndRules, F4GeneratesNonEmptyMesh) {
         if (y > max_y) max_y = y;
     }
     EXPECT_NEAR(min_x, 0.0, 1e-11);
-    EXPECT_NEAR(max_x, 360.0 - 22.5, 1e-11);
-    EXPECT_NEAR(min_y, -73.8, 1e-2);
-    EXPECT_NEAR(max_y, 73.8, 1e-2);
+    EXPECT_NEAR(max_x, 360.0, 1e-11);
+    EXPECT_NEAR(min_y, -90.0, 1e-11);
+    EXPECT_NEAR(max_y, 90.0, 1e-11);
 }
 
 // Test: parse("O4") returns family='O', number=4

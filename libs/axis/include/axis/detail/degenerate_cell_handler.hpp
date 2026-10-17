@@ -94,6 +94,42 @@ struct DegenerateCellHandler {
     /// Default warning fraction: warn when degenerate cells exceed this ratio.
     static constexpr double DEFAULT_WARNING_FRACTION = 0.01;
 
+   private:
+    template <class CoordinatesView, class IndicesView>
+    static DegenerateType classify_cartesian_cell(CoordinatesView coords, IndicesView indices, index_t start, int n_verts, double area_threshold,
+                                                  double edge_threshold) {
+        if (n_verts < 3) return DegenerateType::ZeroArea;
+
+        double nx = 0.0, ny = 0.0, nz = 0.0;
+        int unique_vertices = 0;
+        for (int vi = 0; vi < n_verts; ++vi) {
+            const std::size_t node = static_cast<std::size_t>(indices[start + vi]);
+            const std::size_t next_node = static_cast<std::size_t>(indices[start + (vi + 1) % n_verts]);
+            const double x = coords(node, 0), y = coords(node, 1), z = coords(node, 2);
+            const double xn = coords(next_node, 0), yn = coords(next_node, 1), zn = coords(next_node, 2);
+            nx += y * zn - z * yn;
+            ny += z * xn - x * zn;
+            nz += x * yn - y * xn;
+
+            bool duplicate = false;
+            for (int previous = 0; previous < vi; ++previous) {
+                const std::size_t prior_node = static_cast<std::size_t>(indices[start + previous]);
+                const double dx = x - coords(prior_node, 0);
+                const double dy = y - coords(prior_node, 1);
+                const double dz = z - coords(prior_node, 2);
+                if (dx * dx + dy * dy + dz * dz < edge_threshold * edge_threshold) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) ++unique_vertices;
+        }
+        const double area = 0.5 * Kokkos::sqrt(nx * nx + ny * ny + nz * nz);
+        if (area < area_threshold) return DegenerateType::ZeroArea;
+        return unique_vertices < 3 ? DegenerateType::CollapsedEdge : DegenerateType::None;
+    }
+
+   public:
     // ─────────────────────────────────────────────────────────────────────────
     // Device-portable classification
     // ─────────────────────────────────────────────────────────────────────────
@@ -180,12 +216,26 @@ struct DegenerateCellHandler {
 
         const std::size_t n_cells = report.total_cells;
         const std::size_t ndim = coords_view.extent(1);
+        const bool cartesian = mesh.coord_system() == topology::CoordinateSystem::Cartesian3D;
 
         for (std::size_t ci = 0; ci < n_cells; ++ci) {
             // Build a SphericalPolygon from the mesh cell connectivity.
             index_t start = offsets_view[ci];
             index_t end = offsets_view[ci + 1];
             int n_verts = static_cast<int>(end - start);
+
+            // Cartesian3D stores coordinates in physical x/y/z units, not
+            // unit-sphere vectors. Classifying those values with SphericalPolygon
+            // can discard valid planar cells (and suppress UnmappedAction::Error).
+            if (cartesian) {
+                const DegenerateType dtype = classify_cartesian_cell(coords_view, indices_view, start, n_verts, area_threshold, edge_threshold);
+                if (dtype != DegenerateType::None) {
+                    report.excluded_indices.push_back(static_cast<index_t>(ci));
+                    report.excluded_types.push_back(dtype);
+                    ++report.degenerate_count;
+                }
+                continue;
+            }
 
             // Use MaxVerts = 32 (matches the default throughout AXIS).
             constexpr int MaxVerts = 32;

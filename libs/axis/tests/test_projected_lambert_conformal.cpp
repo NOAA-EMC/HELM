@@ -66,6 +66,7 @@ TEST(ProjectedLambertConformal, EndToEndInterpolationAllMethods) {
 
     // Build geographic coordinate StructuredGrid using PROJ
     auto src_grid = topology::ProjectionBuilder::build<MemSpace>(params, buffers);
+    EXPECT_TRUE(src_grid.has_explicit_corners());
     auto src_mesh = src_grid.to_unstructured();
 
     // ── Destination: EPSG:4326 Regular Lat-Lon Grid (covering LCC bounding box) ──

@@ -5,11 +5,26 @@
 
 #include <gtest/gtest.h>
 
+#include <Kokkos_Core.hpp>
 #include <axis/detail/spherical_geometry.hpp>
+#include <axis/topology/unstructured_mesh.hpp>
+#include <axis/types.hpp>
 #include <cmath>
+#include <utility>
 #include <vector>
 
 namespace {
+
+class KokkosEnv : public ::testing::Environment {
+   public:
+    void SetUp() override {
+        if (!Kokkos::is_initialized()) Kokkos::initialize();
+    }
+    void TearDown() override {
+        if (Kokkos::is_initialized()) Kokkos::finalize();
+    }
+};
+static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnv);
 
 using namespace axis::detail::spherical;
 constexpr double deg2rad = pi / 180.0;
@@ -199,6 +214,32 @@ TEST(SphericalGeometry, SphericalQuadAreaHemisphere) {
     // A spherical quadrilateral from (0,0) to (90°,90°) covers 1/8 of the sphere.
     // Full sphere = 4π, so expected area = 4π/8 = π/2 steradians.
     EXPECT_NEAR(area, pi / 2.0, 1e-8);
+}
+
+TEST(SphericalGeometry, LargeGreatCircleTriangleUsesAtan2ForNegativeDenominator) {
+    using MemSpace = Kokkos::HostSpace;
+    Kokkos::View<double **, Kokkos::LayoutLeft, MemSpace> coords("coords", 3, 2);
+    const double lon[] = {0.0, 120.0, 250.0};
+    const double lat[] = {0.0, 10.0, 20.0};
+    for (std::size_t i = 0; i < 3; ++i) {
+        coords(i, 0) = lon[i];
+        coords(i, 1) = lat[i];
+    }
+    Kokkos::View<axis::index_t *, MemSpace> offsets("offsets", 2);
+    Kokkos::View<axis::index_t *, MemSpace> indices("indices", 3);
+    offsets(0) = 0;
+    offsets(1) = 3;
+    indices(0) = 0;
+    indices(1) = 1;
+    indices(2) = 2;
+    axis::topology::UnstructuredMesh<MemSpace> mesh(std::move(coords), std::move(offsets), std::move(indices),
+                                                    axis::topology::CoordinateSystem::SphericalDeg);
+    mesh.compute_areas();
+
+    // This valid triangle has a negative denominator in the robust spherical
+    // excess expression. Its smaller spherical excess is about 4.472 steradians.
+    EXPECT_NEAR(mesh.cell_areas()(0), 4.472373859838174, 1e-12);
+    EXPECT_NE(mesh.cell_areas()(0), axis::detail::spherical::pi);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

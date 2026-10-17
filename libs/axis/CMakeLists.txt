@@ -80,8 +80,12 @@ if(NOT TARGET Kokkos::kokkos AND AXIS_FETCH_KOKKOS)
     )
 
     # Ensure Kokkos builds with position independent code and suitable default backend
-    set(Kokkos_ENABLE_OPENMP ON CACHE BOOL "Enable OpenMP backend" FORCE)
-    set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
+    if(NOT DEFINED Kokkos_ENABLE_OPENMP)
+        set(Kokkos_ENABLE_OPENMP ON CACHE BOOL "Enable OpenMP backend")
+    endif()
+    if(NOT DEFINED Kokkos_ENABLE_SERIAL)
+        set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend")
+    endif()
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
     FetchContent_MakeAvailable(kokkos)
@@ -201,7 +205,10 @@ set(AXIS_SOURCES
     src/detail/raii_handles.cpp
     src/detail/tspack.cpp
     src/topology/unstructured_mesh.cpp
+    src/topology/mesh_builder.cpp
+    src/topology/multi_face_grid.cpp
     src/topology/structured_grid.cpp
+    src/topology/reduced_gaussian_grid.cpp
     src/topology/mesh_factory.cpp
     src/topology/named_grid_registry.cpp
     src/topology/rule_generator.cpp

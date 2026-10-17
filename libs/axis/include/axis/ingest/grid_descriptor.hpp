@@ -35,12 +35,13 @@ namespace axis::ingest {
 /// The producer sets this after detecting the file's grid convention; AXIS branches
 /// on it ONCE inside MeshFactory::from_descriptor.
 enum class ConventionKind : std::uint8_t {
-    CF,         ///< CF-conventions structured grid (grid_mapping + coord vars)
-    UGRID,      ///< UGRID unstructured mesh (node/edge/face topology)
-    GRIB,       ///< GRIB2 grid-description keys (gridType, Ni/Nj, Gaussian N, ...)
-    Projected,  ///< Regular grid in a PROJ/proj4 projection (AXIS transforms via PROJ)
-    NamedGrid,  ///< A registry token (e.g. "O1280"); AXIS generates it in-memory
-    GridRules   ///< Rule parameters (kind, bbox, resolution, gaussian_n); AXIS generates
+    CF,              ///< CF-conventions structured grid (grid_mapping + coord vars)
+    UGRID,           ///< UGRID unstructured mesh (node/edge/face topology)
+    GRIB,            ///< GRIB2 grid-description keys (gridType, Ni/Nj, Gaussian N, ...)
+    Projected,       ///< Regular grid in a PROJ/proj4 projection (AXIS transforms via PROJ)
+    NamedGrid,       ///< A registry token (e.g. "O1280"); AXIS generates it in-memory
+    GridRules,       ///< Rule parameters (kind, bbox, resolution, gaussian_n); AXIS generates
+    ReducedGaussian  ///< Ragged latitude/longitude rows with per-row longitude boundaries
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -112,6 +113,12 @@ struct NamedGridParams {
     std::string name;
 };
 
+/// Metadata for a reduced-Gaussian descriptor. The row count determines the
+/// required latitude-boundary and row-cell-offset lengths.
+struct ReducedGaussianParams {
+    std::size_t n_rows{0};
+};
+
 /// @brief Rule-based parameters (a GridRules YAML is parsed by the PRODUCER into these
 /// plain fields; AXIS never parses YAML or JSON).
 struct GridRulesParams {
@@ -155,6 +162,15 @@ struct BufferViews {
     field_view<const double, 1> corner_x{};
     /// @brief Structured Grid corner vertex latitude/Y coordinates.
     field_view<const double, 1> corner_y{};
+    /// Authoritative separable structured-cell bounds (ni+1 and nj+1).
+    field_view<const double, 1> longitude_bounds{};
+    field_view<const double, 1> latitude_bounds{};
+    /// Optional Gaussian quadrature weights ordered with structured rows; sum to 2.
+    field_view<const double, 1> gaussian_latitude_weights{};
+    /// Reduced Gaussian ragged row cell offsets (n_rows+1) and flattened
+    /// per-row longitude boundaries (total_cells+n_rows).
+    field_view<const index_t, 1> row_cell_offsets{};
+    field_view<const double, 1> row_longitude_boundaries{};
 
     // ── Unstructured (UGRID): node coordinates + CSR connectivity ───────────
     /// @brief Unstructured Grid (UGRID) node coordinates of shape [n_nodes, ndim].
@@ -196,6 +212,18 @@ struct GridDescriptor {
     /// @brief Coordinate system for the buffer data.
     CoordinateSystem coord_system{CoordinateSystem::SphericalDeg};
 
+    /// Explicit longitude seam declaration for structured geographic inputs.
+    /// Periodicity is never inferred from center spacing. Set the period in the
+    /// coordinate unit (360 for degrees, 2*pi for radians). A zero value uses
+    /// that unit-specific default.
+    bool longitude_periodic{false};
+    double longitude_period{0.0};
+    bool longitude_increasing{true};
+    /// Declare that structured centers are curvilinear rather than separable.
+    /// Their reconstructed corners are approximate and should not be used for
+    /// strict conservative remapping without authoritative geometry.
+    bool curvilinear_centers{false};
+
     // ── Convention-specific metadata (only one is meaningful per `kind`) ─────
     /// @brief CF-conventions structured grid metadata params.
     CfParams cf{};
@@ -207,6 +235,7 @@ struct GridDescriptor {
     ProjectedParams projected{};
     /// @brief Named grid metadata parameter token.
     NamedGridParams named_grid{};
+    ReducedGaussianParams reduced_gaussian{};
     /// @brief Rule-based mesh generation parameters.
     GridRulesParams grid_rules{};
 
