@@ -21,6 +21,7 @@
 #include <axis/topology/enums.hpp>
 #include <axis/types.hpp>
 #include <cstddef>
+#include <stdexcept>
 
 namespace axis::topology {
 
@@ -74,7 +75,20 @@ class UnstructuredMesh {
           coord_sys_(coord_sys),
           cell_areas_(std::move(areas)),
           cell_mask_(std::move(mask)),
-          geometry_(geometry) {}
+          geometry_(geometry) {
+        // Reject node coordinate tables that cannot even hold a planar (x, y)
+        // position. A non-empty coordinate table must carry at least two
+        // columns; three-dimensional Cartesian meshes may store a compact
+        // two-column layout (with z implied) or the full three-column layout,
+        // both of which are valid. Empty (default-constructed) meshes are left
+        // untouched so the zero-copy adoption path stays valid for placeholder
+        // meshes.
+        const std::size_t n_nodes = node_coords_.extent(0);
+        const std::size_t ndim = node_coords_.extent(1);
+        if (n_nodes != 0 && ndim < 2) {
+            throw std::invalid_argument("UnstructuredMesh: node coordinates must have at least two columns");
+        }
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Scalar accessors

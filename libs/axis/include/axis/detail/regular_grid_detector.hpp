@@ -61,6 +61,43 @@ struct RectilinearGridInfo {
     Kokkos::View<double *, Kokkos::HostSpace> unique_lats;
 };
 
+/// @brief Verify that an all-quad mesh uses the canonical structured connectivity.
+///
+/// A logically rectangular `ni × nj` grid produced by `to_unstructured()` stores
+/// cell `c` at row-major position `i + j * ni` (with `i = c % ni`, `j = c / ni`)
+/// and its four corners in counter-clockwise order starting from the
+/// south-west node `i + j * (ni + 1)`. The arithmetic fast paths enabled by
+/// `detect_regular_grid()` and `detect_rectilinear_grid()` index source cells
+/// and nodes with exactly this convention, so a mesh whose coordinate sets look
+/// regular but whose connectivity is permuted, reversed, or contains duplicated
+/// cells must be rejected: the coordinate-set checks alone cannot see such a
+/// defect, but the fast path would silently read the wrong neighbours.
+///
+/// @param offsets CSR cell-to-node offsets of length `n_cells + 1`.
+/// @param indices CSR cell-to-node indices of length `n_cells * 4`.
+/// @param n_cells Number of cells.
+/// @param ni      Number of columns (cells along x).
+/// @param nj      Number of rows (cells along y).
+/// @return true when every cell follows the canonical node ordering.
+template <class MemorySpace>
+bool has_canonical_connectivity(const Kokkos::View<index_t *, MemorySpace> &offsets, const Kokkos::View<index_t *, MemorySpace> &indices,
+                                std::size_t n_cells, std::size_t ni, std::size_t nj) {
+    for (std::size_t c = 0; c < n_cells; ++c) {
+        if (offsets(c) != static_cast<index_t>(c * 4)) return false;
+        const std::size_t i = c % ni;
+        const std::size_t j = c / ni;
+        const std::size_t nip1 = ni + 1;
+        const index_t expected[4] = {static_cast<index_t>(i + j * nip1),             // bottom-left
+                                     static_cast<index_t>((i + 1) + j * nip1),       // bottom-right
+                                     static_cast<index_t>((i + 1) + (j + 1) * nip1),  // top-right
+                                     static_cast<index_t>(i + (j + 1) * nip1)};       // top-left
+        for (std::size_t k = 0; k < 4; ++k) {
+            if (indices(c * 4 + k) != expected[k]) return false;
+        }
+    }
+    return offsets(n_cells) == static_cast<index_t>(n_cells * 4);
+}
+
 template <class MemorySpace>
 RectilinearGridInfo detect_rectilinear_grid(const topology::UnstructuredMesh<MemorySpace> &mesh) {
     static_assert(Kokkos::SpaceAccessibility<Kokkos::HostSpace, MemorySpace>::accessible,
@@ -74,6 +111,7 @@ RectilinearGridInfo detect_rectilinear_grid(const topology::UnstructuredMesh<Mem
     }
 
     const auto &offsets = mesh.conn_offsets_view();
+    const auto &indices = mesh.conn_indices_view();
     const auto &coords = mesh.node_coords_view();
 
     for (std::size_t c = 0; c < n_cells; ++c) {
@@ -123,6 +161,13 @@ RectilinearGridInfo detect_rectilinear_grid(const topology::UnstructuredMesh<Mem
 
     if (ni * nj != n_cells) {
         return info;  // Not a rectilinear structured layout
+    }
+
+    // The coordinate sets alone cannot detect a permuted, reversed, or
+    // duplicated connectivity layout, which would make the arithmetic fast
+    // paths read the wrong neighbours. Require the canonical ordering.
+    if (!has_canonical_connectivity(offsets, indices, n_cells, ni, nj)) {
+        return info;
     }
 
     // Populate RectilinearGridInfo
@@ -238,6 +283,13 @@ RegularGridInfo detect_regular_grid(const topology::UnstructuredMesh<MemorySpace
 
     // Verify cell count matches ni * nj
     if (ni * nj != n_cells) {
+        return info;
+    }
+
+    // The coordinate sets alone cannot detect a permuted, reversed, or
+    // duplicated connectivity layout, which would make the arithmetic fast
+    // paths read the wrong neighbours. Require the canonical ordering.
+    if (!has_canonical_connectivity(offsets, indices, n_cells, ni, nj)) {
         return info;
     }
 
