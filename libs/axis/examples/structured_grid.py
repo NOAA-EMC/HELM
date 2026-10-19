@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build structured meshes from center coordinates with AXIS."""
 
-import numpy as np
 import axis
+import numpy as np
 
 
 def main() -> None:
