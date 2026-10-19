@@ -29,13 +29,12 @@ from pathlib import Path
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OMP_PROC_BIND", "false")
 
+import axis
 import dask.array as dsa
-from dask import delayed
 import numpy as np
 import xarray as xr
+from dask import delayed
 from distributed import Client, LocalCluster, wait
-
-import axis
 
 
 def summarize(samples: list[float]) -> dict[str, float]:

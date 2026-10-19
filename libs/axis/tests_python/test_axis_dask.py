@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Dask integration checks for lazy horizontal and vertical AXIS operations."""
 
+import sys
+
 import numpy as np
 import pytest
-import sys
 import xarray as xr
 
 da = pytest.importorskip("dask.array")
-import dask
-
-import axis
-from axis import VerticalRegridder
+import axis  # noqa: E402
+import dask  # noqa: E402
+from axis import VerticalRegridder  # noqa: E402
 
 
 def test_horizontal_regrid_is_lazy_and_preserves_batch_chunks(dask_regrid_case):
@@ -114,12 +114,8 @@ def test_vertical_regrid_supports_spatially_varying_levels():
         coords={"column": [0, 1], "lev": [0.0, 1.0, 2.0]},
         name="temperature",
     )
-    source_levels = xr.DataArray(
-        np.array([[0.0, 1.0, 2.0], [0.0, 1.0, 2.0]]), dims=("column", "lev")
-    )
-    target_levels = xr.DataArray(
-        np.array([[0.5, 1.5], [0.5, 1.5]]), dims=("column", "target_lev")
-    )
+    source_levels = xr.DataArray(np.array([[0.0, 1.0, 2.0], [0.0, 1.0, 2.0]]), dims=("column", "lev"))
+    target_levels = xr.DataArray(np.array([[0.5, 1.5], [0.5, 1.5]]), dims=("column", "target_lev"))
     regridder = VerticalRegridder()
 
     result = regridder.interpolate(lazy_field, source_levels, target_levels)

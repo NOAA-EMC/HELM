@@ -7,7 +7,7 @@ import pytest
 dask_array = pytest.importorskip("dask.array")
 distributed = pytest.importorskip("distributed")
 
-import axis
+import axis  # noqa: E402
 
 
 @pytest.fixture

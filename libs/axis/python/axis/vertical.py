@@ -5,6 +5,7 @@ Wraps the compiled tension-spline vertical interpolator so callers can pass
 NumPy arrays or labeled xarray objects with either uniform 1-D or column-
 varying 2-D level coordinates, including Dask-backed lazy inputs.
 """
+
 from typing import Any, cast
 
 import numpy as np

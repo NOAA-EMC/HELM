@@ -40,8 +40,7 @@ struct LinearReconstruction {
 /// @param gradients      Output (n_src, 2) gradient workspace, caller-owned.
 /// @param limit_factors  Optional per-cell limiter factors; empty to skip.
 template <bool Limited, class MemorySpace, class SourceView, class Matrix, class GradientView>
-void compute_linear_gradients(const Matrix &matrix, SourceView src, GradientView gradients,
-                              Kokkos::View<double *, MemorySpace> limit_factors = {}) {
+void compute_linear_gradients(const Matrix &matrix, SourceView src, GradientView gradients, Kokkos::View<double *, MemorySpace> limit_factors = {}) {
     using Exec = typename MemorySpace::execution_space;
     const auto &data = matrix.linear_reconstruction();
     if (limit_factors.extent(0) && limit_factors.extent(0) != matrix.n_src())
@@ -81,7 +80,7 @@ void compute_linear_gradients(const Matrix &matrix, SourceView src, GradientView
             gradients(i, 0) = phi * g0;
             gradients(i, 1) = phi * g1;
         });
- }
+}
 
 /// @brief Accumulate area weights plus moment-dot-gradient terms into dst.
 ///

@@ -6,6 +6,7 @@ serialized AXIS matrices, validation of core-dimension chunking for blocked
 apply, and a Dask worker plugin that installs weights once per worker instead
 of shipping them with every task.
 """
+
 from typing import Any
 
 import numpy as np
@@ -26,11 +27,7 @@ def _validate_core_dimension_chunks(data, core_dims, operation: str, input_name:
     if not chunksizes:
         return
 
-    split_dimensions = {
-        dim: tuple(chunksizes[dim])
-        for dim in core_dims
-        if dim in chunksizes and len(chunksizes[dim]) > 1
-    }
+    split_dimensions = {dim: tuple(chunksizes[dim]) for dim in core_dims if dim in chunksizes and len(chunksizes[dim]) > 1}
     if not split_dimensions:
         return
 
