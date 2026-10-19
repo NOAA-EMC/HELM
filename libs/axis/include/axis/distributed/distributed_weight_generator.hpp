@@ -5,6 +5,9 @@
 #ifndef AXIS_DISTRIBUTED_WEIGHT_GENERATOR_HPP
 #define AXIS_DISTRIBUTED_WEIGHT_GENERATOR_HPP
 
+/// @file axis/distributed/distributed_weight_generator.hpp
+/// @brief Legacy MPI weight-generation adapter (see DistributedWeightGenerator).
+
 #include <mpi.h>
 
 #include <axis/solver/interpolation_matrix.hpp>

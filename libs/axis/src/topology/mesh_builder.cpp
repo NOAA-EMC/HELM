@@ -2,6 +2,12 @@
 // AXIS — Arbitrary eXgrid Interpolation Solver
 // Copyright (c) HELM Project Contributors
 
+/// @file src/topology/mesh_builder.cpp
+/// @brief Validation and construction helpers for unstructured meshes.
+///
+/// Checks CSR connectivity, coordinate dimension, areas, and masks before
+/// producing an UnstructuredMesh, with descriptive errors for malformed input.
+
 #include <axis/topology/mesh_builder.hpp>
 #include <limits>
 #include <stdexcept>

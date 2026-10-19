@@ -2,6 +2,13 @@
 // AXIS — Arbitrary eXgrid Interpolation Solver
 // Copyright (c) HELM Project Contributors
 
+/// @file src/distributed/distributed_weight_generator.cpp
+/// @brief MPI-distributed horizontal weight generation for AXIS regridding.
+///
+/// Builds the destination-owned sparse weight matrix across ranks, borrowing
+/// the caller's communicator through HALO and falling back to local generation
+/// on a single rank.
+
 #include <algorithm>
 #include <axis/distributed/distributed_weight_generator.hpp>
 #include <axis/solver/weight_generator.hpp>

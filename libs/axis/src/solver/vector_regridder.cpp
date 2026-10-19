@@ -2,6 +2,12 @@
 // AXIS — Arbitrary eXgrid Interpolation Solver
 // Copyright (c) HELM Project Contributors
 
+/// @file src/solver/vector_regridder.cpp
+/// @brief Vector (rotating) regridding weight generation and application.
+///
+/// Derives paired x/y weight matrices from the scalar spatial matrix and the
+/// grid rotation fields so contravariant vector components transfer correctly.
+
 #include <axis/detail/memory_traits.hpp>
 #include <axis/solver/vector_regridder.hpp>
 #include <axis/solver/weight_generator.hpp>

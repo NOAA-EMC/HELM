@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
+/// @file src/distributed/selective_geometry.hpp
+/// @brief Exchange only the source cells a rank actually needs for its halo.
+///
+/// Selects candidate source geometry through proximity queries and bounded
+/// peer exchange, returning an imported host mesh with global cell ids and
+/// discovery statistics.
 #pragma once
 #include <axis/distributed/regridder.hpp>
 #include <halo/communicator.hpp>

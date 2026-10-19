@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
+/// @file src/solver/vertical_conservative.cpp
+/// @brief Conservative remapping of layer means in an explicit physical measure.
+///
+/// Implements interface-overlap integration with first-order or limited-linear
+/// (minmod) reconstruction, aliasing guards, and coverage diagnostics.
+
 #include <axis/solver/vertical_conservative.hpp>
 #include <cmath>
 #include <cstdint>

@@ -14,6 +14,12 @@ class ConservativeVerticalRegridder:
     """
     def __init__(self, source_interfaces, destination_interfaces, method="limited_linear",
                  norm="dstarea", source_mask=None, destination_mask=None):
+        """Select the reconstruction/normalization options and copy interface arrays.
+
+        Interfaces are the cumulative physical measure per horizontal area and
+        may be 1-D (shared by all columns) or broadcast over leading column
+        dimensions. Masks mark participating source/destination layers.
+        """
         if method not in {"first", "limited_linear"}:
             raise ValueError("method must be first or limited_linear")
         if norm not in {"dstarea", "fracarea"}:
@@ -53,6 +59,11 @@ class ConservativeVerticalRegridder:
         return np.ascontiguousarray(a.reshape(-1,a.shape[-1])), op, work, leading
 
     def remap(self, source):
+        """Transfer layer means, returning destination layer means.
+
+        xarray inputs yield a DataArray with surviving metadata and destination
+        layer midpoints on the original vertical coordinate when available.
+        """
         a, op, work, leading = self._state(source)
         result = op.apply(a, self.method, self.norm, work).reshape(leading+(self._dst.shape[-1]-1,))
         if hasattr(source, "dims"):
@@ -82,11 +93,17 @@ class ConservativeVerticalRegridder:
         v = getattr(op,name)
         return v.reshape(self._last+(v.shape[-1],))
     @property
-    def source_coverage(self):return self._diagnostic("source_coverage")
+    def source_coverage(self):
+        """Fraction of each source layer's measure used by the last transfer."""
+        return self._diagnostic("source_coverage")
     @property
-    def destination_coverage(self):return self._diagnostic("destination_coverage")
+    def destination_coverage(self):
+        """Fraction of each destination layer covered by source data."""
+        return self._diagnostic("destination_coverage")
     @property
-    def destination_covered_measure(self):return self._diagnostic("destination_covered_measure")
+    def destination_covered_measure(self):
+        """Covered physical measure of each destination layer, per column."""
+        return self._diagnostic("destination_covered_measure")
 
 
 def regrid_tracer_3d(tracer, carrier, horizontal_regridder, destination_interfaces,

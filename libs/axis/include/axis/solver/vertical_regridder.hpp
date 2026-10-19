@@ -5,6 +5,9 @@
 #ifndef AXIS_SOLVER_VERTICAL_REGRIDDER_HPP
 #define AXIS_SOLVER_VERTICAL_REGRIDDER_HPP
 
+/// @file axis/solver/vertical_regridder.hpp
+/// @brief VerticalRegridder — tension-spline vertical interpolation (see class docs).
+
 #include <Kokkos_Core.hpp>
 
 namespace axis::solver {

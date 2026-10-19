@@ -1,15 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 #ifndef HALO_BOUNDED_PEER_EXCHANGE_HPP
 #define HALO_BOUNDED_PEER_EXCHANGE_HPP
+
+/// @file bounded_peer_exchange.hpp
+/// @brief Collective bounded variable-length exchange along a peer permutation.
+
 #include <climits>
 #include <halo/collectives.hpp>
 #include <halo/exchange.hpp>
 #include <span>
 namespace halo {
-/// Collective, bounded variable-length exchange along a caller-defined peer
-/// permutation. Uses existing packed HALO plans; no replicated payload. Header
+/// @brief Collective, bounded variable-length exchange along a peer permutation.
+///
+/// Uses existing packed HALO plans; no replicated payload. Header
 /// counts are checked on all ranks before allocating or transferring payloads.
 /// Caller must isolate the communicator from concurrent exchanges.
+/// @tparam T           Type with a native MPI datatype.
+/// @param comm         Communicator whose ranks form the peer permutation.
+/// @param send         Payload this rank delivers to `destination`.
+/// @param destination  Peer receiving this rank's payload.
+/// @param source       Peer whose payload this rank receives.
+/// @param max_elements Upper bound on any single transfer in this call.
+/// @return Received payload from `source`, sized by the exchanged header count.
+/// @throws std::runtime_error collectively on invalid peers, budget overflow,
+///         or mismatched send/receive bounds.
 template <class T>
 std::vector<T> bounded_peer_exchange(const Communicator &comm, std::span<const T> send, int destination, int source, std::size_t max_elements) {
     static_assert(detail::has_native_mpi_type_v<T>);

@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
+/// @file src/distributed/regridder.cpp
+/// @brief Distributed Regridder implementation for host-space regridding.
+///
+/// Owns the MPI orchestration: halo exchange of source geometry, distributed
+/// weight generation, apply with halo refresh, and the accompanying statistics.
+
 #include <array>
 #include <axis/distributed/regridder.hpp>
 #include <axis/solver/apply.hpp>

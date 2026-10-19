@@ -1,23 +1,38 @@
 // SPDX-License-Identifier: Apache-2.0
+/// @file vertical_conservative_bindings.hpp
+/// @brief nanobind glue for the conservative vertical regridder bindings.
+///
+/// Included by axis_py.cpp after nanobind aliases and ensure_kokkos().
 #pragma once
 #include <axis/solver/vertical_conservative.hpp>
-// Included by axis_py.cpp after nanobind aliases and ensure_kokkos().
+
 namespace {
+/// @brief Host-space instantiation of the conservative vertical operator.
 using HostVerticalConservative = axis::solver::VerticalConservativeRegridder<Kokkos::HostSpace>;
+/// @brief Read-only 2-D column-major layer field accepted from Python.
 using VerticalArray = nb::ndarray<const double, nb::ndim<2>, nb::c_contig, nb::device::cpu>;
+/// @brief Read-only 2-D integer participation mask accepted from Python.
 using VerticalMaskArray = nb::ndarray<const int, nb::ndim<2>, nb::c_contig, nb::device::cpu>;
+
+/// @brief Map a Python method name to the reconstruction order enum.
+/// @throws std::invalid_argument if the name is not a supported method.
 inline auto vertical_order(const std::string &method) {
     using O = axis::solver::VerticalConservativeOrder;
     if (method == "first") return O::First;
     if (method == "limited_linear") return O::LimitedLinear;
     throw std::invalid_argument("method must be first or limited_linear");
 }
+
+/// @brief Map a Python normalization name to the normalization enum.
+/// @throws std::invalid_argument if the name is not a supported norm.
 inline auto vertical_norm(const std::string &norm) {
     using N = axis::solver::VerticalConservativeNorm;
     if (norm == "dstarea") return N::DestinationMeasure;
     if (norm == "fracarea") return N::CoveredMeasure;
     throw std::invalid_argument("norm must be dstarea or fracarea");
 }
+
+/// @brief Copy a host Kokkos view into a NumPy-owned ndarray of the same rank.
 template <class View>
 auto vertical_numpy(View view) {
     auto data = std::make_unique<double[]>(view.size());
@@ -31,11 +46,13 @@ auto vertical_numpy(View view) {
     nb::capsule owner(ptr, [](void *p) noexcept { delete[] static_cast<double *>(p); });
     return nb::ndarray<nb::numpy, double>(ptr, View::rank, shape, std::move(owner));
 }
+/// @brief Adapt an optional caller-provided workspace array, or None for scratch.
 inline HostVerticalConservative::Field vertical_workspace(nb::object work) {
     if (work.is_none()) return {};
     auto a = nb::cast<nb::ndarray<double, nb::ndim<2>, nb::c_contig, nb::device::cpu>>(work);
     return HostVerticalConservative::Field(a.data(), a.shape(0), a.shape(1));
 }
+/// @brief Register the conservative vertical operator class and factory on a module.
 inline void bind_vertical_conservative(nb::module_ &m) {
     nb::class_<HostVerticalConservative>(m, "VerticalConservativeOperator")
         .def(

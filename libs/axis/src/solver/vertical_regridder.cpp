@@ -2,6 +2,12 @@
 // AXIS — Arbitrary eXgrid Interpolation Solver
 // Copyright (c) HELM Project Contributors
 
+/// @file src/solver/vertical_regridder.cpp
+/// @brief Vertical interpolation engine using tension splines.
+///
+/// Fits per-column splines through the source level knots and evaluates them at
+/// destination levels, handling ascending and descending coordinates natively.
+
 #include <axis/detail/tspack.hpp>
 #include <axis/solver/vertical_regridder.hpp>
 #include <cmath>

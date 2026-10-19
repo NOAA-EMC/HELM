@@ -1,4 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
+"""Vertical (in-column) regridding exposed through xarray-aware wrappers.
+
+Wraps the compiled tension-spline vertical interpolator so callers can pass
+NumPy arrays or labeled xarray objects with either uniform 1-D or column-
+varying 2-D level coordinates, including Dask-backed lazy inputs.
+"""
 from typing import Any, cast
 
 import numpy as np
@@ -70,6 +76,7 @@ class VerticalRegridder:
 
         # Define block-wise core execution kernel
         def _core_interpolate(field_block, src_lev_block, dst_lev_block):
+            """Interpolate one array block, flattening leading dimensions onto columns."""
             f_arr = np.asarray(field_block, dtype=np.float64)
             s_arr = np.asarray(src_lev_block, dtype=np.float64)
             d_arr = np.asarray(dst_lev_block, dtype=np.float64)

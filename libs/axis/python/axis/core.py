@@ -1,4 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
+"""Dask-aware execution core: worker-local weight caches and array block helpers.
+
+Provides the shared machinery behind ``Regridder``: a per-worker cache for
+serialized AXIS matrices, validation of core-dimension chunking for blocked
+apply, and a Dask worker plugin that installs weights once per worker instead
+of shipping them with every task.
+"""
 from typing import Any
 
 import numpy as np
@@ -47,13 +54,17 @@ def _register_weight_plugin(client, plugin_name, weights_key, weights_bytes, tot
     from distributed.diagnostics.plugin import WorkerPlugin
 
     class AxisWeightPlugin(WorkerPlugin):
+        """Worker lifecycle hook that materializes AXIS weights in the worker cache."""
+
         def __init__(self, name, serialized_matrix, sum_key, sums):
+            """Store the cache key, serialized matrix, and optional skipna sums."""
             self.name = name
             self.serialized_matrix = serialized_matrix
             self.sum_key = sum_key
             self.sums = sums
 
         def setup(self, worker):
+            """Deserialize the matrix (and sums) into this worker's cache."""
             from axis import axis_py
             from axis.core import _WORKER_CACHE
 
@@ -62,6 +73,7 @@ def _register_weight_plugin(client, plugin_name, weights_key, weights_bytes, tot
                 _WORKER_CACHE[self.sum_key] = self.sums
 
         def teardown(self, worker):
+            """Drop this plugin's cache entries when the plugin is removed."""
             from axis.core import _WORKER_CACHE
 
             _WORKER_CACHE.pop(self.name, None)

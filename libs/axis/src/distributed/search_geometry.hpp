@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
+/// @file src/distributed/search_geometry.hpp
+/// @brief ArborX search primitives (points and bounding boxes) for host meshes.
+///
+/// Converts a host mesh into the per-cell point cloud and bounding boxes used
+/// by distributed neighbor discovery, reusing the native generator's centroid
+/// and bounding-box conventions.
 #pragma once
 #include <axis/solver/regrid_config.hpp>
 #include <axis/topology/unstructured_mesh.hpp>

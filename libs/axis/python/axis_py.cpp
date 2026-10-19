@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-// AXIS Python bindings via nanobind
-//
-// Exposes the AXIS interpolation engine to Python for benchmarking and
-// interactive use. Uses numpy arrays as the zero-copy buffer interface.
-//
-// Bindings cover:
-//   - Mesh construction (regular lat-lon, named grids, from_descriptor)
-//   - Weight generation with full RegridConfig dictionary
-//   - Single-field apply and multi-field batch_apply
-//   - Weight cache serialize/deserialize (to_bytes / from_bytes)
-//   - Conservation check
-//
-// Links only against AXIS + nanobind — no AMIO/HALO dependency (Req 12.8).
+/// @file axis_py.cpp
+/// @brief nanobind bindings exposing the AXIS interpolation engine to Python.
+///
+/// Uses numpy arrays as the zero-copy buffer interface.
+///
+/// Bindings cover:
+///   - Mesh construction (regular lat-lon, named grids, from_descriptor)
+///   - Weight generation with full RegridConfig dictionary
+///   - Single-field apply and multi-field batch_apply
+///   - Weight cache serialize/deserialize (to_bytes / from_bytes)
+///   - Conservation check
+///
+/// Links only against AXIS + nanobind — no AMIO/HALO dependency.
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>

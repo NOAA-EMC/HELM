@@ -1,4 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
+"""Public horizontal regridding API built on the compiled AXIS engine.
+
+Defines :class:`Regridder`, which generates or loads interpolation weights and
+applies them to NumPy, xarray, or Dask-backed fields, including distributed
+execution where weights are installed once per worker.
+"""
 import logging
 import time
 import uuid
@@ -278,6 +284,7 @@ class Regridder:
         self._registered_clients.clear()
 
     def __del__(self):
+        """Best-effort close; cleanup must never mask shutdown or prior errors."""
         try:
             self.close()
         except Exception:

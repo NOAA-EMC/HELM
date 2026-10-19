@@ -2,6 +2,12 @@
 // AXIS — Arbitrary eXgrid Interpolation Solver
 // Copyright (c) HELM Project Contributors
 
+/// @file src/topology/reduced_gaussian_grid.cpp
+/// @brief Reduced-Gaussian grid assembly with latitude-dependent longitude rows.
+///
+/// Builds mixed-arity CSR cells from shared latitude bounds and per-row
+/// longitude bounds, honoring periodicity, ordering, and conforming options.
+
 #include <algorithm>
 #include <axis/topology/mesh_builder.hpp>
 #include <axis/topology/reduced_gaussian_grid.hpp>

@@ -2,6 +2,11 @@
 #ifndef AXIS_DETAIL_LINEAR_GEOMETRY_HPP
 #define AXIS_DETAIL_LINEAR_GEOMETRY_HPP
 
+/// @file axis/detail/linear_geometry.hpp
+/// @brief Host-side planar and great-circle polygon geometry for linear
+///        reconstruction: moments, convex orientation, clipping, and
+///        distance-weighted least-squares gradient coefficients.
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -29,18 +34,25 @@ inline Point cross(Point a, Point b) {
 inline double norm(Point a) {
     return std::sqrt(dot(a, a));
 }
+/// @brief Normalize a point to a unit vector.
+/// @throws std::invalid_argument when the vector is too short to define a direction.
 inline Point unit(Point a) {
     double n = norm(a);
     if (!(n > 1e-30)) throw std::invalid_argument("linear reconstruction: undefined spherical direction");
     return scale(a, 1 / n);
 }
+
+/// @brief Signed area and area-weighted centroid of one polygon.
 struct Moments {
     double area{};
     Point mean{};
 };
 
-// Exact first moment for a planar polygon; translate before summing to avoid
-// cancellation for projected coordinates far from the origin.
+/// @brief Exact area and first moment of a planar polygon.
+///
+/// Translates before summing to avoid cancellation for projected coordinates
+/// far from the origin.
+/// @param p Vertices in ring order; fewer than three yields an empty moment.
 inline Moments planar_moments(const std::vector<Point> &p) {
     if (p.size() < 3) return {};
     double a2 = 0;
@@ -55,9 +67,12 @@ inline Moments planar_moments(const std::vector<Point> &p) {
     return {std::abs(a2) * 0.5, add(p[0], scale(m, 1 / (3 * a2)))};
 }
 
-// Great-circle polygon: integral r dOmega = 1/2 sum(theta_edge*n_edge).
-// Signed area and vector moment use the same ring orientation. Retaining the
-// unnormalized mean r (inside the sphere) makes mean subtraction conservative.
+/// @brief Spherical excess area and first moment of a great-circle polygon.
+///
+/// Uses integral r dOmega = 1/2 sum(theta_edge * n_edge). Signed area and
+/// vector moment share the ring orientation. Retaining the unnormalized mean
+/// r (inside the sphere) makes mean subtraction conservative.
+/// @param p Unit-sphere vertices in ring order; fewer than three yields empty.
 inline Moments spherical_moments(const std::vector<Point> &p) {
     if (p.size() < 3) return {};
     double area = 0;
@@ -73,6 +88,10 @@ inline Moments spherical_moments(const std::vector<Point> &p) {
     }
     return {std::abs(area), scale(moment, 1 / area)};
 }
+/// @brief Orthonormal east/north tangent vectors at a sphere point.
+///
+/// Picks a helper axis away from the radial direction so the cross products
+/// stay well-conditioned at the poles.
 inline std::array<Point, 2> tangent_basis(Point mean) {
     auto n = unit(mean);
     Point axis = std::abs(n[2]) < 0.9 ? Point{0, 0, 1} : Point{1, 0, 0};
@@ -80,7 +99,15 @@ inline std::array<Point, 2> tangent_basis(Point mean) {
     return {e, cross(n, e)};
 }
 
-// Normalize ring winding and reject geometries outside this convex method.
+/// @brief Normalize ring winding and reject geometries this convex method cannot use.
+///
+/// Reverses the ring when needed so vertices run counterclockwise about the
+/// centroid, then verifies convexity edge by edge. Spherical cells must lie in
+/// an open hemisphere.
+/// @param p        Vertices, reordered in place.
+/// @param spherical Use great-circle (true) or planar (false) edge tests.
+/// @throws std::invalid_argument for fewer than three vertices, a cell outside
+///         an open hemisphere, or a non-convex ring.
 inline void orient_convex(std::vector<Point> &p, bool spherical) {
     if (p.size() < 3) throw std::invalid_argument("linear reconstruction requires at least three vertices");
     Point center{};
@@ -104,6 +131,11 @@ inline void orient_convex(std::vector<Point> &p, bool spherical) {
         }
     }
 }
+/// @brief Sutherland-Hodgman clip of a convex subject by a convex clip polygon.
+/// @param subject Convex input ring.
+/// @param clip    Convex clip ring.
+/// @param out     Intersection, written empty when the rings are disjoint.
+/// @param scratch Reusable buffer to avoid per-call allocation.
 inline void planar_clip_into(const std::vector<Point> &subject, const std::vector<Point> &clip, std::vector<Point> &out,
                              std::vector<Point> &scratch) {
     out.assign(subject.begin(), subject.end());
@@ -130,12 +162,19 @@ inline void planar_clip_into(const std::vector<Point> &subject, const std::vecto
         }
     }
 }
+/// @brief Convenience wrapper returning the planar intersection by value.
 inline std::vector<Point> planar_clip(std::vector<Point> subject, const std::vector<Point> &clip) {
     std::vector<Point> out, scratch;
     planar_clip_into(subject, clip, out, scratch);
     return out;
 }
 
+/// @brief Reduce a control-point cloud to its convex hull vertices.
+///
+/// Duplicate and non-finite inputs are handled conservatively: any non-finite
+/// coordinate leaves the set untouched, and fewer than four distinct points is
+/// already minimal. Long-double cross products keep the turn test stable.
+/// @param points Sorted and replaced in place with the hull in ascending order.
 inline void prune_linear_controls(std::vector<std::array<double, 2>> &points) {
     if (points.size() < 4) return;
     for (const auto &p : points)
@@ -166,8 +205,13 @@ inline void prune_linear_controls(std::vector<std::array<double, 2>> &points) {
     points.swap(lower);
 }
 
-// Distance-weighted 2D least squares. Coefficients multiply (q_neighbor-q_i).
-// Geometry is factored once. Rank-deficient stencils safely retain first order.
+/// @brief Distance-weighted least-squares gradient stencil coefficients.
+///
+/// Coefficients multiply (q_neighbor - q_i). Geometry is factored once so the
+/// weights can be reused across fields. A rank-deficient stencil returns all-zero
+/// coefficients, which safely retains first-order accuracy.
+/// @param d Neighbor offsets from the cell centroid in local tangent coordinates.
+/// @return One (x, y) coefficient pair per neighbor, in the same order.
 inline std::vector<std::array<double, 2>> gradient_coefficients(const std::vector<std::array<double, 2>> &d) {
     double a = 0, b = 0, c = 0;
     for (auto v : d) {

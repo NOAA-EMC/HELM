@@ -2,13 +2,20 @@
 #ifndef AXIS_SOLVER_LINEAR_RECONSTRUCTION_HPP
 #define AXIS_SOLVER_LINEAR_RECONSTRUCTION_HPP
 
+/// @file axis/solver/linear_reconstruction.hpp
+/// @brief Second-order (linear) reconstruction applied on top of first-order
+///        conservative overlap weights, with an optional limited variant.
+
 #include <Kokkos_Core.hpp>
 #include <axis/types.hpp>
 #include <stdexcept>
 
 namespace axis::solver {
-// Optional field-dependent extension of the base first-order sparse operator.
-// All overlap moments are normalized exactly like their associated area weight.
+
+/// @brief Precomputed geometry that upgrades a conservative operator to linear order.
+///
+/// Optional field-dependent extension of the base first-order sparse operator.
+/// All overlap moments are normalized exactly like their associated area weight.
 template <class MemorySpace>
 struct LinearReconstruction {
     bool enabled{false};
@@ -23,7 +30,15 @@ struct LinearReconstruction {
     Kokkos::View<double *[2], MemorySpace> control_points;
 };
 
-// Source/DestinationView may be strided subviews for batch application.
+/// @brief Compute per-source-cell linear gradients, optionally limited.
+///
+/// Source/DestinationView may be strided subviews for batch application.
+/// @tparam Limited Apply a bound-preserving limiter over neighbor and control values.
+/// @tparam MemorySpace Kokkos memory space owning the views.
+/// @param matrix         Operator carrying the LinearReconstruction payload.
+/// @param src            Source cell averages.
+/// @param gradients      Output (n_src, 2) gradient workspace, caller-owned.
+/// @param limit_factors  Optional per-cell limiter factors; empty to skip.
 template <bool Limited, class MemorySpace, class SourceView, class Matrix, class GradientView>
 void compute_linear_gradients(const Matrix &matrix, SourceView src, GradientView gradients,
                               Kokkos::View<double *, MemorySpace> limit_factors = {}) {
@@ -68,6 +83,14 @@ void compute_linear_gradients(const Matrix &matrix, SourceView src, GradientView
         });
  }
 
+/// @brief Accumulate area weights plus moment-dot-gradient terms into dst.
+///
+/// CSR matrices run branch-free per destination row; COO matrices zero the
+/// output then atomically scatter contributions.
+/// @param matrix  Operator whose linear payload supplies the overlap moments.
+/// @param src     Source cell averages.
+/// @param dst     Destination cell averages (written, not accumulated).
+/// @param gradients Per-source gradients from compute_linear_gradients.
 template <class MemorySpace, class SourceView, class DestinationView, class Matrix, class GradientView>
 void apply_linear_gradients(const Matrix &matrix, SourceView src, DestinationView dst, GradientView gradients) {
     using Exec = typename MemorySpace::execution_space;
@@ -101,14 +124,18 @@ void apply_linear_gradients(const Matrix &matrix, SourceView src, DestinationVie
     }
     Kokkos::fence("axis::linear::complete");
 }
-// Caller-owned workspaces are explicit: matrix copies remain immutable and
-// concurrent calls do not share mutable gradient storage.
+/// @brief Gradient computation followed by accumulation, honoring the limiter flag.
+///
+/// Caller-owned workspaces are explicit: matrix copies remain immutable and
+/// concurrent calls do not share mutable gradient storage.
 template <bool Limited, class MemorySpace, class SourceView, class DestinationView, class Matrix, class GradientView>
 void apply_linear_impl(const Matrix &matrix, SourceView src, DestinationView dst, GradientView gradients) {
     compute_linear_gradients<Limited, MemorySpace>(matrix, src, gradients);
     apply_linear_gradients<MemorySpace>(matrix, src, dst, gradients);
 }
 
+/// @brief Apply linear reconstruction using a caller-supplied gradient workspace.
+/// @throws std::invalid_argument when gradients is not (n_src, 2).
 template <class MemorySpace, class Matrix, class SourceView, class DestinationView, class GradientView>
 void apply_linear_with_workspace(const Matrix &matrix, SourceView src, DestinationView dst, GradientView gradients) {
     if (gradients.extent(0) != matrix.n_src() || gradients.extent(1) != 2)
@@ -118,12 +145,17 @@ void apply_linear_with_workspace(const Matrix &matrix, SourceView src, Destinati
     else
         apply_linear_impl<false, MemorySpace>(matrix, src, dst, gradients);
 }
+/// @brief Convenience wrapper that allocates its own gradient workspace.
 template <class MemorySpace, class SourceView, class DestinationView, class Matrix>
 void apply_linear(const Matrix &matrix, SourceView src, DestinationView dst) {
     Kokkos::View<double *[2], MemorySpace> gradients(Kokkos::view_alloc(Kokkos::WithoutInitializing, "axis_linear_gradients"), matrix.n_src());
     apply_linear_with_workspace<MemorySpace>(matrix, src, dst, gradients);
 }
 
+/// @brief Tiled batch application over independent variables in column two.
+///
+/// Gradients are computed per variable tile so the workspace stays small and
+/// the stencil is traversed once per source cell for the whole tile.
 template <bool Limited, class MemorySpace, class Matrix, class SourceView, class DestinationView>
 void batch_apply_linear_impl(const Matrix &matrix, SourceView src, DestinationView dst) {
     using Exec = typename MemorySpace::execution_space;
@@ -221,6 +253,7 @@ void batch_apply_linear_impl(const Matrix &matrix, SourceView src, DestinationVi
     }
     Kokkos::fence("axis::linear::batch_complete");
 }
+/// @brief Batch entry point that dispatches on the matrix's limiter flag.
 template <class MemorySpace, class Matrix, class SourceView, class DestinationView>
 void batch_apply_linear(const Matrix &matrix, SourceView src, DestinationView dst) {
     if (matrix.linear_reconstruction().limited)

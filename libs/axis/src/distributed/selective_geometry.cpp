@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
+/// @file src/distributed/selective_geometry.cpp
+/// @brief Selective source-geometry exchange for distributed regridding.
+///
+/// Builds ArborX trees over destination and owned-source geometry, performs
+/// bounded peer requests for nearby source cells, and assembles the imported
+/// mesh used by distributed weight generation.
+
 #include "selective_geometry.hpp"
 
 #include <ArborX.hpp>

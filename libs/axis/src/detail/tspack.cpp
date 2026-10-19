@@ -2,6 +2,12 @@
 // AXIS — Arbitrary eXgrid Interpolation Solver
 // Copyright (c) HELM Project Contributors
 
+/// @file src/detail/tspack.cpp
+/// @brief Tension-spline (TSPACK) evaluation kernels for vertical interpolation.
+///
+/// Provides the Kokkos-callable cubic and tension spline basis used by the
+/// vertical regridder to interpolate between level knots.
+
 #include <axis/detail/tspack.hpp>
 #include <cmath>
 

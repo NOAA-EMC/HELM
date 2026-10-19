@@ -2,6 +2,10 @@
 #ifndef HALO_INDEXED_GATHER_PLAN_HPP
 #define HALO_INDEXED_GATHER_PLAN_HPP
 
+/// @file indexed_gather_plan.hpp
+/// @brief Reusable owner/request gather and reduce plan for rank-contiguous
+///        global IDs, built on packed HALO neighbor exchanges.
+
 #include <algorithm>
 #include <climits>
 #include <halo/collectives.hpp>
@@ -27,6 +31,16 @@ class Indexed_Gather_Plan {
     }
 
    public:
+    /// @brief Exchange ownership and build the forward/reverse transfer plans.
+    ///
+    /// Collective, including on ranks with no requests. Global IDs are
+    /// rank-contiguous: rank r owns [offsets[r], offsets[r+1]) after an
+    /// allgather of local_owned counts.
+    /// @param comm         Communicator whose ownership partitions the ID space.
+    /// @param local_owned  Number of globally unique cells owned by this rank.
+    /// @param requested    Global IDs this rank needs from other ranks.
+    /// @throws std::runtime_error collectively when counts overflow int or a
+    ///         requested ID lies outside the owned global range.
     Indexed_Gather_Plan(const Communicator &comm, std::size_t local_owned, std::span<const long long> requested)
         : comm_(comm.duplicate()), owned_(local_owned), forward_(empty_plan(comm_)), reverse_(empty_plan(comm_)) {
         collective_require(comm_, local_owned <= static_cast<std::size_t>(INT_MAX) && requested.size() <= static_cast<std::size_t>(INT_MAX),
@@ -67,19 +81,32 @@ class Indexed_Gather_Plan {
     Indexed_Gather_Plan &operator=(const Indexed_Gather_Plan &) = delete;
     Indexed_Gather_Plan(Indexed_Gather_Plan &&) = delete;
     Indexed_Gather_Plan &operator=(Indexed_Gather_Plan &&) = delete;
+    /// @brief Number of requested IDs on this rank.
     [[nodiscard]] std::size_t size() const noexcept {
         return request_order_.size();
     }
+    /// @brief Number of globally unique cells owned by this rank.
     [[nodiscard]] std::size_t local_owned() const noexcept {
         return owned_;
     }
+    /// @brief Exclusive-start global ID offset of each rank (size+1 entries).
     [[nodiscard]] const auto &ownership_offsets() const noexcept {
         return offsets_;
     }
+    /// @brief Number of owned cells this rank exports to other requestors.
     [[nodiscard]] std::size_t send_elements() const noexcept {
         return export_indices_.size();
     }
 
+    /// @brief Fetch one value per requested global ID (collective).
+    ///
+    /// Packs the exported subset, runs the forward HALO exchange, and
+    /// reassembles results in the caller's request order.
+    /// @tparam T           Type with a native MPI datatype.
+    /// @param local_values Values on this rank's owned cells, in owned order.
+    /// @return Gathered values aligned with the constructor's requested IDs.
+    /// @throws std::runtime_error collectively when local_values extent differs
+    ///         from the owned count supplied at construction.
     template <typename T>
     [[nodiscard]] std::vector<T> gather(std::span<const T> local_values) const {
         static_assert(detail::has_native_mpi_type_v<T>, "Indexed gather requires a supported MPI type");
@@ -92,9 +119,15 @@ class Indexed_Gather_Plan {
         return result;
     }
 
-    /// Reverse the dependency exchange and reduce requestor contributions on
-    /// each owner. Duplicate requests are reduced too. Unrequested IDs use the
-    /// supplied identity (one for limiter minima, zero for inventory sums).
+    /// @brief Reverse the dependency exchange and reduce requestor values on owners.
+    ///
+    /// Duplicate requests are reduced too. Unrequested IDs use the supplied
+    /// identity (one for limiter minima, zero for inventory sums).
+    /// @param requested_values One value per requested ID, in request order.
+    /// @param op               MPI_MIN or MPI_SUM.
+    /// @param identity         Neutral element for op, filling unrequested owned cells.
+    /// @return Reduced values over this rank's owned cells, in owned order.
+    /// @throws std::runtime_error collectively on extent mismatch or an unsupported op.
     [[nodiscard]] std::vector<double> reduce(std::span<const double> requested_values, MPI_Op op, double identity) const {
         collective_require(comm_, requested_values.size() == size() && (op == MPI_MIN || op == MPI_SUM),
                            "Indexed_Gather_Plan::reduce: invalid extent or operation");
