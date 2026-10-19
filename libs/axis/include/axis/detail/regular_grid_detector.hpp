@@ -87,8 +87,8 @@ bool has_canonical_connectivity(const Kokkos::View<index_t *, MemorySpace> &offs
         const std::size_t i = c % ni;
         const std::size_t j = c / ni;
         const std::size_t nip1 = ni + 1;
-        const index_t expected[4] = {static_cast<index_t>(i + j * nip1),             // bottom-left
-                                     static_cast<index_t>((i + 1) + j * nip1),       // bottom-right
+        const index_t expected[4] = {static_cast<index_t>(i + j * nip1),              // bottom-left
+                                     static_cast<index_t>((i + 1) + j * nip1),        // bottom-right
                                      static_cast<index_t>((i + 1) + (j + 1) * nip1),  // top-right
                                      static_cast<index_t>(i + (j + 1) * nip1)};       // top-left
         for (std::size_t k = 0; k < 4; ++k) {
