@@ -25,7 +25,7 @@
 //   * Enforcement of all numeric ranges:
 //       buffer_count      [1, 4096]
 //       buffer_capacity   [1, 1 GiB]
-//       threads           [1, 256]
+//       threads           [0, 256] (0 selects synchronous writes)
 //       prefetch.depth    [1, 1024]
 //       read_timeout_s    [1, 3600]
 //       staging_timeout_ms[1, 60000]
@@ -84,11 +84,11 @@ struct StagingPoolConfig {
     std::size_t max_buffer_count = 4096;          // [buffer_count, 4096]
 };
 
-// WorkerPoolConfig (config-level) -- thread pool sizing and pinning.
+/** @brief Manifest worker settings; zero threads selects synchronous writes without a worker pool. */
 struct WorkerPoolCfg {
-    std::size_t threads = 1;         // [1, 256]
-    std::vector<int> cpu_cores;      // optional CPU core list
-    std::optional<int> numa_domain;  // optional NUMA domain
+    std::size_t threads = 1;        /**< Worker count in [0, 256]; zero runs writes synchronously. */
+    std::vector<int> cpu_cores;     /**< Optional worker CPU bindings. */
+    std::optional<int> numa_domain; /**< Optional worker NUMA binding. */
 };
 
 // PrefetchConfig -- look-ahead prefetch settings.
@@ -162,7 +162,7 @@ class ConfigLoader {
     static constexpr std::size_t kMaxBufferCount = 4096;
     static constexpr std::size_t kMinBufferCapacity = 1;
     static constexpr std::size_t kMaxBufferCapacity = 1'073'741'824;  // 1 GiB
-    static constexpr std::size_t kMinThreads = 1;
+    static constexpr std::size_t kMinThreads = 0;
     static constexpr std::size_t kMaxThreads = 256;
     static constexpr std::size_t kMinPrefetchDepth = 1;
     static constexpr std::size_t kMaxPrefetchDepth = 1024;

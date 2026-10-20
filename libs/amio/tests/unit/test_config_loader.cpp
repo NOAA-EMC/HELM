@@ -213,10 +213,11 @@ codec:
 }
 
 // ===================================================================
-// Test: threads out of range [1, 256].
+// Test: threads range [0, 256].
 // ===================================================================
 
-static void test_threads_too_low() {
+/** @brief Zero worker threads passes public manifest validation for synchronous writes. */
+static void test_threads_zero() {
     std::string yaml = R"(
 staging_pool:
   buffer_count: 1
@@ -238,10 +239,10 @@ codec:
     ValidationError err;
     amio_err_t rc = ConfigLoader::parse_string(yaml, "yaml", config, err);
 
-    assert(rc == AMIO_ERR_MANIFEST_INVALID);
-    assert(err.field_path == "worker_pool.threads");
+    assert(rc == AMIO_OK);
+    assert(config.worker_pool.threads == 0);
 
-    std::cout << "  PASS: test_threads_too_low\n";
+    std::cout << "  PASS: test_threads_zero\n";
 }
 
 static void test_threads_too_high() {
@@ -789,8 +790,10 @@ static void test_validate_standalone() {
     ValidationError err;
     assert(ConfigLoader::validate(config, err) == AMIO_OK);
 
-    // Now break it.
+    // Zero workers is valid synchronous mode. Values above the maximum are not.
     config.worker_pool.threads = 0;
+    assert(ConfigLoader::validate(config, err) == AMIO_OK);
+    config.worker_pool.threads = 257;
     assert(ConfigLoader::validate(config, err) == AMIO_ERR_MANIFEST_INVALID);
     assert(err.field_path == "worker_pool.threads");
 
@@ -824,7 +827,7 @@ int main() {
     test_buffer_count_too_high();
     test_buffer_capacity_too_low();
     test_buffer_capacity_too_high();
-    test_threads_too_low();
+    test_threads_zero();
     test_threads_too_high();
     test_prefetch_depth_too_low();
     test_prefetch_depth_too_high();

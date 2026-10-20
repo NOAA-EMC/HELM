@@ -118,6 +118,12 @@ void round_trip(const halo::Communicator &comm, amio_core_handle core, const std
     sync(comm);
     if (comm.rank() == 0)
         for (int file = 0; file < 2; ++file) {
+            // Other ranks wait below: a read open must not duplicate the
+            // parent communicator or enter any collective.
+            const auto cfg = manifest(paths[file], 0, drt);
+            amio_dataset_handle input = nullptr;
+            status_is(amio_open_dataset_from_string(core, cfg.c_str(), "yaml", AMIO_MODE_READ, &input), AMIO_OK, "rank-zero-only GRIB open");
+            status_is(amio_close_dataset(input), AMIO_OK, "rank-zero-only GRIB close");
             verify_file(paths[file], comm.size(), 6, file);
             std::filesystem::remove(paths[file]);
         }
@@ -145,8 +151,8 @@ void asymmetric_failure(const halo::Communicator &comm, amio_core_handle core, c
     status_is(amio_flush(dataset, 10000), AMIO_ERR_BACKEND_FAILURE, "flush reports failure");
     status_is(amio_close_dataset(dataset), AMIO_ERR_BACKEND_FAILURE, "close releases failed dataset");
     sync(comm);
-    require(std::filesystem::file_size(path) == prefix_size, "failed round emitted zero bytes");
     if (comm.rank() == 0) {
+        require(std::filesystem::file_size(path) == prefix_size, "failed round emitted zero bytes");
         verify_file(path, comm.size(), 1, 3);
         std::filesystem::remove(path);
     }

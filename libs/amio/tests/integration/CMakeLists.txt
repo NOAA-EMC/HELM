@@ -114,17 +114,28 @@ endforeach()
 # Shared-dataset parallel writes must be exercised with actual MPI ranks.
 if(netCDF_FOUND AND MPI_CXX_FOUND)
     add_executable(test_mpi_region_write test_mpi_region_write.cpp)
-    target_link_libraries(test_mpi_region_write PRIVATE AMIO::amio_core HELM::HALO HELM::LOGS netCDF::netcdf)
+    target_link_libraries(test_mpi_region_write PRIVATE AMIO::amio_core HELM::HALO HELM::LOGS)
+    if(AMIO_NETCDF_PAR_LIB)
+        get_target_property(_nc_inc netCDF::netcdf INTERFACE_INCLUDE_DIRECTORIES)
+        if(_nc_inc)
+            target_include_directories(test_mpi_region_write PRIVATE ${_nc_inc})
+        endif()
+        target_link_libraries(test_mpi_region_write PRIVATE ${AMIO_NETCDF_PAR_LIB})
+    else()
+        target_link_libraries(test_mpi_region_write PRIVATE netCDF::netcdf)
+    endif()
     if(AMIO_HAS_TENSORSTORE)
         target_compile_definitions(test_mpi_region_write PRIVATE AMIO_TEST_TENSORSTORE=1)
         target_link_libraries(test_mpi_region_write PRIVATE TensorStore::tensorstore)
     endif()
     add_test(NAME integration.mpi_netcdf_regions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                                                          $<TARGET_FILE:test_mpi_region_write> ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.mpi_netcdf_sync COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                      $<TARGET_FILE:test_mpi_region_write> sync ${MPIEXEC_POSTFLAGS})
     add_test(NAME integration.mpi_thread_gate COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                                                       $<TARGET_FILE:test_mpi_region_write> single ${MPIEXEC_POSTFLAGS})
-    set_tests_properties(integration.mpi_netcdf_regions integration.mpi_thread_gate PROPERTIES LABELS "integration;mpi;write" TIMEOUT 90 RUN_SERIAL
-                                                                                               TRUE)
+    set_tests_properties(integration.mpi_netcdf_regions integration.mpi_netcdf_sync integration.mpi_thread_gate
+                         PROPERTIES LABELS "integration;mpi;write" TIMEOUT 90 RUN_SERIAL TRUE)
     if(AMIO_HAS_TENSORSTORE)
         add_test(NAME integration.mpi_zarr_regions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                                                            $<TARGET_FILE:test_mpi_region_write> zarr3 ${MPIEXEC_POSTFLAGS})

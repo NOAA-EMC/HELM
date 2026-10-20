@@ -140,8 +140,11 @@ complete tile messages with suitable grid metadata and consumer support.
 
 The new MPI integration test uses four AMIO workers per rank, uneven local slab
 sizes, repeated writes, immediate source-buffer reuse, and an independent reader.
-It verifies collective variable ordering for NetCDF and concurrent updates to one
-shared Zarr shard for TensorStore builds. A separate MPI test checks rejection of
+It verifies collective ordering across two active NetCDF outputs and concurrent
+updates to one shared Zarr shard for TensorStore builds. A zero-worker MPI case
+initializes through the public API and verifies synchronous NetCDF writes.
+GRIB2, NCZarr, and TensorStore cases also open read datasets on rank zero while
+the other ranks wait, preserving independent input access. A separate MPI test checks rejection of
 insufficient thread support. Unit regressions cover asynchronous failure,
 queue rejection, overflow/bounds checks, snapshot ownership, and zero-worker I/O.
 

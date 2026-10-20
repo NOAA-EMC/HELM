@@ -346,7 +346,9 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
 
 #ifdef AMIO_HAS_MPI
     try {
-        if (core != nullptr) {
+        // GRIB2 and Zarr reads are rank-local. Their write communicators
+        // are duplicated collectively, so only configure those on write opens.
+        if (core != nullptr && (mode == AMIO_MODE_WRITE || (backend_key != "grib2" && backend_key != "zarr3"))) {
             if (core->worker_pool) {
                 driver->set_communicator(core->worker_pool->io_communicator().handle());
             } else {
@@ -413,6 +415,9 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
     record->mode = mode;
     record->dataset_id = core->next_dataset_id.fetch_add(1);
     record->core = core;  // back-pointer for write path access to staging/worker
+    // Write scheduling needs the backend key to share an ordering domain
+    // across files whose collective calls must execute in submission order.
+    record->dataset_config = config;
 
     // Retain the parsed Config so the read path can source the prefetch
     // depth / read timeout when the per-variable PrefetchQueue is
@@ -423,7 +428,6 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
     // eager schedule_initial() / placeholder total_timesteps block is
     // removed.
     if (mode == AMIO_MODE_READ) {
-        record->dataset_config = config;
         record->prefetch_depth = config.prefetch.depth;
         record->read_timeout_s = static_cast<std::int64_t>(config.prefetch.read_timeout_s);
     }
