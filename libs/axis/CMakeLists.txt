@@ -51,6 +51,8 @@ option(AXIS_BUILD_TESTING    "Build the AXIS test suite (GTest + RapidCheck)"   
 option(AXIS_BUILD_FORTRAN    "Build the Fortran iso_c_binding interop layer"              OFF)
 option(AXIS_BUILD_PYTHON     "Build the nanobind Python bindings"                         OFF)
 option(AXIS_BUILD_EXAMPLES   "Build runnable documentation examples"                      OFF)
+option(AXIS_BUILD_PAPER "Build the native paper evidence tools" OFF)
+option(AXIS_PAPER_ENABLE_ESMF "Build the paper ESMC worker" OFF)
 option(AXIS_BUILD_BENCHMARKS "Build the AXIS performance benchmark harness"               OFF)
 
 # ##############################################################################
@@ -130,6 +132,10 @@ if(NOT TARGET Kokkos::kokkoskernels AND AXIS_FETCH_KOKKOSKERNELS)
     # fetched KokkosKernels stays a light, fast configure/build.
     set(KokkosKernels_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
     set(KokkosKernels_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+    # ETI_ONLY controls whether consumers may instantiate templates; it does
+    # not disable the library's default explicit instantiations. Disable those
+    # separately so pip/uv builds compile only the kernels AXIS actually uses.
+    set(KokkosKernels_ADD_DEFAULT_ETI OFF CACHE BOOL "" FORCE)
     set(KokkosKernels_ETI_ONLY OFF CACHE BOOL "" FORCE)
     set(KokkosKernels_ENABLE_TPL_BLAS OFF CACHE BOOL "" FORCE)
     set(KokkosKernels_ENABLE_TPL_LAPACK OFF CACHE BOOL "" FORCE)
@@ -201,7 +207,10 @@ set(AXIS_SOURCES
     src/detail/raii_handles.cpp
     src/detail/tspack.cpp
     src/topology/unstructured_mesh.cpp
+    src/topology/mesh_builder.cpp
+    src/topology/multi_face_grid.cpp
     src/topology/structured_grid.cpp
+    src/topology/reduced_gaussian_grid.cpp
     src/topology/mesh_factory.cpp
     src/topology/named_grid_registry.cpp
     src/topology/rule_generator.cpp
@@ -217,8 +226,11 @@ set(AXIS_SOURCES
     src/solver/conservation.cpp
     src/solver/gradient_reconstructor.cpp
     src/solver/vertical_regridder.cpp
+    src/solver/vertical_conservative.cpp
     src/solver/vector_regridder.cpp
     src/distributed/distributed_weight_generator.cpp
+    src/distributed/regridder.cpp
+    src/distributed/selective_geometry.cpp
 )
 
 # ##############################################################################
@@ -476,6 +488,10 @@ endif()
 # ##############################################################################
 # Benchmarks
 # ##############################################################################
+
+if(AXIS_BUILD_PAPER)
+    add_subdirectory(paper)
+endif()
 
 if(AXIS_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)

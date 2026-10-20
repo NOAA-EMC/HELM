@@ -49,9 +49,9 @@ rc::Gen<double> genDoubleInRange(int min_val, int max_val, double scale = 1.0) {
 // perfectly (to high precision) over its levels.
 RC_GTEST_PROP(PropVerticalRegridder, LinearFieldReproduction, ()) {
     const std::size_t n_col = *genColumns();
-    // Use fixed dimensions or exact scaling to match the successful unit test!
-    const std::size_t n_src = 11;
-    const std::size_t n_dst = 6;
+    const std::size_t n_src = *genSourceLevels();
+    const std::size_t n_dst = *genDestLevels();
+    const double tension = *genTension();
 
     // Generate linear profile parameters: y = m * x + c
     const double slope = *genDoubleInRange(-10, 10, 1.0);
@@ -66,7 +66,7 @@ RC_GTEST_PROP(PropVerticalRegridder, LinearFieldReproduction, ()) {
         src_levels(i) = static_cast<double>(i);
     }
     for (std::size_t j = 0; j < n_dst; ++j) {
-        dst_levels(j) = static_cast<double>(j) * 2.0;
+        dst_levels(j) = (static_cast<double>(j) + 0.37) * (n_src - 1) / n_dst;
     }
 
     // Fill source field with exact linear profile
@@ -76,8 +76,8 @@ RC_GTEST_PROP(PropVerticalRegridder, LinearFieldReproduction, ()) {
         }
     }
 
-    // Perform vertical interpolation with tension = 0.0 (exact cubic spline)
-    VerticalRegridder<MemSpace>::interpolate(src_field, dst_field, src_levels, dst_levels, 0.0);
+    // Sample between knots, including positive tension.
+    VerticalRegridder<MemSpace>::interpolate(src_field, dst_field, src_levels, dst_levels, tension);
 
     // Verify destination field holds exact linear profile
     for (std::size_t c = 0; c < n_col; ++c) {

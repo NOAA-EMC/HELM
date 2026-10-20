@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <axis/detail/regular_grid_detector.hpp>
 #include <axis/solver/interpolation_matrix.hpp>
+#include <axis/solver/paper_diagnostics.hpp>
 #include <axis/solver/regrid_config.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
@@ -89,6 +90,7 @@ InterpolationMatrix<MemorySpace> generate_conservative_rect(const topology::Unst
                                                             const topology::UnstructuredMesh<MemorySpace> &dst_mesh, const RegridConfig &config,
                                                             const detail::RegularGridInfo &src_grid_info,
                                                             const detail::RegularGridInfo &dst_grid_info) {
+    paper_overlap_begin();
     const std::size_t n_src = src_mesh.n_cells();
     const std::size_t n_dst = dst_mesh.n_cells();
 
@@ -330,6 +332,7 @@ InterpolationMatrix<MemorySpace> generate_conservative_rect(const topology::Unst
                         overlap_area = rect_overlap(s_lo_x, s_hi_x, s_lo_y, s_hi_y, d_lo_x_norm, d_hi_x_norm, d_lo_y, d_hi_y);
                     }
 
+                    paper_overlap_observation(overlap_area);
                     if (overlap_area <= 0.0) continue;
 
                     // Weight = overlap_area / dst_area (Req 2.3: conservation)
