@@ -26,6 +26,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <future>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -34,6 +35,22 @@
 #include "affinity_fixture.hpp"
 #include "workers/mpi_threading.hpp"
 #include "workers/worker_pool.hpp"
+
+// Deterministic scheduling probes for the private worker implementation.
+namespace amio::detail {
+struct WorkerPoolTestAccess {
+    static std::unique_lock<std::mutex> lock(WorkerPool &pool) {
+        return std::unique_lock<std::mutex>(pool.mu_);
+    }
+    static bool execute_after_rotation(WorkerPool &pool) {
+        auto guard = lock(pool);
+        auto first = std::move(pool.write_queue_.front());
+        pool.write_queue_.pop();
+        pool.write_queue_.push(std::move(first));
+        return pool.try_execute_one(guard);
+    }
+};
+}  // namespace amio::detail
 
 namespace {
 
@@ -1018,9 +1035,103 @@ void test_backpressure_shutdown_unblocks_writers() {
     EXPECT_TRUE(submit_done.load(std::memory_order_acquire), "shutdown should unblock blocked writer");
 }
 
+// With no worker, shutdown is the only possible notification for a full
+// queue. It must acquire the predicate mutex before changing the flag.
+void test_zero_worker_shutdown_synchronizes_waiters() {
+    WorkerPoolConfig config;
+    config.thread_count = 0;
+    config.backpressure = {true, 0, 1, 1};
+    WorkerPool pool(config);
+    std::uint64_t seq = 0;
+    EXPECT_TRUE(pool.submit_write({1, 1}, [] {}, &seq) == AMIO_OK, "fill zero-worker queue");
+    auto guard = amio::detail::WorkerPoolTestAccess::lock(pool);
+    std::promise<void> started;
+    auto closing = std::async(std::launch::async, [&] {
+        started.set_value();
+        pool.shutdown();
+    });
+    started.get_future().wait();
+    EXPECT_TRUE(closing.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout, "shutdown must wait for the predicate mutex");
+    EXPECT_TRUE(!pool.is_shutdown(), "predicate cannot change while its mutex is held");
+    guard.unlock();
+    closing.get();
+    EXPECT_TRUE(pool.submit_write({1, 1}, [] {}, &seq) == AMIO_ERR_QUEUE_FULL, "reject after shutdown");
+
+    // Exercise blocked admission with no worker able to provide a wakeup.
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        WorkerPool waiting_pool(config);
+        waiting_pool.submit_write({1, 1}, [] {});
+        auto submitter = std::async(std::launch::async, [&] {
+            std::uint64_t sequence = 0;
+            return waiting_pool.submit_write({1, 1}, [] {}, &sequence);
+        });
+        EXPECT_TRUE(submitter.wait_for(std::chrono::milliseconds(1)) == std::future_status::timeout, "full zero-worker queue blocks admission");
+        waiting_pool.shutdown();
+        EXPECT_TRUE(submitter.get() == AMIO_ERR_QUEUE_FULL, "shutdown wakes or rejects blocked admission");
+    }
+}
+
+void test_write_queue_scans_full_rotation() {
+    WorkerPool pool(0);
+    bool ran = false;
+    pool.submit_write({1, 1}, [&] { ran = true; });
+    for (int i = 0; i < 256; ++i) pool.submit_write({1, 1}, [] {});
+    // Emulate another worker rotating the runnable successor behind blocked
+    // later sequences. One scheduling attempt must find it without sleeping.
+    EXPECT_TRUE(amio::detail::WorkerPoolTestAccess::execute_after_rotation(pool), "find ready task in full queue rotation");
+    EXPECT_TRUE(ran, "runnable sequence executes before scheduler returns");
+}
+
+// A full queue must not overflow when backpressure lasts longer than one second.
+void test_backpressure_does_not_expire_into_admission() {
+    WorkerPoolConfig config;
+    config.thread_count = 1;
+    config.backpressure = {true, 0, 1, 1};
+    WorkerPool pool(config);
+    std::promise<void> started, release;
+    auto gate = release.get_future().share();
+    std::uint64_t seq = 0;
+    EXPECT_TRUE(pool.submit_write(
+                    {1, 1},
+                    [&] {
+                        started.set_value();
+                        gate.wait();
+                    },
+                    &seq) == AMIO_OK,
+                "first admission");
+    started.get_future().wait();
+    EXPECT_TRUE(pool.submit_write({1, 1}, [] {}, &seq) == AMIO_OK, "fill pending queue");
+    auto blocked = std::async(std::launch::async, [&] { return pool.submit_write({1, 1}, [] {}, &seq); });
+    EXPECT_TRUE(blocked.wait_for(std::chrono::milliseconds(1200)) == std::future_status::timeout,
+                "backpressure stays blocked until capacity is available");
+    EXPECT_TRUE(pool.write_queue_depth() == 1, "capacity never exceeded");
+    release.set_value();
+    EXPECT_TRUE(blocked.get() == AMIO_OK, "admit after dequeue reaches zero low watermark");
+    pool.drain();
+    EXPECT_TRUE(pool.total_writes_completed() == 3, "all accepted callbacks complete");
+    pool.shutdown();
+    EXPECT_TRUE(pool.submit_write({1, 1}, [] {}, &seq) == AMIO_ERR_QUEUE_FULL, "explicit rejection after shutdown");
+}
+
+// Slow storage must not make drain report completion while a callback still runs.
+void test_drain_has_no_silent_deadline() {
+    WorkerPool pool(1);
+    std::atomic<bool> finished{false};
+    pool.submit_write({1, 1}, [&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5200));
+        finished.store(true);
+    });
+    pool.drain();
+    EXPECT_TRUE(finished.load(), "drain waits beyond the previous five-second cutoff");
+}
+
 }  // namespace
 
 int main() {
+    test_zero_worker_shutdown_synchronizes_waiters();
+    test_write_queue_scans_full_rotation();
+    test_backpressure_does_not_expire_into_admission();
+    test_drain_has_no_silent_deadline();
     test_construction_thread_count();
     test_submit_write_executes_callback();
     test_multiple_writes_execute();

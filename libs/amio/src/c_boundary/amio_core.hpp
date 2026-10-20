@@ -18,6 +18,7 @@
 #define AMIO_SRC_C_BOUNDARY_AMIO_CORE_HPP
 
 #include <atomic>
+#include <condition_variable>
 #include <conf/config.hpp>
 #include <cstdint>
 #include <logs/logger.hpp>
@@ -50,6 +51,9 @@ struct AMIO_Core;
 // Created by write() and tracked in the handle table as an Io
 // handle.  The worker pool signals completion or failure.
 // ---------------------------------------------------------------
+/** @struct IoRecord
+ * @brief Completion and failure state published by a background I/O task.
+ */
 struct IoRecord {
     std::uint64_t dataset_id = 0;
     std::uint64_t dv_seq = 0;  // per-(dataset,variable) sequence
@@ -118,6 +122,9 @@ struct VariableReadState {
 // the driver's destructor may still safely access configuration
 // values during teardown (Req 13.4).
 // ---------------------------------------------------------------
+/** @struct DatasetRecord
+ * @brief Dataset ownership and pending-operation state for flush and close.
+ */
 struct DatasetRecord {
     // Parsed manifest as a conf::Config -- owns the configuration
     // document for the driver's lifetime.  Declared before `driver`
@@ -136,9 +143,10 @@ struct DatasetRecord {
 
     // Pending write tracking for flush/close.
     mutable std::mutex pending_mu;
+    std::condition_variable pending_cv;
     std::atomic<std::uint64_t> pending_writes{0};
     std::atomic<bool> has_failure{false};
-    amio_err_t first_failure_code = AMIO_OK;
+    std::atomic<amio_err_t> first_failure_code{AMIO_OK};
 
     // Next variable ID counter for ordering.
     std::atomic<std::uint64_t> next_variable_id{1};
@@ -188,6 +196,9 @@ struct DatasetRecord {
 // Created by amio_init, destroyed by amio_finalize.  Holds the
 // dataset records, worker pool reference, and staging pool reference.
 // ---------------------------------------------------------------
+/** @struct AMIO_Core
+ * @brief Owner of AMIO staging, workers, datasets, and LOGS diagnostics.
+ */
 struct AMIO_Core {
     HandleTable::Token core_token = 0;
 
@@ -302,6 +313,11 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
 amio_status_t open_dataset_from_string(void *core_payload, const char *config_content, const char *format, std::int32_t mode,
                                        amio_dataset_handle *out_dataset);
 
+/** @brief Drain writes, flush storage, and invalidate a dataset handle.
+ * @param dataset_payload Validated DatasetRecord retained by its owning core.
+ * @return Outstanding-view error, recorded backend failure, or AMIO_OK.
+ * @note Never releases storage while an accepted write remains in flight.
+ */
 amio_status_t close_dataset(void *dataset_payload);
 
 // describe -- query a variable's per-timestep shape and record count WITHOUT
@@ -314,8 +330,18 @@ amio_status_t close_dataset(void *dataset_payload);
 // without the binary-search-over-amio_read probe it would otherwise need.
 amio_status_t describe(void *dataset_payload, const char *var_name, amio_shape_t *out_shape, std::int64_t *out_total_timesteps);
 
+/** @brief Validate and snapshot a write before dispatching backend work.
+ * @param dataset_payload Validated DatasetRecord owned by the core.
+ * @param var_name NUL-terminated variable identifier.
+ * @param host_data Contiguous host payload to snapshot synchronously.
+ * @param dtype Payload element type.
+ * @param shape Local payload shape.
+ * @param out_io Receives an admitted operation handle.
+ * @param region Optional global destination; null preserves whole-array writes.
+ * @return Admission status. Completed failures surface through wait/flush.
+ */
 amio_status_t write(void *dataset_payload, const char *var_name, const void *host_data, amio_dtype_t dtype, const amio_shape_t *shape,
-                    amio_io_handle *out_io);
+                    amio_io_handle *out_io, const amio_write_region_t *region = nullptr);
 
 amio_status_t read(void *dataset_payload, const char *var_name, std::int64_t timestep, const amio_bbox_t *bbox, amio_view_handle *out_view);
 
@@ -324,6 +350,11 @@ amio_status_t get_var_attribute_text(void *dataset_payload, const char *var_name
 
 amio_status_t get_var_attribute_double(void *dataset_payload, const char *var_name, const char *attr_name, double *out_value);
 
+/** @brief Drain accepted writes and flush backend storage.
+ * @param dataset_payload Validated DatasetRecord.
+ * @param timeout_ms Positive deadline in milliseconds; zero waits indefinitely.
+ * @return AMIO_OK, a recorded write failure, AMIO_ERR_TIMEOUT, or backend failure.
+ */
 amio_status_t flush(void *dataset_payload, std::int64_t timeout_ms);
 
 amio_status_t close(void *dataset_payload);

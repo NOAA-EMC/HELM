@@ -22,6 +22,7 @@
 #include <condition_variable>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <thread>
@@ -31,7 +32,11 @@
 #include "factory/backend_factory.hpp"
 #include "staging/staging_pool.hpp"
 #include "workers/comm_split.hpp"
+#include "workers/mpi_threading.hpp"
 #include "workers/worker_pool.hpp"
+#ifdef AMIO_HAS_MPI
+#include <halo/environment.hpp>
+#endif
 
 // Open-time dataset configuration source.
 //
@@ -107,6 +112,10 @@ amio_status_t init_from_config(const Config &cfg, amio_core_handle *out_core) {
         if (cfg.worker_pool.threads > 0) {
             WorkerPoolConfig wp{};
             wp.thread_count = cfg.worker_pool.threads;
+            wp.backpressure.enabled = cfg.backpressure.high_watermark > 0;
+            wp.backpressure.low_watermark = cfg.backpressure.low_watermark;
+            wp.backpressure.high_watermark = cfg.backpressure.high_watermark;
+            wp.backpressure.queue_capacity = cfg.backpressure.queue_capacity;
             core->worker_pool = std::make_unique<WorkerPool>(wp);
         } else {
             core->worker_pool = nullptr;
@@ -337,7 +346,9 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
 
 #ifdef AMIO_HAS_MPI
     try {
-        if (core != nullptr) {
+        // GRIB2 and Zarr reads are rank-local. Their write communicators
+        // are duplicated collectively, so only configure those on write opens.
+        if (core != nullptr && (mode == AMIO_MODE_WRITE || (backend_key != "grib2" && backend_key != "zarr3"))) {
             if (core->worker_pool) {
                 driver->set_communicator(core->worker_pool->io_communicator().handle());
             } else {
@@ -345,11 +356,33 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
             }
         }
     } catch (const std::exception &e) {
-        std::cerr << "[AMIO ERROR] open_dataset failed while setting communicator: " << e.what() << std::endl;
+        core->logger.log(logs::Severity_Level::ERROR, std::string("open_dataset failed while setting communicator: ") + e.what());
         return AMIO_ERR_BACKEND_FAILURE;
     } catch (...) {
-        std::cerr << "[AMIO ERROR] open_dataset failed while setting communicator: unknown exception" << std::endl;
+        core->logger.log(logs::Severity_Level::ERROR, "open_dataset failed while setting communicator: unknown exception");
         return AMIO_ERR_BACKEND_FAILURE;
+    }
+#endif
+
+#ifdef AMIO_HAS_MPI
+    int initialized = 0;
+    MPI_Initialized(&initialized);
+    if (initialized && core && g_amio_parent_comm != MPI_COMM_NULL) {
+        int size = 1;
+        MPI_Comm_size(g_amio_parent_comm, &size);
+        if (size > 1 && backend_key == "zarr3" && mode == AMIO_MODE_WRITE && !driver->supports_region_writes()) {
+            // NCZarr cannot coordinate shared metadata/chunk mutation.
+            return AMIO_ERR_INVALID_INPUT;
+        }
+        if (size > 1 && core->worker_pool &&
+            (backend_key == "netcdf4" || backend_key == "netcdf" || (backend_key == "grib2" && mode == AMIO_MODE_WRITE && size > 1))) {
+            halo::Environment::initialize();
+            MpiThreadingConfig threading{};
+            threading.requires_background_mpi_io = true;
+            threading.mpi_thread_level_provided = query_mpi_thread_level();
+            const auto rc = validate_mpi_threading(threading);
+            if (rc != AMIO_OK) return rc;
+        }
     }
 #endif
 
@@ -364,10 +397,10 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
             driver->open_read(manifest_cfg);
         }
     } catch (const std::exception &e) {
-        std::cerr << "[AMIO ERROR] open_dataset failed: " << e.what() << std::endl;
+        core->logger.log(logs::Severity_Level::ERROR, std::string("open_dataset failed: ") + e.what());
         return AMIO_ERR_BACKEND_FAILURE;
     } catch (...) {
-        std::cerr << "[AMIO ERROR] open_dataset failed: unknown exception" << std::endl;
+        core->logger.log(logs::Severity_Level::ERROR, "open_dataset failed: unknown exception");
         return AMIO_ERR_BACKEND_FAILURE;
     }
 
@@ -382,6 +415,9 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
     record->mode = mode;
     record->dataset_id = core->next_dataset_id.fetch_add(1);
     record->core = core;  // back-pointer for write path access to staging/worker
+    // Write scheduling needs the backend key to share an ordering domain
+    // across files whose collective calls must execute in submission order.
+    record->dataset_config = config;
 
     // Retain the parsed Config so the read path can source the prefetch
     // depth / read timeout when the per-variable PrefetchQueue is
@@ -392,7 +428,6 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
     // eager schedule_initial() / placeholder total_timesteps block is
     // removed.
     if (mode == AMIO_MODE_READ) {
-        record->dataset_config = config;
         record->prefetch_depth = config.prefetch.depth;
         record->read_timeout_s = static_cast<std::int64_t>(config.prefetch.read_timeout_s);
     }
@@ -516,22 +551,15 @@ amio_status_t close_dataset(void *dataset_payload) {
         }
     }
 
-    // Step 2: Drain pending writes (block until all complete or fail).
-    if (record->pending_writes.load() > 0) {
-        // Block until all pending writes for this dataset complete
-        // (timeout at 30s as a safety net; close should not hang forever).
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-        while (record->pending_writes.load() > 0) {
-            if (std::chrono::steady_clock::now() >= deadline) {
-                break;  // best-effort: proceed to flush/close even if writes linger
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
+    // Never close storage while a worker still uses it.
+    {
+        std::unique_lock<std::mutex> lock(record->pending_mu);
+        record->pending_cv.wait(lock, [record] { return record->pending_writes.load() == 0; });
     }
 
     // Step 3: Surface any recorded failures.
     if (record->has_failure.load()) {
-        result = static_cast<amio_status_t>(record->first_failure_code);
+        result = static_cast<amio_status_t>(record->first_failure_code.load());
     }
 
     // Step 4: Flush and close the driver.
@@ -576,32 +604,19 @@ amio_status_t close_dataset(void *dataset_payload) {
 amio_status_t flush(void *dataset_payload, std::int64_t timeout_ms) {
     auto *record = static_cast<DatasetRecord *>(dataset_payload);
 
-    // If no pending writes, return immediately.
-    if (record->pending_writes.load() == 0) {
-        // Check for previously recorded failures.
-        if (record->has_failure.load()) {
-            return static_cast<amio_status_t>(record->first_failure_code);
-        }
-        return AMIO_OK;
+    std::unique_lock<std::mutex> lock(record->pending_mu);
+    const auto drained = [record] { return record->pending_writes.load() == 0; };
+    if (timeout_ms > 0) {
+        if (!record->pending_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), drained)) return AMIO_ERR_TIMEOUT;
+    } else {
+        record->pending_cv.wait(lock, drained);
     }
-
-    // Block until pending writes drain or timeout.
-    // In the full implementation (task 9.x), this would wait on a
-    // condition variable signaled by the worker pool.
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 86400000);
-
-    while (record->pending_writes.load() > 0) {
-        if (std::chrono::steady_clock::now() >= deadline) {
-            return AMIO_ERR_TIMEOUT;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if (record->has_failure.load()) return record->first_failure_code.load();
+    try {
+        if (record->driver) record->driver->flush();
+    } catch (...) {
+        return AMIO_ERR_BACKEND_FAILURE;
     }
-
-    // Surface any failures.
-    if (record->has_failure.load()) {
-        return static_cast<amio_status_t>(record->first_failure_code);
-    }
-
     return AMIO_OK;
 }
 
@@ -646,18 +661,6 @@ static bool validate_shape(const amio_shape_t *shape) noexcept {
 }
 
 // ---------------------------------------------------------------
-// Helper: compute total element count from shape extents.
-// Precondition: shape has been validated (rank >= 1, all extents > 0).
-// ---------------------------------------------------------------
-static std::size_t compute_element_count(const amio_shape_t *shape) noexcept {
-    std::size_t count = 1;
-    for (int32_t i = 0; i < shape->rank; ++i) {
-        count *= static_cast<std::size_t>(shape->extents[i]);
-    }
-    return count;
-}
-
-// ---------------------------------------------------------------
 // amio_write -- task 9.1: synchronous snapshot write path
 //
 // Validates inputs → computes payload size → acquires staging
@@ -671,7 +674,7 @@ static std::size_t compute_element_count(const amio_shape_t *shape) noexcept {
 // Validates: R2.1, R2.2, R2.3, R2.4, R2.5, R2.7, R2.8, R2.10, R6.1
 // ---------------------------------------------------------------
 amio_status_t write(void *dataset_payload, const char *var_name, const void *host_data, amio_dtype_t dtype, const amio_shape_t *shape,
-                    amio_io_handle *out_io) {
+                    amio_io_handle *out_io, const amio_write_region_t *region) {
     auto *record = static_cast<DatasetRecord *>(dataset_payload);
 
     // ---- Step 1: Validate inputs (R2.10) ----
@@ -693,9 +696,31 @@ amio_status_t write(void *dataset_payload, const char *var_name, const void *hos
         return AMIO_ERR_INVALID_INPUT;
     }
 
+    if (record->mode != AMIO_MODE_WRITE) return AMIO_ERR_INVALID_INPUT;
+
+    if (region) {
+        if (!record->driver || !record->driver->supports_region_writes() || region->rank != shape->rank) return AMIO_ERR_INVALID_INPUT;
+        for (int d = shape->rank; d < AMIO_MAX_RANK; ++d) {
+            if (region->global_extents[d] || region->offsets[d] || shape->extents[d] || shape->strides[d]) return AMIO_ERR_INVALID_INPUT;
+        }
+        std::size_t stride = 1;
+        for (int d = shape->rank - 1; d >= 0; --d) {
+            if (region->global_extents[d] <= 0 || region->offsets[d] < 0 || shape->extents[d] > region->global_extents[d] ||
+                region->offsets[d] > region->global_extents[d] - shape->extents[d])
+                return AMIO_ERR_INVALID_INPUT;
+            if (shape->strides[d] != 0 && static_cast<std::size_t>(shape->strides[d]) != stride) return AMIO_ERR_INVALID_INPUT;
+            if (static_cast<std::size_t>(shape->extents[d]) > std::numeric_limits<std::size_t>::max() / stride) return AMIO_ERR_INVALID_INPUT;
+            stride *= static_cast<std::size_t>(shape->extents[d]);
+        }
+    }
+
     // ---- Step 2: Compute payload size ----
-    const std::size_t element_count = compute_element_count(shape);
-    const std::size_t payload_bytes = element_count * elem_size;
+    std::size_t payload_bytes = elem_size;
+    for (int d = 0; d < shape->rank; ++d) {
+        const auto extent = static_cast<std::size_t>(shape->extents[d]);
+        if (extent > std::numeric_limits<std::size_t>::max() / payload_bytes) return AMIO_ERR_INVALID_INPUT;
+        payload_bytes *= extent;
+    }
 
     // Sanity: payload must be at least 1 byte.
     if (payload_bytes == 0) {
@@ -759,7 +784,18 @@ amio_status_t write(void *dataset_payload, const char *var_name, const void *hos
 
         DatasetVariableKey dv_key{};
         dv_key.dataset_id = record->dataset_id;
-        dv_key.variable_id = var_hash;
+        // One driver instance can carry mutable file/metadata state across
+        // variables. Serialize its calls; MPI ranks still write in parallel.
+        dv_key.variable_id = 0;
+#ifdef AMIO_HAS_MPI
+        int initialized = 0;
+        MPI_Initialized(&initialized);
+        if (initialized && (record->dataset_config.backend == "netcdf4" || record->dataset_config.backend == "netcdf" ||
+                            record->dataset_config.backend == "grib2")) {
+            // Preserve submission order across collective NetCDF and GRIB2 writes.
+            dv_key.dataset_id = 0;
+        }
+#endif
 
         // Build the variable metadata the backend driver needs to
         // encode this field (name, dtype, shape).  The GRIB2 driver,
@@ -771,6 +807,7 @@ amio_status_t write(void *dataset_payload, const char *var_name, const void *hos
         meta.name = var_name;
         meta.dtype = dtype;
         meta.shape = *shape;
+        if (region) meta.write_region = *region;
         meta.timestep = -1;
 
         // Capture staging buffer pointer (NOT host pointer) in the
@@ -780,51 +817,80 @@ amio_status_t write(void *dataset_payload, const char *var_name, const void *hos
         StagingBuffer *buf_for_worker = staging_buf;
         std::uint64_t io_handle_id = io_token;
 
-        std::uint64_t seq = core->worker_pool.get()->submit_write(dv_key, io_handle_id, [buf_for_worker, record, io_rec, core, meta]() {
-            // Worker thread callback: serialize buffer via backend.
-            // The driver operates on the staging buffer, never
-            // the host pointer.
-            try {
-                if (record->driver) {
-                    record->driver->write(*buf_for_worker, meta);
-                }
-                io_rec->completed.store(true);
-            } catch (...) {
-                io_rec->failed.store(true);
-                io_rec->failure_code = AMIO_ERR_BACKEND_FAILURE;
-                record->has_failure.store(true);
-                if (record->first_failure_code == AMIO_OK) {
-                    record->first_failure_code = AMIO_ERR_BACKEND_FAILURE;
-                }
-            }
-
-            // Release staging buffer back to pool after write
-            // completes (R3.10).
-            if (buf_for_worker != nullptr && core->staging_pool != nullptr) {
-                core->staging_pool.get()->release(buf_for_worker);
-            }
-
-            // Decrement pending write count.
-            record->pending_writes.fetch_sub(1);
-        });
-
-        io_rec->dv_seq = seq;
-
-        // Track pending write.
+        std::uint64_t seq = 0;
+        // Publish before admission: even an immediately executing callback
+        // must observe its own pending count.
         record->pending_writes.fetch_add(1);
-    } else {
-        // No worker pool or no pool buffer (stub mode): mark write
-        // as immediately complete.  Release staging buffer if we
-        // acquired one from the pool.
-        io_rec->completed.store(true);
+        amio_err_t admission;
+        try {
+            admission = core->worker_pool.get()->submit_write(
+                dv_key, io_handle_id,
+                [buf_for_worker, record, io_rec, core, meta]() {
+                    // Worker thread callback: serialize buffer via backend.
+                    // The driver operates on the staging buffer, never
+                    // the host pointer.
+                    try {
+                        if (record->driver) {
+                            record->driver->write(*buf_for_worker, meta);
+                        }
+                    } catch (...) {
+                        std::string message;
+                        io_rec->failure_code = translate_exception_to_error(&message);
+                        core->logger.log(logs::Severity_Level::ERROR, message);
+                        io_rec->failed.store(true);
+                        amio_err_t expected = AMIO_OK;
+                        record->first_failure_code.compare_exchange_strong(expected, io_rec->failure_code);
+                        record->has_failure.store(true);
+                    }
 
-        if (is_pool_buffer && staging_buf != nullptr && core != nullptr && core->staging_pool != nullptr) {
-            core->staging_pool.get()->release(staging_buf);
+                    // Release staging buffer back to pool after write
+                    // completes (R3.10).
+                    if (buf_for_worker != nullptr && core->staging_pool != nullptr) {
+                        core->staging_pool.get()->release(buf_for_worker);
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(record->pending_mu);
+                        record->pending_writes.fetch_sub(1);
+                    }
+                    record->pending_cv.notify_all();
+                    // Publish terminal state on success AND failure, after cleanup.
+                    io_rec->completed.store(true);
+                },
+                &seq);
+        } catch (...) {
+            admission = AMIO_ERR_BACKEND_FAILURE;
         }
-        // If fallback_storage was used, it will be freed when this
-        // function returns (unique_ptr goes out of scope).  The
-        // io_rec does not retain a reference to it since the write
-        // is already marked complete.
+        if (admission != AMIO_OK) {
+            {
+                std::lock_guard<std::mutex> lock(record->pending_mu);
+                record->pending_writes.fetch_sub(1);
+            }
+            record->pending_cv.notify_all();
+            core->staging_pool->release(staging_buf);
+            process_handle_table().release(io_token, HandleKind::Io);
+            delete io_rec;
+            return admission;
+        }
+        io_rec->dv_seq = seq;
+    } else {
+        // Zero workers means synchronous I/O, not a successful no-op.
+        try {
+            VarMeta meta{};
+            meta.name = var_name;
+            meta.dtype = dtype;
+            meta.shape = *shape;
+            if (region) meta.write_region = *region;
+            if (record->driver) record->driver->write(*staging_buf, meta);
+        } catch (...) {
+            io_rec->failure_code = AMIO_ERR_BACKEND_FAILURE;
+            io_rec->failed.store(true);
+            record->first_failure_code.store(AMIO_ERR_BACKEND_FAILURE);
+            record->has_failure.store(true);
+        }
+        if (is_pool_buffer) core->staging_pool->release(staging_buf);
+        io_rec->staging_buf = nullptr;
+        io_rec->completed.store(true);
     }
 
     // ---- Step 8: Return io_handle to caller (R2.7) ----

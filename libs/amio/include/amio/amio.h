@@ -191,6 +191,14 @@ AMIO_API amio_status_t amio_close_dataset(amio_dataset_handle dataset);
  * caller may safely modify or free `host_data` after this call returns.
  * The actual I/O to the backend proceeds asynchronously.
  *
+ * For shared-file GRIB2, each call encodes one complete F32 field per rank.
+ * All participating ranks must submit the same number of calls in the same
+ * collective dataset order. Messages are ordered by submission round, then
+ * communicator rank; grids and compressed lengths may differ across ranks.
+ * Background shared-file GRIB2 writes require MPI_THREAD_MULTIPLE. A failure
+ * on any rank fails the round everywhere and disables later dataset appends.
+ * Wait for pending operations before collectively flushing or closing output.
+ *
  * @param[in]  dataset    A write dataset handle from amio_open_dataset().
  * @param[in]  var_name   NUL-terminated variable identifier.
  * @param[in]  host_data  Pointer to the host-side payload.
@@ -208,6 +216,40 @@ AMIO_API amio_status_t amio_close_dataset(amio_dataset_handle dataset);
  */
 AMIO_API amio_status_t amio_write(amio_dataset_handle dataset, const char *var_name, const void *host_data, amio_dtype_t dtype,
                                   const amio_shape_t *shape, amio_io_handle *out_io);
+
+/**
+ * @brief Snapshot and asynchronously write a rank-local region of a shared array.
+ *
+ * Payload is contiguous row-major; shape describes the local payload, region
+ * describes its global destination. Supports NetCDF and TensorStore Zarr.
+ * All ranks must submit NetCDF variables in the same order with matching global
+ * shapes/types, and collectively open/flush/close in the same order. MPI must
+ * provide MPI_THREAD_MULTIPLE for background NetCDF I/O. Zarr stores one array
+ * per dataset; its manifest array_shape must match region.global_extents.
+ * Callers assign disjoint regions; overlapping cross-rank writes are undefined.
+ * Same snapshot ownership, wait, and admission errors as amio_write().
+ * Collective lifecycle operations must follow completion of previously queued
+ * operations on every rank. Multiple application threads must externally order
+ * collective submissions identically across ranks. Metadata creation and the
+ * initial snapshot may block; backend transfer runs on AMIO workers. Setting
+ * worker_pool.threads to zero performs the transfer synchronously.
+ *
+ * @param[in] dataset Write-mode dataset from a collective open.
+ * @param[in] var_name NUL-terminated variable identifier (one array per Zarr dataset).
+ * @param[in] host_data Contiguous row-major local payload; safe to reuse after return.
+ * @param[in] dtype Element type, identical across ranks for a NetCDF variable.
+ * @param[in] shape Local positive extents and contiguous element strides (zero derives strides).
+ * @param[in] region Global extents and local offsets; descriptor copied before return.
+ * @param[out] out_io Pending operation handle, or NULL on rejected admission.
+ * @return AMIO_OK on admission; completion/failure is reported by amio_wait()
+ * and amio_flush(). Invalid bounds, strides, or an unsupported backend return
+ * AMIO_ERR_INVALID_INPUT; other admission errors match amio_write().
+ *
+ * Unsupported backends (including NCZarr fallback and GRIB2) return
+ * AMIO_ERR_INVALID_INPUT before enqueueing.
+ */
+AMIO_API amio_status_t amio_write_region(amio_dataset_handle dataset, const char *var_name, const void *host_data, amio_dtype_t dtype,
+                                         const amio_shape_t *shape, const amio_write_region_t *region, amio_io_handle *out_io);
 
 /**
  * @brief Return a Memory_View for a prefetched variable/timestep.

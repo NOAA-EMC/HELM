@@ -41,8 +41,8 @@ static bool is_config_expected_valid(const Config &cfg) {
         return false;
     }
 
-    // worker_pool.threads [1, 256]
-    if (cfg.worker_pool.threads < 1 || cfg.worker_pool.threads > 256) {
+    // worker_pool.threads [0, 256]
+    if (cfg.worker_pool.threads > 256) {
         return false;
     }
 

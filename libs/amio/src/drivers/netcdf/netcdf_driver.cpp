@@ -40,9 +40,9 @@ extern MPI_Comm g_amio_parent_comm;
 #include <string>
 #include <vector>
 
-namespace amio::detail {
+#include "drivers/common/netcdf_mutex.hpp"
 
-static std::mutex g_nc_driver_mutex;
+namespace amio::detail {
 
 // ===================================================================
 // Helper: wrap NetCDF error codes in exceptions.
@@ -53,7 +53,6 @@ static std::mutex g_nc_driver_mutex;
 // Check a netCDF return code and throw std::runtime_error on failure.
 static void nc_check(int status, const std::string &context) {
     if (status != NC_NOERR) {
-        std::cerr << "[AMIO ERROR] in " << context << ": " << nc_strerror(status) << " (nc_errno=" << status << ")" << std::endl;
         std::string msg = "NetCDF error in " + context + ": " + nc_strerror(status) + " (nc_errno=" + std::to_string(status) + ")";
         throw std::runtime_error(msg);
     }
@@ -289,7 +288,7 @@ void NetCDF_Driver::set_communicator(MPI_Comm comm_handle) {
 // ===================================================================
 
 void NetCDF_Driver::open_write(const conf::Config &config) {
-    std::lock_guard<std::mutex> lock(g_nc_driver_mutex);
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (is_open_) {
         throw std::runtime_error("NetCDF_Driver::open_write: driver is already open");
     }
@@ -390,7 +389,7 @@ void NetCDF_Driver::open_write(const conf::Config &config) {
 // ===================================================================
 
 void NetCDF_Driver::open_read(const conf::Config &config) {
-    std::lock_guard<std::mutex> lock(g_nc_driver_mutex);
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (is_open_) {
         throw std::runtime_error("NetCDF_Driver::open_read: driver is already open");
     }
@@ -452,7 +451,7 @@ void NetCDF_Driver::open_read(const conf::Config &config) {
 // ===================================================================
 
 void NetCDF_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
-    std::lock_guard<std::mutex> lock(g_nc_driver_mutex);
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_ || !is_write_mode_) {
         throw std::runtime_error("NetCDF_Driver::write: driver not open for writing");
     }
@@ -489,7 +488,7 @@ void NetCDF_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
         };
 
         for (int32_t d = 0; d < meta.shape.rank; ++d) {
-            std::size_t target_len = static_cast<std::size_t>(meta.shape.extents[d]);
+            std::size_t target_len = static_cast<std::size_t>(meta.write_region.rank ? meta.write_region.global_extents[d] : meta.shape.extents[d]);
             std::string dim_name = meta.name + "_dim" + std::to_string(d);
             if ((meta.name == "lon" || meta.name == "lat" || meta.name == "lev" || meta.name == "time") && meta.shape.rank == 1) {
                 dim_name = meta.name;
@@ -596,7 +595,7 @@ void NetCDF_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
                     // A dimension named "time" is the CF record dimension: define
                     // it as NC_UNLIMITED so downstream tools (ncview, ncrcat, ...)
                     // can concatenate per-timestep files into a single series.
-                    const std::size_t def_len = (dim_name == "time") ? static_cast<std::size_t>(NC_UNLIMITED) : target_len;
+                    const std::size_t def_len = (dim_name == "time" && !meta.write_region.rank) ? static_cast<std::size_t>(NC_UNLIMITED) : target_len;
                     status = nc_def_dim(ncid_, dim_name.c_str(), def_len, &dimids[d]);
                     nc_check(status, "nc_def_dim('" + dim_name + "')");
                 }
@@ -652,6 +651,23 @@ void NetCDF_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
         nc_check(status, "nc_inq_varid('" + meta.name + "')");
     }
 
+    // Reject a subsequent write with incompatible metadata before copying data.
+    int existing_rank = 0, existing_type = 0;
+    nc_check(nc_inq_varndims(ncid_, varid, &existing_rank), "nc_inq_varndims");
+    nc_check(nc_inq_vartype(ncid_, varid, &existing_type), "nc_inq_vartype");
+    if (existing_rank != meta.shape.rank || existing_type != dtype_to_nc_type(meta.dtype))
+        throw std::runtime_error("NetCDF_Driver: write shape/type differs from existing variable");
+    if (meta.write_region.rank) {
+        std::vector<int> dims(existing_rank);
+        nc_check(nc_inq_vardimid(ncid_, varid, dims.data()), "nc_inq_vardimid");
+        for (int d = 0; d < existing_rank; ++d) {
+            std::size_t length = 0;
+            nc_check(nc_inq_dimlen(ncid_, dims[d], &length), "nc_inq_dimlen");
+            if (length != static_cast<std::size_t>(meta.write_region.global_extents[d]))
+                throw std::runtime_error("NetCDF_Driver: global extent differs from existing dimension");
+        }
+    }
+
     // Set collective access mode for parallel MPI-IO writes (R7.4).
     if (use_parallel_) {
         status = nc_var_par_access(ncid_, varid, NC_COLLECTIVE);
@@ -663,6 +679,7 @@ void NetCDF_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
     std::vector<std::size_t> count(meta.shape.rank);
     for (int32_t d = 0; d < meta.shape.rank; ++d) {
         count[d] = static_cast<std::size_t>(meta.shape.extents[d]);
+        if (meta.write_region.rank) start[d] = static_cast<std::size_t>(meta.write_region.offsets[d]);
     }
 
     // Write the data from the staging buffer using collective I/O.
@@ -681,7 +698,7 @@ void NetCDF_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
 // ===================================================================
 
 void NetCDF_Driver::read(StagingBuffer &dst, const VarMeta &meta, std::int64_t timestep, const std::optional<BoundingBox> &bbox) {
-    std::lock_guard<std::mutex> lock(g_nc_driver_mutex);
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_ || is_write_mode_) {
         throw std::runtime_error("NetCDF_Driver::read: driver not open for reading");
     }
@@ -803,13 +820,21 @@ void NetCDF_Driver::read(StagingBuffer &dst, const VarMeta &meta, std::int64_t t
 // ===================================================================
 
 void NetCDF_Driver::flush() {
-    std::lock_guard<std::mutex> lock(g_nc_driver_mutex);
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_) {
         throw std::runtime_error("NetCDF_Driver::flush: driver is not open");
     }
 
 #ifdef AMIO_HAS_NETCDF
     int status = nc_sync(ncid_);
+    // A newly opened, empty classic-format file can still be in define
+    // mode because no variable write has caused nc_enddef yet. Complete
+    // the definition phase before syncing so an empty-dataset flush is a
+    // successful durability barrier too.
+    if (status == NC_EINDEFINE) {
+        nc_check(nc_enddef(ncid_), "nc_enddef before nc_sync");
+        status = nc_sync(ncid_);
+    }
     nc_check(status, "nc_sync");
 #else
     throw std::runtime_error("NetCDF_Driver::flush: AMIO built without netCDF support");
@@ -821,7 +846,7 @@ void NetCDF_Driver::flush() {
 // ===================================================================
 
 void NetCDF_Driver::close() {
-    std::lock_guard<std::mutex> lock(g_nc_driver_mutex);
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_) {
         return;  // Already closed -- idempotent.
     }
@@ -909,6 +934,7 @@ bool nc_type_to_dtype(int nc_type, amio_dtype_t &out) {
 #endif  // AMIO_HAS_NETCDF
 
 std::optional<std::string> NetCDF_Driver::get_text_attribute(const std::string &var_name, const std::string &attr_name) {
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_ || is_write_mode_) {
         return std::nullopt;
     }
@@ -961,6 +987,7 @@ std::optional<std::string> NetCDF_Driver::get_text_attribute(const std::string &
 }
 
 std::optional<double> NetCDF_Driver::get_numeric_attribute(const std::string &var_name, const std::string &attr_name) {
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_ || is_write_mode_) {
         return std::nullopt;
     }
@@ -993,6 +1020,7 @@ std::optional<double> NetCDF_Driver::get_numeric_attribute(const std::string &va
 }
 
 VariableInfo NetCDF_Driver::describe_variable(const std::string &name) {
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     VariableInfo info{};  // found == false by default.
 
     if (!is_open_ || is_write_mode_) {

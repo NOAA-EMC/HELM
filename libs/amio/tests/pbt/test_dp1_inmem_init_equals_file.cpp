@@ -51,7 +51,7 @@ static bool is_config_expected_valid(const Config &cfg) {
     if (cfg.staging_pool.buffer_capacity_bytes < 1 || cfg.staging_pool.buffer_capacity_bytes > 1'073'741'824) {
         return false;
     }
-    if (cfg.worker_pool.threads < 1 || cfg.worker_pool.threads > 256) {
+    if (cfg.worker_pool.threads > 256) {
         return false;
     }
     if (cfg.prefetch.depth < 1 || cfg.prefetch.depth > 1024) {

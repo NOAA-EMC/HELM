@@ -14,7 +14,7 @@ amio:
     buffer_size_bytes: 52428800  # Per-buffer capacity in bytes [1, 1 GiB]
 
   workers:
-    thread_count: 2              # Worker threads [1, 256]
+    thread_count: 2              # Worker threads [0, 256]; 0 runs writes synchronously
     pin_threads: false           # CPU/NUMA pinning
 
   backend:

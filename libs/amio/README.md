@@ -267,3 +267,6 @@ Or browse the source at `docs/site/`.
 See [LICENSE](LICENSE) and [DISCLAIMER](DISCLAIMER).
 
 This project is part of the NOAA-EMC ecosystem.
+
+Shared MPI output and the region-write API are documented in
+[AMIO parallel writes](../../docs/AMIO-parallel-writes.md).
