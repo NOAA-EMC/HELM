@@ -1,17 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # AXIS CI Pipeline (GitHub Actions)
 #
-# Full staged pipeline for the AXIS Tier 1 spatial interpolation library.
-# Every stage runs INSIDE the HELM project Docker container (built from
-# ./Dockerfile via docker compose), so the toolchain matches local development.
-#
-# Stages:
-#   1. Tier isolation scan .................... Requirements 5.5
-#   2. Standalone CMake build (HELM::AXIS) .... Requirements 5.6
-#   2b. Downstream consumer test .............. Requirements 5.7
-#   3. Unit tests     (ctest -L unit) ......... Requirements 5.8
-#   4. Property tests (ctest -L property) ..... Requirements 5.9
-#   5. Sanitizer build (ASan + UBSan) ......... Requirements 5.10
+# Run independent validation tracks concurrently so failures surface sooner.
+# Each job uses the HELM project container built from ./Dockerfile.
 # ─────────────────────────────────────────────────────────────────────────────
 name: AXIS CI
 
@@ -32,9 +23,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  axis:
-    name: AXIS build, test, sanitize
+  native:
+    name: AXIS native build and tests
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -42,27 +34,23 @@ jobs:
       - name: Bring up HELM container
         run: docker compose up -d --build
 
-      # ── Stage 1: Tier isolation scan ─────────────────────────────────────
       - name: "Stage 1: Tier isolation scan"
         run: |
           docker compose exec -T helm-dev bash -lc '
             cd libs/axis && bash cmake/check_tier1_isolation.sh .
           '
 
-      # ── Stage 2: Standalone CMake build ──────────────────────────────────
       - name: "Stage 2: Standalone build (produces HELM::AXIS)"
         run: |
           docker compose exec -T helm-dev bash -lc '
             set -e
             cd libs/axis
-            rm -rf build-ci
             cmake -B build-ci -G Ninja \
               -DCMAKE_CXX_STANDARD=20 \
               -DAXIS_BUILD_TESTING=ON
             cmake --build build-ci --parallel $(nproc)
           '
 
-      # ── Stage 2b: Downstream HELM::AXIS consumer ─────────────────────────
       - name: "Stage 2b: Downstream HELM::AXIS consumer"
         run: |
           docker compose exec -T helm-dev bash -lc '
@@ -76,33 +64,44 @@ jobs:
           add_executable(consumer main.cpp)
           target_link_libraries(consumer PRIVATE HELM::AXIS)
           EOF
-            printf "#include <axis/axis.hpp>\nint main() { return 0; }\n" > /tmp/axis_consumer/main.cpp
+            printf "#include <axis/axis.hpp>\\nint main() { return 0; }\\n" > /tmp/axis_consumer/main.cpp
             cd /tmp/axis_consumer
             cmake -B build -G Ninja -DAXIS_BUILD_TESTING=OFF
             cmake --build build --target consumer
           '
 
-      # ── Stage 3: Unit tests ───────────────────────────────────────────────
       - name: "Stage 3: Unit tests"
         run: |
           docker compose exec -T helm-dev bash -lc '
             cd libs/axis/build-ci && ctest -L unit --output-on-failure
           '
 
-      # ── Stage 4: Property tests ───────────────────────────────────────────
       - name: "Stage 4: Property tests"
         run: |
           docker compose exec -T helm-dev bash -lc '
             cd libs/axis/build-ci && ctest -L property --output-on-failure
           '
 
-      # ── Stage 5: Sanitizer build (ASan + UBSan) ───────────────────────────
-      - name: "Stage 5: Sanitizer build (ASan + UBSan)"
+      - name: Tear down container
+        if: always()
+        run: docker compose down || true
+
+  sanitizer:
+    name: AXIS ASan and UBSan tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Bring up HELM container
+        run: docker compose up -d --build
+
+      - name: "Sanitizer build and property tests"
         run: |
           docker compose exec -T helm-dev bash -lc '
             set -e
             cd libs/axis
-            rm -rf build-asan
             cmake -B build-asan -G Ninja \
               -DCMAKE_CXX_STANDARD=20 \
               -DAXIS_BUILD_TESTING=ON \
@@ -113,23 +112,30 @@ jobs:
               ctest -L property --output-on-failure
           '
 
-      # ── Stage 6: Python ───────────────────────────────────────────────────
-      - name: "Stage 6: Python"
+      - name: Tear down container
+        if: always()
+        run: docker compose down || true
+
+  python:
+    name: AXIS Python tests and types
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Bring up HELM container
+        run: docker compose up -d --build
+
+      - name: "Python tests and mypy"
         run: |
           docker compose exec -T helm-dev bash -lc '
             set -e
             cd libs/axis
-            uv sync --no-managed-python --all-groups --verbose
+            uv sync --no-managed-python --all-groups
             uv run pytest -v -ra
             uv run mypy
           '
-
-      - name: Cleanup scratch build trees
-        if: always()
-        run: |
-          docker compose exec -T helm-dev bash -lc '
-            cd libs/axis && rm -rf build-ci build-asan
-          ' || true
 
       - name: Tear down container
         if: always()
