@@ -332,6 +332,14 @@ endif()
 add_test(NAME unit.write_snapshot COMMAND test_write_snapshot)
 set_tests_properties(unit.write_snapshot PROPERTIES LABELS "unit;write;snapshot;staging" TIMEOUT 60)
 
+get_target_property(_async_write_sources test_write_snapshot SOURCES)
+list(REMOVE_ITEM _async_write_sources test_write_snapshot.cpp)
+add_executable(test_async_write test_async_write.cpp ${_async_write_sources})
+target_include_directories(test_async_write PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_async_write PRIVATE AMIO::public_headers Threads::Threads HELM::CONF HELM::HALO HELM::LOGS)
+add_test(NAME unit.async_write COMMAND test_async_write)
+set_tests_properties(unit.async_write PROPERTIES LABELS "unit;write;parallel" TIMEOUT 30)
+
 # ####################################################################################################################################################
 # test_read_prefetch
 #

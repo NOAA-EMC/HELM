@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "drivers/common/netcdf_mutex.hpp"
 #include "drivers/common/var_attributes.hpp"
 #include "drivers/zarr/zarr_driver.hpp"
 #include "factory/backend_factory.hpp"
@@ -184,6 +185,7 @@ std::string to_nczarr_uri(const std::string &path) {
 // ===================================================================
 
 void Zarr_Driver::open_write(const conf::Config &config) {
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (is_open_) {
         throw std::runtime_error("Zarr_Driver: already open");
     }
@@ -242,6 +244,7 @@ void Zarr_Driver::open_write(const conf::Config &config) {
 // ===================================================================
 
 void Zarr_Driver::open_read(const conf::Config &config) {
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (is_open_) {
         throw std::runtime_error("Zarr_Driver: already open");
     }
@@ -282,6 +285,7 @@ void Zarr_Driver::open_read(const conf::Config &config) {
 // ===================================================================
 
 void Zarr_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_ || !is_write_mode_) {
         throw std::runtime_error("Zarr_Driver: write called on driver not open for writing");
     }
@@ -428,6 +432,7 @@ void Zarr_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
 // ===================================================================
 
 void Zarr_Driver::read(StagingBuffer &dst, const VarMeta &meta, std::int64_t timestep, const std::optional<BoundingBox> &bbox) {
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_ || is_write_mode_) {
         throw std::runtime_error("Zarr_Driver: read called on driver not open for reading");
     }
@@ -501,6 +506,7 @@ void Zarr_Driver::read(StagingBuffer &dst, const VarMeta &meta, std::int64_t tim
 // ===================================================================
 
 void Zarr_Driver::flush() {
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_) {
         return;  // No-op if not open.
     }
@@ -514,6 +520,7 @@ void Zarr_Driver::flush() {
 // ===================================================================
 
 void Zarr_Driver::close() {
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_) {
         return;  // No-op if not open.
     }

@@ -58,6 +58,9 @@
 #include <vector>
 
 #include "factory/backend_driver.hpp"
+#ifdef AMIO_HAS_MPI
+#include <halo/communicator.hpp>
+#endif
 
 namespace amio::detail {
 
@@ -102,6 +105,9 @@ struct CompositionMetadata {
 // 1-based field number within that message.  Captured during the
 // open_read scan so a later read for (variable, timestep) can seek the
 // exact record (task 17).
+/** @struct GribRecordLocation
+ * @brief Byte location and length of one complete GRIB2 record.
+ */
 struct GribRecordLocation {
     std::int64_t offset = 0;        // byte offset of the GRIB2 message ("GRIB")
     std::int64_t length = 0;        // total message length in bytes
@@ -111,6 +117,9 @@ struct GribRecordLocation {
 // GribFieldIndex -- per field-identity index entry.  Holds the grid
 // geometry shared by every record of this field and the ordered list of
 // record locations (records[t] is the field's timestep t).
+/** @struct GribFieldIndex
+ * @brief Geometry and ordered message locations for one GRIB2 field identity.
+ */
 struct GribFieldIndex {
     std::int64_t ni = 0;       // points along a parallel  (longitudes, fastest dim)
     std::int64_t nj = 0;       // points along a meridian  (latitudes, slowest dim)
@@ -142,6 +151,9 @@ GRIB2_DRT parse_drt_name(const std::string &name);
 // product authored by NCEP (center 7), which is the common case for
 // NWP dissemination.  Any field may be overridden from the manifest's
 // `grib2:` block.
+/** @struct Grib2Settings
+ * @brief WMO/NCEP product, grid, and packing settings for complete messages.
+ */
 struct Grib2Settings {
     // Section 0 (Indicator) / Section 1 (Identification).
     std::int64_t discipline = 0;  // Table 0.0 (0 = meteorological)
@@ -205,83 +217,153 @@ struct Grib2Settings {
 //   3. write() / read() encode/decode GRIB2 records.
 //   4. flush() flushes the output file.
 //   5. close() releases the file handle.
+/** @class GRIB2_Driver
+ * @brief Complete-message GRIB2 encoding with serial or shared-file MPI output.
+ *
+ * Parallel writers submit one complete field per rank per round. The output
+ * order is submission round followed by communicator rank, independent of
+ * encoded message length or worker scheduling. Region writes are unsupported.
+ */
 class GRIB2_Driver : public Backend_Driver {
    public:
-    // Constructor.  When AMIO_HAS_G2C is not defined, throws
-    // immediately indicating g2c is not available in this build.
+    /** @brief Constructor.  When AMIO_HAS_G2C is not defined, throws
+     * immediately indicating g2c is not available in this build.
+     */
     GRIB2_Driver();
+    /** @brief Best-effort release; applications must explicitly close collective output first. */
     ~GRIB2_Driver() override;
 
+#ifdef AMIO_HAS_MPI
+    /** @brief Duplicate the host communicator into a HALO-owned I/O context.
+     * @param comm Borrowed communicator; every participant calls collectively.
+     * @throws std::runtime_error on duplication failure.
+     * @note Does not take ownership of the host communicator.
+     */
+    void set_communicator(MPI_Comm comm) override;
+#endif
+
     // Backend_Driver interface
+    /** @brief Validate products and create/truncate serial or shared GRIB2 output.
+     * @param config Manifest containing the common output path and rank-local product settings.
+     * @throws std::exception for invalid settings, inconsistent paths, or failed file setup.
+     * @note Collective when multiple MPI ranks participate. Configuration is
+     * validated on every rank before creating or truncating the shared file.
+     */
     void open_write(const conf::Config &config) override;
     void open_read(const conf::Config &config) override;
+    /** @brief Encode a complete field and commit one GRIB2 message.
+     * @param src Immutable staged F32 field, retained through write completion.
+     * @param meta Complete-field shape and type; no partial-region destination.
+     * @throws std::runtime_error on encoding or storage failure.
+     * @note With MPI, collective across the I/O communicator. Each rank must
+     * submit the same number of rounds; fields and compressed lengths may differ.
+     * Encoding failures are coordinated before any message bytes are written.
+     */
     void write(const StagingBuffer &src, const VarMeta &meta) override;
     void read(StagingBuffer &dst, const VarMeta &meta, std::int64_t timestep, const std::optional<BoundingBox> &bbox) override;
+    /** @brief Synchronize completed messages to storage.
+     * @throws std::runtime_error if stdio flush or collective MPI_File_sync fails.
+     * @note Collective in shared-file mode; pending worker writes must drain first.
+     */
     void flush() override;
+    /** @brief Release the output file or read index after writes drain.
+     * @throws std::runtime_error on a coordinated MPI file-close failure.
+     * @note Shared-file close is collective and must follow the same order on all ranks.
+     */
     void close() override;
 
-    // describe_variable -- report a field's element type, shape, and
-    // timestep count from the record index built at open_read.
-    //
-    // For GRIB2 every grid-point field is delivered as AMIO_DTYPE_F32
-    // (consistent with the encode path, Req 13.3).  The shape is derived
-    // from the grid template (Ni = points along a parallel -> fastest
-    // extent, Nj = points along a meridian -> slowest extent), and the
-    // number of indexed records for the field identity becomes
-    // total_timesteps.  Returns VariableInfo{found = false} for an
-    // unknown variable or when the driver is not open for reading.
-    // (Req 4.1, 4.2, 4.5)
+    /** @brief describe_variable -- report a field's element type, shape, and
+     * timestep count from the record index built at open_read.
+     *
+     * For GRIB2 every grid-point field is delivered as AMIO_DTYPE_F32
+     * (consistent with the encode path, Req 13.3).  The shape is derived
+     * from the grid template (Ni = points along a parallel -> fastest
+     * extent, Nj = points along a meridian -> slowest extent), and the
+     * number of indexed records for the field identity becomes
+     * total_timesteps.  Returns VariableInfo{found = false} for an
+     * unknown variable or when the driver is not open for reading.
+     * (Req 4.1, 4.2, 4.5)
+     */
     VariableInfo describe_variable(const std::string &name) override;
 
    private:
-    // Read the GRIB2 product identifiers from the manifest and open
-    // the output file.  Throws on failure.  Called from open_write.
+    /** @brief Encode a field into an owned, complete GRIB2 message.
+     * @param src Staged complete-field payload.
+     * @param meta Field shape and dtype.
+     * @return Message bytes including GRIB indicator and 7777 terminator.
+     * @throws std::exception on invalid input or codec failure.
+     * @note Serializes process-local g2c calls without holding a lock over MPI.
+     */
+    std::vector<unsigned char> encode_message(const StagingBuffer &src, const VarMeta &meta);
+
+#ifdef AMIO_HAS_MPI
+    /** @brief Propagate a local error to all writers and poison further appends.
+     * @param failed Whether this rank encountered a failure.
+     * @param operation Description used in the propagated exception.
+     * @throws std::runtime_error on every rank if any participant failed.
+     */
+    void check_collective_failure(bool failed, const char *operation);
+
+    /** @brief Assign rank-ordered offsets and collectively write encoded bytes.
+     * @param message Owned complete-message bytes; unchanged until MPI returns.
+     * @throws std::runtime_error on size, offset, short-write, or MPI failure.
+     */
+    void write_parallel_message(const std::vector<unsigned char> &message);
+#endif
+
+    /** @brief Read the GRIB2 product identifiers from the manifest and open
+     * the output file.  Throws on failure.  Called from open_write.
+     */
     void initialize(const conf::Config &config);
 
-    // Scan the GRIB2 source file and build the in-memory record index
-    // (records_), keyed by field-identity name.  Throws on failure.
-    // Called from open_read.  Only compiled when AMIO_HAS_G2C is set.
+    /** @brief Scan the GRIB2 source file and build the in-memory record index
+     * (records_), keyed by field-identity name.  Throws on failure.
+     * Called from open_read.  Only compiled when AMIO_HAS_G2C is set.
+     */
     void build_record_index(const conf::Config &config);
 
-    // Validate that the DRT field is present and in the allowed set.
-    // Throws with appropriate message on failure, identifying whether
-    // the field was missing or the name was unrecognized (R9.7).
+    /** @brief Validate that the DRT field is present and in the allowed set.
+     * Throws with appropriate message on failure, identifying whether
+     * the field was missing or the name was unrecognized (R9.7).
+     */
     GRIB2_DRT validate_drt(const conf::Config &config) const;
 
    public:
-    // field_identity_name -- the variable-name <-> field-identity
-    // convention used to key the read index.
-    //
-    // GRIB2 records have no variable names; a field is identified by its
-    // WMO product descriptors.  AMIO keys a field by the same numeric
-    // identifiers the encode path writes (Grib2Settings): the GRIB2
-    // discipline, the Product Definition Template's parameter category
-    // (Table 4.1) and parameter number (Table 4.2), and the first fixed
-    // surface (Table 4.5) type plus its scaled value (the "level").  The
-    // synthetic name is:
-    //
-    //   "d{discipline}_c{category}_n{number}_s{surface}_l{level}"
-    //
-    // e.g. discipline 0, category 3, number 5, surface 100, level 50000
-    //   -> "d0_c3_n5_s100_l50000".
-    //
-    // A host reads a GRIB2 field by passing this exact string as the
-    // variable name.  The encode path uses the same fields, so a
-    // write-then-read round trip resolves to the same identity (Req 13.4).
+    /** @brief field_identity_name -- the variable-name <-> field-identity
+     * convention used to key the read index.
+     *
+     * GRIB2 records have no variable names; a field is identified by its
+     * WMO product descriptors.  AMIO keys a field by the same numeric
+     * identifiers the encode path writes (Grib2Settings): the GRIB2
+     * discipline, the Product Definition Template's parameter category
+     * (Table 4.1) and parameter number (Table 4.2), and the first fixed
+     * surface (Table 4.5) type plus its scaled value (the "level").  The
+     * synthetic name is:
+     *
+     *   "d{discipline}_c{category}_n{number}_s{surface}_l{level}"
+     *
+     * e.g. discipline 0, category 3, number 5, surface 100, level 50000
+     *   -> "d0_c3_n5_s100_l50000".
+     *
+     * A host reads a GRIB2 field by passing this exact string as the
+     * variable name.  The encode path uses the same fields, so a
+     * write-then-read round trip resolves to the same identity (Req 13.4).
+     */
     static std::string field_identity_name(std::int64_t discipline, std::int64_t parameter_category, std::int64_t parameter_number,
                                            std::int64_t surface_type, std::int64_t surface_value);
 
-    // Extended field_identity_name overload with composition metadata.
-    // Builds the base name "d{d}_c{c}_n{n}_s{s}_l{l}" then appends
-    // PDT-specific composition suffixes:
-    //   PDT 4.40: + "_ct{chemical_constituent_type}"
-    //   PDT 4.44: + "_at{aerosol_type}"
-    //   PDT 4.45: + "_at{aerosol_type}_ep{ensemble_perturbation_number}"
-    //   PDT 4.46: + "_at{aerosol_type}_sp{statistical_process}"
-    //   PDT 4.48: + "_at{aerosol_type}_op{optical_property_type}_wl{first}_{last}"
-    //   PDT 4.49: + "_at{aerosol_type}_op{optical_property_type}_wl{first}_{last}_ep{ensemble_perturbation_number}"
-    //   PDT 4.8:  + "_sp{statistical_process}"
-    //   PDT 4.0:  (no suffix — backward compatible)
+    /** @brief Extended field_identity_name overload with composition metadata.
+     * Builds the base name "d{d}_c{c}_n{n}_s{s}_l{l}" then appends
+     * PDT-specific composition suffixes:
+     *   PDT 4.40: + "_ct{chemical_constituent_type}"
+     *   PDT 4.44: + "_at{aerosol_type}"
+     *   PDT 4.45: + "_at{aerosol_type}_ep{ensemble_perturbation_number}"
+     *   PDT 4.46: + "_at{aerosol_type}_sp{statistical_process}"
+     *   PDT 4.48: + "_at{aerosol_type}_op{optical_property_type}_wl{first}_{last}"
+     *   PDT 4.49: + "_at{aerosol_type}_op{optical_property_type}_wl{first}_{last}_ep{ensemble_perturbation_number}"
+     *   PDT 4.8:  + "_sp{statistical_process}"
+     *   PDT 4.0:  (no suffix — backward compatible)
+     */
     static std::string field_identity_name(std::int64_t discipline, std::int64_t parameter_category, std::int64_t parameter_number,
                                            std::int64_t surface_type, std::int64_t surface_value, std::int64_t pdt_number,
                                            std::int64_t chemical_constituent_type, std::int64_t aerosol_type, std::int64_t optical_property_type,
@@ -289,32 +371,37 @@ class GRIB2_Driver : public Backend_Driver {
                                            std::int64_t ensemble_perturbation_number, std::int64_t statistical_process);
     // ----- Static utility methods (public for testability) -----
 
-    // extract_composition_metadata -- extract composition-specific metadata
-    // from a PDT template array based on PDT number.
-    //
-    // Uses known PDT-specific index positions (WMO template layouts) to
-    // extract the relevant fields.  For unsupported or PDT 4.0 records,
-    // all composition fields remain zero — producing the backward-
-    // compatible identity.  (Req 13.1, 13.2, 13.3, 13.4, 13.5, 13.6)
-    //
-    // Takes a std::vector<std::int64_t> (not a gribfield*) so it can be
-    // tested without g2c dependency.  The caller in build_record_index
-    // converts g2c arrays to this vector before calling.
+    /** @brief extract_composition_metadata -- extract composition-specific metadata
+     * from a PDT template array based on PDT number.
+     *
+     * Uses known PDT-specific index positions (WMO template layouts) to
+     * extract the relevant fields.  For unsupported or PDT 4.0 records,
+     * all composition fields remain zero — producing the backward-
+     * compatible identity.  (Req 13.1, 13.2, 13.3, 13.4, 13.5, 13.6)
+     *
+     * Takes a std::vector<std::int64_t> (not a gribfield*) so it can be
+     * tested without g2c dependency.  The caller in build_record_index
+     * converts g2c arrays to this vector before calling.
+     */
     static CompositionMetadata extract_composition_metadata(std::int64_t pdt_number, const std::vector<std::int64_t> &ipdtmpl);
 
-    // Check if a buffer described by shape is contiguous and row-major.
-    // Returns true if the data can be passed directly to g2c (fast path).
-    // Implements the is_always_contiguous() + row-major check (R9.4).
+    /** @brief Check if a buffer described by shape is contiguous and row-major.
+     * Returns true if the data can be passed directly to g2c (fast path).
+     * Implements the is_always_contiguous() + row-major check (R9.4).
+     */
     static bool is_contiguous_row_major(const amio_shape_t &shape);
 
-    // Pack non-contiguous data into a contiguous row-major buffer (R9.5).
-    // Returns the packed buffer as a vector of bytes.
+    /** @brief Pack non-contiguous data into a contiguous row-major buffer (R9.5).
+     * Returns the packed buffer as a vector of bytes.
+     */
     static std::vector<std::byte> pack_row_major(const std::byte *src_data, const amio_shape_t &shape, std::size_t element_size);
 
-    // Compute total element count from shape.
+    /** @brief Compute total element count from shape.
+     */
     static std::size_t total_elements(const amio_shape_t &shape);
 
-    // Compute element size in bytes from dtype.
+    /** @brief Compute element size in bytes from dtype.
+     */
     static std::size_t dtype_size(amio_dtype_t dtype);
 
     // ----- NCEP template builders (public for testability) -----
@@ -327,65 +414,85 @@ class GRIB2_Driver : public Backend_Driver {
     // WMO/NCEP code-table numbers carried straight through from the
     // manifest -- no external translation.
 
-    // Grid Definition Template 3.0 (regular lat/lon), 19 entries.
-    // ni = points along a parallel (longitudes), nj = points along a
-    // meridian (latitudes).
+    /** @brief Grid Definition Template 3.0 (regular lat/lon), 19 entries.
+     * ni = points along a parallel (longitudes), nj = points along a
+     * meridian (latitudes).
+     */
     static std::vector<std::int64_t> build_gdt_3_0(const Grib2Settings &s, std::int64_t ni, std::int64_t nj);
 
-    // Grid Definition Template 3.40 (Gaussian latitude/longitude),
-    // 19 entries.  Identical to GDT 3.0 except index 17 carries N
-    // (number of parallels between equator and pole) instead of Dj.
+    /** @brief Grid Definition Template 3.40 (Gaussian latitude/longitude),
+     * 19 entries.  Identical to GDT 3.0 except index 17 carries N
+     * (number of parallels between equator and pole) instead of Dj.
+     */
     static std::vector<std::int64_t> build_gdt_3_40(const Grib2Settings &s, std::int64_t ni, std::int64_t nj);
 
-    // Product Definition Template 4.0 (analysis/forecast at a level),
-    // 15 entries.
+    /** @brief Product Definition Template 4.0 (analysis/forecast at a level),
+     * 15 entries.
+     */
     static std::vector<std::int64_t> build_pdt_4_0(const Grib2Settings &s);
 
-    // Product Definition Template 4.40 (chemical constituent at a
-    // horizontal level at a point in time), 16 entries.
+    /** @brief Product Definition Template 4.40 (chemical constituent at a
+     * horizontal level at a point in time), 16 entries.
+     */
     static std::vector<std::int64_t> build_pdt_4_40(const Grib2Settings &s);
 
-    // Product Definition Template 4.44 (aerosol at a horizontal level
-    // at a point in time), 21 entries.  Carries aerosol type at index 2
-    // and size distribution parameters at indices 5/7.
+    /** @brief Product Definition Template 4.44 (aerosol at a horizontal level
+     * at a point in time), 21 entries.  Carries aerosol type at index 2
+     * and size distribution parameters at indices 5/7.
+     */
     static std::vector<std::int64_t> build_pdt_4_44(const Grib2Settings &s);
 
-    // Product Definition Template 4.8 (statistically processed at a
-    // level), 29 entries.  Indices 0–14 share PDT 4.0 layout; indices
-    // 15–28 carry the statistical processing interval fields.
+    /** @brief Product Definition Template 4.8 (statistically processed at a
+     * level), 29 entries.  Indices 0–14 share PDT 4.0 layout; indices
+     * 15–28 carry the statistical processing interval fields.
+     */
     static std::vector<std::int64_t> build_pdt_4_8(const Grib2Settings &s);
 
-    // Product Definition Template 4.46 (statistically processed aerosol),
-    // 35 entries.  Aerosol fields at indices 2–7, common forecast fields
-    // at 8–20, end-of-time-interval at 21–26, statistical processing at
-    // 27–34.
+    /** @brief Product Definition Template 4.46 (statistically processed aerosol),
+     * 35 entries.  Aerosol fields at indices 2–7, common forecast fields
+     * at 8–20, end-of-time-interval at 21–26, statistical processing at
+     * 27–34.
+     */
     static std::vector<std::int64_t> build_pdt_4_46(const Grib2Settings &s);
 
-    // Product Definition Template 4.45 (individual ensemble forecast
-    // for aerosol), 24 entries.  Aerosol fields at indices 2–7,
-    // ensemble fields at indices 15–17, fixed surfaces at 18–23.
+    /** @brief Product Definition Template 4.45 (individual ensemble forecast
+     * for aerosol), 24 entries.  Aerosol fields at indices 2–7,
+     * ensemble fields at indices 15–17, fixed surfaces at 18–23.
+     */
     static std::vector<std::int64_t> build_pdt_4_45(const Grib2Settings &s);
 
-    // Product Definition Template 4.48 (aerosol optical properties at
-    // a wavelength), 26 entries.  Aerosol type at index 2, optical
-    // property type at index 8, wavelength values at indices 10/12,
-    // common forecast fields at 13–19, fixed surfaces at 20–25.
+    /** @brief Product Definition Template 4.48 (aerosol optical properties at
+     * a wavelength), 26 entries.  Aerosol type at index 2, optical
+     * property type at index 8, wavelength values at indices 10/12,
+     * common forecast fields at 13–19, fixed surfaces at 20–25.
+     */
     static std::vector<std::int64_t> build_pdt_4_48(const Grib2Settings &s);
 
-    // Product Definition Template 4.49 (individual ensemble forecast
-    // for aerosol optical properties), 29 entries.  Aerosol/optical
-    // fields at indices 2–12, common forecast fields at 13–19,
-    // ensemble fields at 20–22, fixed surfaces at 23–28.
+    /** @brief Product Definition Template 4.49 (individual ensemble forecast
+     * for aerosol optical properties), 29 entries.  Aerosol/optical
+     * fields at indices 2–12, common forecast fields at 13–19,
+     * ensemble fields at 20–22, fixed surfaces at 23–28.
+     */
     static std::vector<std::int64_t> build_pdt_4_49(const Grib2Settings &s);
 
-    // Data Representation Template values for the selected DRT.
-    // DRT 40 (JPEG2000) -> 7 entries; DRT 42 (AEC/CCSDS) -> 8 entries.
+    /** @brief Data Representation Template values for the selected DRT.
+     * DRT 40 (JPEG2000) -> 7 entries; DRT 42 (AEC/CCSDS) -> 8 entries.
+     */
     static std::vector<std::int64_t> build_drs_template(GRIB2_DRT drt, const Grib2Settings &s);
 
    private:
-    // Read all Grib2Settings fields from the configuration, applying
-    // defaults for any absent key.
+    /** @brief Read all Grib2Settings fields from the configuration, applying
+     * defaults for any absent key.
+     */
     static Grib2Settings read_settings(const conf::Config &config);
+
+#ifdef AMIO_HAS_MPI
+    std::optional<halo::Communicator> io_comm_;  ///< HALO-owned duplicate of the host communicator.
+    MPI_File message_file_ = MPI_FILE_NULL;      ///< Shared MPI-IO file, never used with stdio.
+    MPI_Offset next_message_offset_ = 0;         ///< Common append position after the last successful round.
+    bool parallel_mode_ = false;                 ///< True when the selected communicator has multiple ranks.
+    bool parallel_failed_ = false;               ///< Terminal failure: no subsequent append may emit bytes.
+#endif
 
     // State
     bool initialized_ = false;

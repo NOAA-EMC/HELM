@@ -97,6 +97,22 @@ typedef struct amio_shape_s {
 } amio_shape_t;
 
 /**
+ * @struct amio_write_region_s
+ * @brief Global destination of a contiguous rank-local write payload.
+ *
+ * Dimensions use C row-major order and offsets are zero-based, including when
+ * called from Fortran. The local shape passed to amio_write_region() describes
+ * the buffer, while global_extents describes the shared on-disk array.
+ * All ranks must agree on global_extents and assign disjoint regions. Entries
+ * beyond rank must be zero. Existing amio_shape_t/amio_bbox_t layouts are unchanged.
+ */
+typedef struct amio_write_region_s {
+    int32_t rank;                          /**< Number of dimensions; matches the local payload rank. */
+    int64_t global_extents[AMIO_MAX_RANK]; /**< Positive global array extents in elements. */
+    int64_t offsets[AMIO_MAX_RANK];        /**< Nonnegative start offsets; offset + local extent <= global extent. */
+} amio_write_region_t;
+
+/**
  * @typedef amio_core_handle
  * @brief Opaque handle to an AMIO_Core context.
  *

@@ -26,10 +26,10 @@
 //
 // Thread safety
 // -------------
-// Concrete drivers are invoked exclusively from Worker_Pool threads.
-// A single driver instance is NOT required to be thread-safe; the
-// Worker_Pool's per-(dataset, variable) ordering mutex serializes
-// calls to the same driver instance (R6.3).
+// AMIO_Core serializes writes to each driver using one ordering domain
+// per dataset (one shared domain for collective NetCDF writes). Opening,
+// flushing, and closing run on the calling thread after queued writes drain.
+// With zero workers, writes run synchronously on the calling thread.
 //
 // Validates: R4.2, R4.8
 
@@ -81,12 +81,16 @@ using VariableId = std::uint64_t;
 //                  strides)
 //   timestep     - the temporal index for this write/read operation
 //                  (-1 if not applicable)
+/** @struct VarMeta
+ * @brief Payload metadata and optional global destination for a backend write.
+ */
 struct VarMeta {
     DatasetId dataset_id = 0;
     VariableId variable_id = 0;
     std::string name;
     amio_dtype_t dtype = AMIO_DTYPE_F32;
     amio_shape_t shape = {};
+    amio_write_region_t write_region = {};  ///< Global destination; rank zero requests a whole-array write.
     std::int64_t timestep = -1;
 };
 
@@ -204,59 +208,74 @@ struct VariableInfo {
 //   The Worker_Pool exception cordon catches these and translates
 //   them to AMIO_ERR_* codes recorded against the originating
 //   handle (R12.1, R12.2).
+/** @class Backend_Driver
+ * @brief Private storage-backend lifecycle and data-transfer interface.
+ */
 class Backend_Driver {
    public:
+    /** @brief Whether this driver accepts VarMeta::write_region destinations.
+     * @return True for implemented region writes; false rejects before admission.
+     * @note This reports a driver capability, not MPI availability or thread safety.
+     */
+    virtual bool supports_region_writes() const noexcept {
+        return false;
+    }
+
     virtual ~Backend_Driver() = default;
 
-    // open_write -- prepare the driver for write operations.
-    //
-    // The configuration contains dataset-level parameters such as
-    // file path / URI, data model, compression codec, chunk/shard
-    // shapes, and any driver-specific options.
-    //
-    // Throws std::exception (or conf::Conf_Error) on failure
-    // (e.g., missing Parallel HDF5 support, invalid data model,
-    // missing required fields).
+    /** @brief open_write -- prepare the driver for write operations.
+     *
+     * The configuration contains dataset-level parameters such as
+     * file path / URI, data model, compression codec, chunk/shard
+     * shapes, and any driver-specific options.
+     *
+     * Throws std::exception (or conf::Conf_Error) on failure
+     * (e.g., missing Parallel HDF5 support, invalid data model,
+     * missing required fields).
+     */
     virtual void open_write(const conf::Config &config) = 0;
 
-    // open_read -- prepare the driver for read operations.
-    //
-    // The configuration contains dataset-level parameters such as
-    // file path / URI and any driver-specific options.
-    //
-    // Throws std::exception (or conf::Conf_Error) on failure.
+    /** @brief open_read -- prepare the driver for read operations.
+     *
+     * The configuration contains dataset-level parameters such as
+     * file path / URI and any driver-specific options.
+     *
+     * Throws std::exception (or conf::Conf_Error) on failure.
+     */
     virtual void open_read(const conf::Config &config) = 0;
 
-    // write -- serialize a staging buffer payload to storage.
-    //
-    // Parameters:
-    //   src  - the StagingBuffer containing the payload bytes
-    //          (src.data[0..src.used_bytes) is the payload)
-    //   meta - variable metadata (name, dtype, shape, timestep)
-    //
-    // The driver encodes the payload according to its format and
-    // writes it to the storage layer.  On success, the data is
-    // durable (or at least committed to the driver's internal
-    // write pipeline).  On failure, throws std::exception.
-    //
-    // The caller (Worker_Pool) holds the per-(dataset, variable)
-    // ordering mutex during this call, ensuring writes to the same
-    // (dataset, variable) pair execute in submission order (R6.3).
+    /** @brief write -- serialize a staging buffer payload to storage.
+     *
+     * Parameters:
+     *   src  - the StagingBuffer containing the payload bytes
+     *          (src.data[0..src.used_bytes) is the payload)
+     *   meta - variable metadata (name, dtype, shape, timestep)
+     *
+     * The driver encodes the payload according to its format and
+     * writes it to the storage layer.  On success, the data is
+     * durable (or at least committed to the driver's internal
+     * write pipeline).  On failure, throws std::exception.
+     *
+     * The caller (Worker_Pool) holds the per-(dataset, variable)
+     * ordering mutex during this call, ensuring writes to the same
+     * (dataset, variable) pair execute in submission order (R6.3).
+     */
     virtual void write(const StagingBuffer &src, const VarMeta &meta) = 0;
 
-    // read -- deserialize a payload from storage into a staging buffer.
-    //
-    // Parameters:
-    //   dst  - the StagingBuffer to populate (dst.data has capacity
-    //          dst.capacity_bytes; the driver sets dst.used_bytes)
-    //   meta - variable metadata identifying what to read
-    //   timestep - the temporal index to read
-    //   bbox - optional bounding box for selective reads; when
-    //          present, the driver requests only intersecting byte
-    //          ranges from storage (R5.7)
-    //
-    // On success, dst.data[0..dst.used_bytes) contains the decoded
-    // payload.  On failure, throws std::exception.
+    /** @brief read -- deserialize a payload from storage into a staging buffer.
+     *
+     * Parameters:
+     *   dst  - the StagingBuffer to populate (dst.data has capacity
+     *          dst.capacity_bytes; the driver sets dst.used_bytes)
+     *   meta - variable metadata identifying what to read
+     *   timestep - the temporal index to read
+     *   bbox - optional bounding box for selective reads; when
+     *          present, the driver requests only intersecting byte
+     *          ranges from storage (R5.7)
+     *
+     * On success, dst.data[0..dst.used_bytes) contains the decoded
+     * payload.  On failure, throws std::exception.
+     */
     virtual void read(StagingBuffer &dst, const VarMeta &meta, std::int64_t timestep, const std::optional<BoundingBox> &bbox) = 0;
 
     // get_text_attribute -- read a CF text attribute (e.g. "units",
@@ -281,17 +300,19 @@ class Backend_Driver {
         return std::nullopt;
     }
 
-    // flush -- ensure all previously written data is durable.
-    //
-    // Blocks until all pending internal write operations (if any)
-    // have completed.  Throws std::exception on failure.
+    /** @brief flush -- ensure all previously written data is durable.
+     *
+     * Blocks until all pending internal write operations (if any)
+     * have completed.  Throws std::exception on failure.
+     */
     virtual void flush() = 0;
 
-    // close -- release all resources held by the driver.
-    //
-    // After close(), no further write/read/flush calls are valid.
-    // Throws std::exception if outstanding operations cannot be
-    // completed.
+    /** @brief close -- release all resources held by the driver.
+     *
+     * After close(), no further write/read/flush calls are valid.
+     * Throws std::exception if outstanding operations cannot be
+     * completed.
+     */
     virtual void close() = 0;
 
     // set_communicator -- provide the MPI communicator handle for

@@ -63,6 +63,7 @@ module amio_mod
     public :: AMIO_DTYPE_U64
 
     ! Derived types
+    public :: amio_write_region_t, amio_write_region
     public :: amio_shape_t
     public :: amio_bbox_t
 
@@ -153,6 +154,13 @@ module amio_mod
         integer(c_int64_t) :: strides(7)
     end type amio_shape_t
 
+    !> Global destination in C row-major dimension order; offsets are zero-based.
+    type, bind(C) :: amio_write_region_t
+        integer(c_int32_t) :: rank
+        integer(c_int64_t) :: global_extents(7)
+        integer(c_int64_t) :: offsets(7)
+    end type amio_write_region_t
+
     !> Fortran equivalent of C amio_bbox_t
     type, bind(C) :: amio_bbox_t
         integer(c_int32_t) :: rank
@@ -235,6 +243,19 @@ module amio_mod
             type(c_ptr), intent(out) :: out_io
             integer(c_int32_t) :: status
         end function amio_write
+
+        function amio_write_region(dataset, var_name, host_data, dtype, shape, &
+                                   region, out_io) result(status) bind(C, name="amio_write_region")
+            import :: c_ptr, c_char, c_int, c_int32_t, amio_shape_t, amio_write_region_t
+            type(c_ptr), value, intent(in) :: dataset
+            character(kind=c_char), intent(in) :: var_name(*)
+            type(c_ptr), value, intent(in) :: host_data
+            integer(c_int), value, intent(in) :: dtype
+            type(amio_shape_t), intent(in) :: shape
+            type(amio_write_region_t), intent(in) :: region
+            type(c_ptr), intent(out) :: out_io
+            integer(c_int32_t) :: status
+        end function amio_write_region
 
         !> amio_read -- return a Memory_View for a prefetched timestep.
         !! C signature:

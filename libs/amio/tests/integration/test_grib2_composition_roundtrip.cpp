@@ -12,7 +12,7 @@
 //
 // Validates: Requirements 14.1, 14.2, 14.3
 //
-// The GRIB2 driver does NOT use MPI, so no MPI initialization is required.
+// This test exercises the serial driver variant without MPI initialization.
 
 #ifdef AMIO_HAS_G2C
 

@@ -21,7 +21,7 @@
 // the GRIB2 encode→decode round trip byte-for-byte at
 // decimal_scale_factor=0.
 //
-// The GRIB2 driver does NOT use MPI, so no MPI initialization is required.
+// This test exercises the serial driver variant without MPI initialization.
 
 #include <conf/config.hpp>
 #include <cstdio>

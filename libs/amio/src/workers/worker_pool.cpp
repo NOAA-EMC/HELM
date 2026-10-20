@@ -21,11 +21,8 @@
 //   * Write tasks take priority over prefetch tasks to minimize
 //     write latency and avoid backpressure.
 //
-//   * The per-(dataset, variable) mutex is held only during the
-//     callback execution (the backend serialize call).  It is NOT
-//     held during MPI-IO collectives -- the callback itself is
-//     responsible for dropping any AMIO-internal lock before
-//     issuing MPI calls (R3.7).
+//   * An ordering-domain reservation prevents concurrent execution of
+//     equal keys. No WorkerPool lock is held while callbacks issue MPI-IO.
 //
 //   * Per-thread CPU/NUMA pinning is applied at thread start using
 //     the ThreadConfig for that thread index (R3.2).  Invalid
@@ -111,83 +108,38 @@ std::uint64_t WorkerPool::submit_write(DatasetVariableKey dv_key, std::function<
 }
 
 std::uint64_t WorkerPool::submit_write(DatasetVariableKey dv_key, std::uint64_t handle_id, std::function<void()> callback) {
-    if (shutdown_.load(std::memory_order_acquire)) {
-        return 0;  // No-op after shutdown.
-    }
+    std::uint64_t seq = 0;
+    if (submit_write(dv_key, handle_id, std::move(callback), &seq) != AMIO_OK) return 0;
+    return seq;
+}
 
+amio_err_t WorkerPool::submit_write(DatasetVariableKey dv_key, std::function<void()> callback, std::uint64_t *seq_out) {
+    return submit_write(dv_key, 0, std::move(callback), seq_out);
+}
+
+amio_err_t WorkerPool::submit_write(DatasetVariableKey dv_key, std::uint64_t handle_id, std::function<void()> callback, std::uint64_t *seq_out) {
+    if (seq_out) *seq_out = 0;
     std::unique_lock<std::mutex> lock(mu_);
+    if (shutdown_.load(std::memory_order_acquire)) return AMIO_ERR_QUEUE_FULL;
 
-    // Backpressure handling (same as primary overload).
-    if (backpressure_.enabled) {
-        if (write_queue_.size() >= backpressure_.high_watermark) {
-            backpressure_cv_.wait_for(lock, std::chrono::seconds(1), [this]() {
-                return write_queue_.size() < backpressure_.low_watermark || shutdown_.load(std::memory_order_acquire);
-            });
-        }
-        if (shutdown_.load(std::memory_order_acquire)) {
-            return 0;
-        }
-    } else {
-        if (write_queue_.size() >= backpressure_.queue_capacity) {
-            return 0;  // AMIO_ERR_QUEUE_FULL
-        }
+    if (backpressure_.enabled && write_queue_.size() >= backpressure_.high_watermark) {
+        backpressure_cv_.wait(lock,
+                              [this]() { return write_queue_.size() <= backpressure_.low_watermark || shutdown_.load(std::memory_order_acquire); });
+    }
+    if (shutdown_.load(std::memory_order_acquire) || write_queue_.size() >= backpressure_.queue_capacity) {
+        return AMIO_ERR_QUEUE_FULL;
     }
 
     DvOrderState &state = get_dv_state(dv_key);
-    std::uint64_t seq = state.next_seq++;
-
+    const std::uint64_t seq = state.next_seq;
     WriteTask task;
     task.dv_key = dv_key;
     task.dv_seq = seq;
     task.handle_id = handle_id;
     task.callback = std::move(callback);
     write_queue_.push(std::move(task));
-
-    lock.unlock();
-    cv_.notify_one();
-    return seq;
-}
-
-amio_err_t WorkerPool::submit_write(DatasetVariableKey dv_key, std::function<void()> callback, std::uint64_t *seq_out) {
-    if (shutdown_.load(std::memory_order_acquire)) {
-        if (seq_out) *seq_out = 0;
-        return AMIO_OK;  // No-op after shutdown.
-    }
-
-    std::unique_lock<std::mutex> lock(mu_);
-
-    // Backpressure handling (R6.8, R6.9).
-    if (backpressure_.enabled) {
-        // If queue depth >= high_watermark, block until depth < low_watermark.
-        if (write_queue_.size() >= backpressure_.high_watermark) {
-            backpressure_cv_.wait_for(lock, std::chrono::seconds(1), [this]() {
-                return write_queue_.size() < backpressure_.low_watermark || shutdown_.load(std::memory_order_acquire);
-            });
-        }
-
-        if (shutdown_.load(std::memory_order_acquire)) {
-            if (seq_out) *seq_out = 0;
-            return AMIO_OK;
-        }
-    } else {
-        // No backpressure: reject if queue is at capacity (R6.9).
-        if (write_queue_.size() >= backpressure_.queue_capacity) {
-            if (seq_out) *seq_out = 0;
-            return AMIO_ERR_QUEUE_FULL;
-        }
-    }
-
-    DvOrderState &state = get_dv_state(dv_key);
-    std::uint64_t seq = state.next_seq++;
-
-    WriteTask task;
-    task.dv_key = dv_key;
-    task.dv_seq = seq;
-    task.callback = std::move(callback);
-    write_queue_.push(std::move(task));
-
+    ++state.next_seq;
     if (seq_out) *seq_out = seq;
-
     lock.unlock();
     cv_.notify_one();
     return AMIO_OK;
@@ -235,11 +187,7 @@ void WorkerPool::submit_prefetch(std::int64_t timestep, std::int64_t distance, s
 
 void WorkerPool::drain() {
     std::unique_lock<std::mutex> lock(mu_);
-    // Wait with a 30-second timeout to prevent infinite hangs.
-    bool drained = drain_cv_.wait_for(lock, std::chrono::seconds(5), [this]() {
-        return write_queue_.empty() && prefetch_queue_.empty() && in_flight_.load(std::memory_order_acquire) == 0;
-    });
-    (void)drained;  // If timeout, we proceed anyway (tests will catch the issue).
+    drain_cv_.wait(lock, [this]() { return write_queue_.empty() && prefetch_queue_.empty() && in_flight_.load(std::memory_order_acquire) == 0; });
 }
 
 std::size_t WorkerPool::thread_count() const noexcept {
@@ -342,8 +290,9 @@ void WorkerPool::worker_loop() {
             if (shutdown_.load(std::memory_order_acquire) && write_queue_.empty() && prefetch_queue_.empty()) {
                 return;
             }
-            // Otherwise, loop back and wait again.  This can happen
-            // when a write task is not yet ready (out-of-order seq).
+            // A predecessor is in flight. Release the queue lock so its
+            // completion can advance the sequence without a busy spin.
+            cv_.wait_for(lock, std::chrono::milliseconds(1));
         }
     }
 }
@@ -360,7 +309,7 @@ bool WorkerPool::try_execute_one(std::unique_lock<std::mutex> &lock) {
 
         // Check if this task is the next one to execute for its
         // (dataset, variable) pair.
-        if (task.dv_seq != state.exec_seq) {
+        if (state.running || task.dv_seq != state.exec_seq) {
             // Not ready yet -- re-enqueue and try something else.
             write_queue_.push(std::move(task));
             // Try a prefetch task instead.
@@ -396,16 +345,12 @@ bool WorkerPool::try_execute_one(std::unique_lock<std::mutex> &lock) {
         }
 
         in_flight_.fetch_add(1, std::memory_order_acq_rel);
+        state.running = true;
         lock.unlock();
+        backpressure_cv_.notify_all();
 
-        // Execute the write callback with the per-(dataset, variable)
-        // ordering mutex held.  This ensures that writes to the same
-        // pair are serialized at the backend level.
-        //
-        // IMPORTANT: The callback itself is responsible for dropping
-        // any AMIO-internal lock before issuing MPI-IO collectives
-        // (R3.7).  The dv_state.mu is held only across the backend
-        // serialize call.
+        // The running flag reserves this ordering domain until completion.
+        // No WorkerPool mutex is held across the backend callback or MPI-IO.
         //
         // Exception cordon (R12.1, R12.2, R12.3, R12.4):
         // The callback is wrapped in try/catch.  On exception:
@@ -413,7 +358,6 @@ bool WorkerPool::try_execute_one(std::unique_lock<std::mutex> &lock) {
         //   2. Record outcome against originating handle
         //   3. Buffer release happens after (caller's responsibility)
         {
-            std::lock_guard<std::mutex> dv_lock(state.mu);
             if (task.handle_id != 0) {
                 // Use the full exception cordon with outcome recording.
                 execute_with_exception_cordon(task.callback, task.handle_id, io_comm_, outcome_registry_);
@@ -430,7 +374,9 @@ bool WorkerPool::try_execute_one(std::unique_lock<std::mutex> &lock) {
                 }
             }
             // Advance the execution sequence counter.
+            std::lock_guard<std::mutex> queue_lock(mu_);
             state.exec_seq++;
+            state.running = false;
         }
 
         writes_completed_.fetch_add(1, std::memory_order_release);

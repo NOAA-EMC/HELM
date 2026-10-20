@@ -48,6 +48,9 @@
 
 #include "drivers/common/var_attributes.hpp"
 #include "factory/backend_driver.hpp"
+#ifdef AMIO_HAS_MPI
+#include <halo/communicator.hpp>
+#endif
 
 #ifdef AMIO_HAS_TENSORSTORE
 #include <tensorstore/context.h>
@@ -60,6 +63,9 @@ namespace amio::detail {
 // ZarrConfig -- parsed Zarr-specific dataset configuration.
 // ---------------------------------------------------------------
 
+/** @struct ZarrConfig
+ * @brief Array shape, chunking, codec, and storage configuration.
+ */
 struct ZarrConfig {
     // Target URI or path (e.g., "s3://bucket/path", "/local/path").
     std::string uri;
@@ -85,80 +91,122 @@ struct ZarrConfig {
 // Zarr_Driver -- Backend_Driver implementation for Zarr v3.
 // ---------------------------------------------------------------
 
+/** @class Zarr_Driver
+ * @brief Zarr storage with coordinated TensorStore creation and region writes.
+ */
 class Zarr_Driver : public Backend_Driver {
    public:
+    /** @brief Report safe partial-array write support for the selected backend.
+     * @return True for TensorStore; false for the NCZarr fallback.
+     */
+    bool supports_region_writes() const noexcept override {
+#if defined(AMIO_HAS_TENSORSTORE) && !defined(AMIO_NCZARR_FALLBACK)
+        return true;
+#else
+        return false;
+#endif
+    }
+
     Zarr_Driver() = default;
     ~Zarr_Driver() override = default;
 
-    // Non-copyable, non-movable.
+    /** @brief Non-copyable, non-movable.
+     */
     Zarr_Driver(const Zarr_Driver &) = delete;
     Zarr_Driver &operator=(const Zarr_Driver &) = delete;
     Zarr_Driver(Zarr_Driver &&) = delete;
     Zarr_Driver &operator=(Zarr_Driver &&) = delete;
 
-    // open_write -- validate config and configure TensorStore spec.
-    //
-    // Validates:
-    //   - All required fields present (R8.10)
-    //   - Chunk dims divide shard dims (R8.3)
-    //   - Codec is one of {blosc, zstandard} (R8.4)
-    //   - Cloud URIs route through TensorStore KvStore (R8.2)
-    //
-    // Throws on validation failure or if TensorStore is not available.
+    /** @brief open_write -- validate config and configure TensorStore spec.
+     *
+     * Validates:
+     *   - All required fields present (R8.10)
+     *   - Chunk dims divide shard dims (R8.3)
+     *   - Codec is one of {blosc, zstandard} (R8.4)
+     *   - Cloud URIs route through TensorStore KvStore (R8.2)
+     *
+     * Throws on validation failure or if TensorStore is not available.
+     */
     void open_write(const conf::Config &config) override;
 
-    // open_read -- validate config and open TensorStore for reading.
+    /** @brief open_read -- validate config and open TensorStore for reading.
+     */
     void open_read(const conf::Config &config) override;
 
-    // write -- serialize StagingBuffer through TensorStore with
-    // sharding + compression.
+#ifdef AMIO_HAS_MPI
+    /** @brief Duplicate the host communicator into a HALO-owned context.
+     * @param comm Borrowed host communicator; never freed or modified by AMIO.
+     * @throws std::runtime_error if communicator duplication fails.
+     * @note Collective on comm; called before opening a shared store.
+     */
+    void set_communicator(MPI_Comm comm) override;
+#endif
+
+    /** @brief write -- serialize StagingBuffer through TensorStore with
+     * sharding + compression.
+     */
     void write(const StagingBuffer &src, const VarMeta &meta) override;
 
-    // read -- read from TensorStore into StagingBuffer.
+    /** @brief read -- read from TensorStore into StagingBuffer.
+     */
     void read(StagingBuffer &dst, const VarMeta &meta, std::int64_t timestep, const std::optional<BoundingBox> &bbox) override;
 
-    // flush -- ensure all async TensorStore operations complete.
+    /** @brief flush -- ensure all async TensorStore operations complete.
+     */
     void flush() override;
 
-    // close -- close TensorStore handles.
+    /** @brief close -- close TensorStore handles.
+     */
     void close() override;
 
-    // describe_variable -- report a variable's element type, shape, and
-    // timestep count by introspecting the open TensorStore store
-    // (ts_store_.domain() / ts_store_.dtype()).  Returns
-    // VariableInfo{found = false} when the driver is not open for
-    // reading or the store's element type has no AMIO dtype mapping.
-    // In the NCZarr fallback build (no TensorStore) the default
-    // found = false is returned.  (Req 4.1, 4.2, 4.5)
+    /** @brief describe_variable -- report a variable's element type, shape, and
+     * timestep count by introspecting the open TensorStore store
+     * (ts_store_.domain() / ts_store_.dtype()).  Returns
+     * VariableInfo{found = false} when the driver is not open for
+     * reading or the store's element type has no AMIO dtype mapping.
+     * In the NCZarr fallback build (no TensorStore) the default
+     * found = false is returned.  (Req 4.1, 4.2, 4.5)
+     */
     VariableInfo describe_variable(const std::string &name) override;
 
     // ----- Static utility methods (public for testability) -----
 
-    // Determine if a URI is a cloud URI (s3://, gs://, https://).
+    /** @brief Determine if a URI is a cloud URI (s3://, gs://, https://).
+     */
     static bool is_cloud_uri(const std::string &uri);
 
-    // Categorize a network/auth error for proper error reporting (R8.9).
+    /** @brief Categorize a network/auth error for proper error reporting (R8.9).
+     */
     static std::string categorize_error(const std::string &message);
 
-    // Convert amio_dtype_t to TensorStore dtype string.
+    /** @brief Convert amio_dtype_t to TensorStore dtype string.
+     */
     static std::string dtype_to_string(amio_dtype_t dtype);
 
-    // Convert amio_dtype_t to element size in bytes.
+    /** @brief Convert amio_dtype_t to element size in bytes.
+     */
     static std::size_t dtype_size(amio_dtype_t dtype);
 
    private:
-    // Parse and validate Zarr-specific configuration from conf::Config.
-    // Returns the parsed ZarrConfig.
-    // Throws on missing required fields (R8.10) or invalid values (R8.3).
+    /** @brief Parse and validate Zarr-specific configuration from conf::Config.
+     * Returns the parsed ZarrConfig.
+     * Throws on missing required fields (R8.10) or invalid values (R8.3).
+     */
     ZarrConfig parse_zarr_config(const conf::Config &config);
 
-    // Validate that chunk dims divide shard dims.
-    // Throws on violation (R8.3).
+    /** @brief Validate that chunk dims divide shard dims.
+     * Throws on violation (R8.3).
+     */
     void validate_sharding(const ZarrConfig &cfg);
 
-    // Validate codec selection (must be blosc or zstandard).
-    // Throws on invalid codec (R8.4).
+    /** @brief Validate codec selection (must be blosc or zstandard).
+     * Throws on invalid codec (R8.4).
+     */
     void validate_codec(const ZarrConfig &cfg);
+
+#ifdef AMIO_HAS_MPI
+    std::optional<halo::Communicator> io_comm_;
+#endif
 
     // State.
     bool is_open_ = false;

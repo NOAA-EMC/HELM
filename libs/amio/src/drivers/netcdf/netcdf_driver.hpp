@@ -69,12 +69,21 @@ enum class NetCDF4DataModel {
 //
 // Factory key: "netcdf4"
 // Registration: BackendRegistrar<NetCDF_Driver>("netcdf4")
+/** @class NetCDF_Driver
+ * @brief NetCDF storage using collective MPI hyperslab writes and lossless compression.
+ */
 class NetCDF_Driver : public Backend_Driver {
    public:
+    /** @brief Accept rank-local hyperslabs in a shared NetCDF variable. @return True. */
+    bool supports_region_writes() const noexcept override {
+        return true;
+    }
+
     NetCDF_Driver();
     ~NetCDF_Driver() override;
 
-    // Backend_Driver interface.
+    /** @brief Backend_Driver interface.
+     */
     void open_write(const conf::Config &config) override;
     void open_read(const conf::Config &config) override;
     void write(const StagingBuffer &src, const VarMeta &meta) override;
@@ -83,49 +92,58 @@ class NetCDF_Driver : public Backend_Driver {
     void close() override;
 
 #if defined(AMIO_HAS_MPI) && defined(AMIO_HAS_NETCDF)
-    // Override set_communicator to receive the I/O communicator
-    // handle from the Worker_Pool's IOCommunicator (R3.3, R10.4).
-    // Must be called before open_write / open_read.
+    /** @brief Override set_communicator to receive the I/O communicator
+     * handle from the Worker_Pool's IOCommunicator (R3.3, R10.4).
+     * Must be called before open_write / open_read.
+     */
     void set_communicator(MPI_Comm comm_handle) override;
 #endif
 
-    // Report a variable's element type, shape, and timestep count by
-    // introspecting the open NetCDF file (nc_inq_varid / nc_inq_var /
-    // nc_inq_dimlen + the unlimited/record dimension).  Returns
-    // VariableInfo{found = false} when the variable is absent, the
-    // driver is not open for reading, or the netCDF element type has no
-    // AMIO dtype mapping.  (Req 4.1, 4.2, 4.5, 9.1)
+    /** @brief Report a variable's element type, shape, and timestep count by
+     * introspecting the open NetCDF file (nc_inq_varid / nc_inq_var /
+     * nc_inq_dimlen + the unlimited/record dimension).  Returns
+     * VariableInfo{found = false} when the variable is absent, the
+     * driver is not open for reading, or the netCDF element type has no
+     * AMIO dtype mapping.  (Req 4.1, 4.2, 4.5, 9.1)
+     */
     VariableInfo describe_variable(const std::string &name) override;
 
-    // Read a CF text attribute ("units", "calendar", ...) for a variable, or
-    // a global attribute when var_name is empty.  Handles both NC_CHAR and
-    // NC_STRING storage; for a multi-element NC_STRING attribute only the first
-    // string is returned.  Returns nullopt if absent, numeric, or the driver is
-    // not open for reading.  (CF time-axis decoding support.)
+    /** @brief Read a CF text attribute ("units", "calendar", ...) for a variable, or
+     * a global attribute when var_name is empty.  Handles both NC_CHAR and
+     * NC_STRING storage; for a multi-element NC_STRING attribute only the first
+     * string is returned.  Returns nullopt if absent, numeric, or the driver is
+     * not open for reading.  (CF time-axis decoding support.)
+     */
     std::optional<std::string> get_text_attribute(const std::string &var_name, const std::string &attr_name) override;
 
-    // Read a numeric attribute ("scale_factor", "add_offset", ...) for a
-    // variable, or a global attribute when var_name is empty.  Returns
-    // nullopt if absent, non-numeric, or the driver is not open for reading.
+    /** @brief Read a numeric attribute ("scale_factor", "add_offset", ...) for a
+     * variable, or a global attribute when var_name is empty.  Returns
+     * nullopt if absent, non-numeric, or the driver is not open for reading.
+     */
     std::optional<double> get_numeric_attribute(const std::string &var_name, const std::string &attr_name) override;
 
    public:
     // ----- Static utility methods (public for testability) -----
 
-    // Validate the data model string from configuration.
+    /** @brief Validate the data model string from configuration.
+     */
     static NetCDF4DataModel parse_data_model(const std::string &model_str);
 
    private:
-    // Verify that the linked netCDF library has Parallel HDF5 + MPI-IO.
+    /** @brief Verify that the linked netCDF library has Parallel HDF5 + MPI-IO.
+     */
     static void verify_parallel_support();
 
-    // Validate that a codec is on the lossless allow-list.
+    /** @brief Validate that a codec is on the lossless allow-list.
+     */
     static void validate_codec(const std::string &codec, const std::vector<std::string> &allow_list);
 
-    // Map amio_dtype_t to netCDF type constant.
+    /** @brief Map amio_dtype_t to netCDF type constant.
+     */
     static int dtype_to_nc_type(amio_dtype_t dtype);
 
-    // Get the byte size of an amio_dtype_t element.
+    /** @brief Get the byte size of an amio_dtype_t element.
+     */
     static std::size_t dtype_byte_size(amio_dtype_t dtype);
 
 #ifdef AMIO_HAS_NETCDF

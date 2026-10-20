@@ -26,6 +26,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <future>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -1018,9 +1019,54 @@ void test_backpressure_shutdown_unblocks_writers() {
     EXPECT_TRUE(submit_done.load(std::memory_order_acquire), "shutdown should unblock blocked writer");
 }
 
+// A full queue must not overflow when backpressure lasts longer than one second.
+void test_backpressure_does_not_expire_into_admission() {
+    WorkerPoolConfig config;
+    config.thread_count = 1;
+    config.backpressure = {true, 0, 1, 1};
+    WorkerPool pool(config);
+    std::promise<void> started, release;
+    auto gate = release.get_future().share();
+    std::uint64_t seq = 0;
+    EXPECT_TRUE(pool.submit_write(
+                    {1, 1},
+                    [&] {
+                        started.set_value();
+                        gate.wait();
+                    },
+                    &seq) == AMIO_OK,
+                "first admission");
+    started.get_future().wait();
+    EXPECT_TRUE(pool.submit_write({1, 1}, [] {}, &seq) == AMIO_OK, "fill pending queue");
+    auto blocked = std::async(std::launch::async, [&] { return pool.submit_write({1, 1}, [] {}, &seq); });
+    EXPECT_TRUE(blocked.wait_for(std::chrono::milliseconds(1200)) == std::future_status::timeout,
+                "backpressure stays blocked until capacity is available");
+    EXPECT_TRUE(pool.write_queue_depth() == 1, "capacity never exceeded");
+    release.set_value();
+    EXPECT_TRUE(blocked.get() == AMIO_OK, "admit after dequeue reaches zero low watermark");
+    pool.drain();
+    EXPECT_TRUE(pool.total_writes_completed() == 3, "all accepted callbacks complete");
+    pool.shutdown();
+    EXPECT_TRUE(pool.submit_write({1, 1}, [] {}, &seq) == AMIO_ERR_QUEUE_FULL, "explicit rejection after shutdown");
+}
+
+// Slow storage must not make drain report completion while a callback still runs.
+void test_drain_has_no_silent_deadline() {
+    WorkerPool pool(1);
+    std::atomic<bool> finished{false};
+    pool.submit_write({1, 1}, [&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5200));
+        finished.store(true);
+    });
+    pool.drain();
+    EXPECT_TRUE(finished.load(), "drain waits beyond the previous five-second cutoff");
+}
+
 }  // namespace
 
 int main() {
+    test_backpressure_does_not_expire_into_admission();
+    test_drain_has_no_silent_deadline();
     test_construction_thread_count();
     test_submit_write_executes_callback();
     test_multiple_writes_execute();

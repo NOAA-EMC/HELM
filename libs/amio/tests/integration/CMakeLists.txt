@@ -110,3 +110,38 @@ foreach(_target IN ITEMS test_netcdf4_multistep test_grib2_multistep test_grib2_
         target_link_libraries(${_target} PRIVATE HELM::CONF)
     endif()
 endforeach()
+
+# Shared-dataset parallel writes must be exercised with actual MPI ranks.
+if(netCDF_FOUND AND MPI_CXX_FOUND)
+    add_executable(test_mpi_region_write test_mpi_region_write.cpp)
+    target_link_libraries(test_mpi_region_write PRIVATE AMIO::amio_core HELM::HALO HELM::LOGS netCDF::netcdf)
+    if(AMIO_HAS_TENSORSTORE)
+        target_compile_definitions(test_mpi_region_write PRIVATE AMIO_TEST_TENSORSTORE=1)
+        target_link_libraries(test_mpi_region_write PRIVATE TensorStore::tensorstore)
+    endif()
+    add_test(NAME integration.mpi_netcdf_regions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+        ${MPIEXEC_PREFLAGS} $<TARGET_FILE:test_mpi_region_write> ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.mpi_thread_gate COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+        ${MPIEXEC_PREFLAGS} $<TARGET_FILE:test_mpi_region_write> single ${MPIEXEC_POSTFLAGS})
+    set_tests_properties(integration.mpi_netcdf_regions integration.mpi_thread_gate PROPERTIES LABELS "integration;mpi;write" TIMEOUT 90 RUN_SERIAL TRUE)
+    if(AMIO_HAS_TENSORSTORE)
+        add_test(NAME integration.mpi_zarr_regions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+            ${MPIEXEC_PREFLAGS} $<TARGET_FILE:test_mpi_region_write> zarr3 ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(integration.mpi_zarr_regions PROPERTIES LABELS "integration;mpi;write;zarr3" TIMEOUT 90 RUN_SERIAL TRUE)
+    else()
+        add_test(NAME integration.mpi_nczarr_rejected COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+            ${MPIEXEC_PREFLAGS} $<TARGET_FILE:test_mpi_region_write> nczarr ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(integration.mpi_nczarr_rejected PROPERTIES LABELS "integration;mpi;write;zarr3" TIMEOUT 90 RUN_SERIAL TRUE)
+    endif()
+endif()
+
+if(g2c_FOUND AND MPI_CXX_FOUND)
+    add_executable(test_mpi_grib2_write test_mpi_grib2_write.cpp)
+    target_link_libraries(test_mpi_grib2_write PRIVATE AMIO::amio_core HELM::HALO HELM::LOGS g2c::g2c)
+    add_test(NAME integration.mpi_grib2_messages COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+        ${MPIEXEC_PREFLAGS} $<TARGET_FILE:test_mpi_grib2_write> ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.mpi_grib2_thread_gate COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+        ${MPIEXEC_PREFLAGS} $<TARGET_FILE:test_mpi_grib2_write> ${MPIEXEC_POSTFLAGS} single)
+    set_tests_properties(integration.mpi_grib2_messages integration.mpi_grib2_thread_gate
+        PROPERTIES LABELS "integration;mpi;write;grib2" TIMEOUT 120 RUN_SERIAL TRUE)
+endif()
