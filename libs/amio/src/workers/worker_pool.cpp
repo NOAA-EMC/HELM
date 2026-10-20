@@ -336,8 +336,14 @@ bool WorkerPool::try_execute_one(std::unique_lock<std::mutex> &lock) {
                     }
                 }
 
-                prefetches_completed_.fetch_add(1, std::memory_order_release);
-                in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+                {
+                    // drain() checks in_flight_ while holding mu_. Update it
+                    // under the same mutex so its predicate cannot miss the
+                    // transition to idle between checking and sleeping.
+                    std::lock_guard<std::mutex> completion_lock(mu_);
+                    prefetches_completed_.fetch_add(1, std::memory_order_release);
+                    in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+                }
                 drain_cv_.notify_all();
                 return true;
             }
@@ -379,8 +385,11 @@ bool WorkerPool::try_execute_one(std::unique_lock<std::mutex> &lock) {
             state.running = false;
         }
 
-        writes_completed_.fetch_add(1, std::memory_order_release);
-        in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        {
+            std::lock_guard<std::mutex> completion_lock(mu_);
+            writes_completed_.fetch_add(1, std::memory_order_release);
+            in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        }
 
         // Notify: drain waiters and other workers that may have
         // re-enqueued tasks waiting on this sequence.
@@ -415,8 +424,11 @@ bool WorkerPool::try_execute_one(std::unique_lock<std::mutex> &lock) {
             }
         }
 
-        prefetches_completed_.fetch_add(1, std::memory_order_release);
-        in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        {
+            std::lock_guard<std::mutex> completion_lock(mu_);
+            prefetches_completed_.fetch_add(1, std::memory_order_release);
+            in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        }
         drain_cv_.notify_all();
         return true;
     }

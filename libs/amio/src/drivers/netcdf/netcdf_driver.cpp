@@ -827,6 +827,14 @@ void NetCDF_Driver::flush() {
 
 #ifdef AMIO_HAS_NETCDF
     int status = nc_sync(ncid_);
+    // A newly opened, empty classic-format file can still be in define
+    // mode because no variable write has caused nc_enddef yet. Complete
+    // the definition phase before syncing so an empty-dataset flush is a
+    // successful durability barrier too.
+    if (status == NC_EINDEFINE) {
+        nc_check(nc_enddef(ncid_), "nc_enddef before nc_sync");
+        status = nc_sync(ncid_);
+    }
     nc_check(status, "nc_sync");
 #else
     throw std::runtime_error("NetCDF_Driver::flush: AMIO built without netCDF support");
