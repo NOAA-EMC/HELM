@@ -1051,8 +1051,7 @@ void test_zero_worker_shutdown_synchronizes_waiters() {
         pool.shutdown();
     });
     started.get_future().wait();
-    EXPECT_TRUE(closing.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout,
-                "shutdown must wait for the predicate mutex");
+    EXPECT_TRUE(closing.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout, "shutdown must wait for the predicate mutex");
     EXPECT_TRUE(!pool.is_shutdown(), "predicate cannot change while its mutex is held");
     guard.unlock();
     closing.get();

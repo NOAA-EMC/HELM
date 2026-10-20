@@ -135,7 +135,7 @@ if(netCDF_FOUND AND MPI_CXX_FOUND)
     add_test(NAME integration.mpi_thread_gate COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                                                       $<TARGET_FILE:test_mpi_region_write> single ${MPIEXEC_POSTFLAGS})
     add_test(NAME integration.mpi_single_rank_netcdf COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}
-                                                           $<TARGET_FILE:test_mpi_region_write> single ${MPIEXEC_POSTFLAGS})
+                                                             $<TARGET_FILE:test_mpi_region_write> single ${MPIEXEC_POSTFLAGS})
     set_tests_properties(integration.mpi_netcdf_regions integration.mpi_netcdf_sync integration.mpi_thread_gate integration.mpi_single_rank_netcdf
                          PROPERTIES LABELS "integration;mpi;write" TIMEOUT 90 RUN_SERIAL TRUE)
     if(AMIO_HAS_TENSORSTORE)
@@ -158,6 +158,6 @@ if(g2c_FOUND AND MPI_CXX_FOUND)
                                                             $<TARGET_FILE:test_mpi_grib2_write> ${MPIEXEC_POSTFLAGS} single)
     add_test(NAME integration.mpi_grib2_single_rank COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}
                                                             $<TARGET_FILE:test_mpi_grib2_write> ${MPIEXEC_POSTFLAGS})
-    set_tests_properties(integration.mpi_grib2_messages integration.mpi_grib2_thread_gate integration.mpi_grib2_single_rank PROPERTIES LABELS "integration;mpi;write;grib2" TIMEOUT 120
-                                                                                                     RUN_SERIAL TRUE)
+    set_tests_properties(integration.mpi_grib2_messages integration.mpi_grib2_thread_gate integration.mpi_grib2_single_rank
+                         PROPERTIES LABELS "integration;mpi;write;grib2" TIMEOUT 120 RUN_SERIAL TRUE)
 endif()
