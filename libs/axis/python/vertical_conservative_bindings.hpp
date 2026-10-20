@@ -75,8 +75,9 @@ inline void bind_vertical_conservative(nb::module_ &m) {
             "source_coverage", [](const HostVerticalConservative &op) { return vertical_numpy(op.source_coverage()); }, nb::rv_policy::none)
         .def_prop_ro(
             "destination_coverage", [](const HostVerticalConservative &op) { return vertical_numpy(op.destination_coverage()); }, nb::rv_policy::none)
-        .def_prop_ro("destination_covered_measure",
-                     [](const HostVerticalConservative &op) { return vertical_numpy(op.destination_covered_measure()); }, nb::rv_policy::none);
+        .def_prop_ro(
+            "destination_covered_measure", [](const HostVerticalConservative &op) { return vertical_numpy(op.destination_covered_measure()); },
+            nb::rv_policy::none);
     m.def(
         "make_vertical_conservative_operator",
         [](VerticalArray source, VerticalArray destination, std::size_t columns, VerticalMaskArray source_mask, VerticalMaskArray destination_mask) {
