@@ -71,10 +71,13 @@ inline void bind_vertical_conservative(nb::module_ &m) {
                 return vertical_numpy(op.covered_source_integral(src, vertical_order(method), vertical_workspace(workspace)));
             },
             "source"_a, "method"_a = "first", "workspace"_a = nb::none())
-        .def_prop_ro("source_coverage", [](const HostVerticalConservative &op) { return vertical_numpy(op.source_coverage()); })
-        .def_prop_ro("destination_coverage", [](const HostVerticalConservative &op) { return vertical_numpy(op.destination_coverage()); })
-        .def_prop_ro("destination_covered_measure",
-                     [](const HostVerticalConservative &op) { return vertical_numpy(op.destination_covered_measure()); });
+        .def_prop_ro(
+            "source_coverage", [](const HostVerticalConservative &op) { return vertical_numpy(op.source_coverage()); }, nb::rv_policy::move)
+        .def_prop_ro(
+            "destination_coverage", [](const HostVerticalConservative &op) { return vertical_numpy(op.destination_coverage()); }, nb::rv_policy::move)
+        .def_prop_ro(
+            "destination_covered_measure", [](const HostVerticalConservative &op) { return vertical_numpy(op.destination_covered_measure()); },
+            nb::rv_policy::move);
     m.def(
         "make_vertical_conservative_operator",
         [](VerticalArray source, VerticalArray destination, std::size_t columns, VerticalMaskArray source_mask, VerticalMaskArray destination_mask) {

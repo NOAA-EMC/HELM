@@ -69,7 +69,7 @@ class Regridder:
         self._weights_matrix: axis_py.Matrix | None = None
         self._serialized_weights: bytes | None = None
         self._total_weights: np.ndarray | None = None
-        self._registered_clients = weakref.WeakKeyDictionary()
+        self._registered_clients: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()
 
         self._method_map = {
             "bilinear": axis_py.Method.Bilinear,
@@ -294,11 +294,14 @@ class Regridder:
 
     def _prepare_distributed_weights(self, client, weights_key: str) -> None:
         """Register matrix and optional skipna sums on current and future workers."""
-        if self.skipna and not self._weights_matrix.is_csr:
-            self._weights_matrix.to_csr()
-            self._serialized_weights = self._weights_matrix.to_bytes()
+        weights_matrix = self._weights_matrix
+        if weights_matrix is None:
+            raise RuntimeError("Regridder must be fit before registering distributed weights.")
+        if self.skipna and not weights_matrix.is_csr:
+            weights_matrix.to_csr()
+            self._serialized_weights = weights_matrix.to_bytes()
         if self._serialized_weights is None:
-            self._serialized_weights = self._weights_matrix.to_bytes()
+            self._serialized_weights = weights_matrix.to_bytes()
 
         total_key = f"tw_{self._uid}_sum" if self._total_weights is not None else None
         plugin_name = f"axis-weights-{self._uid}"
@@ -314,7 +317,7 @@ class Regridder:
             self._registered_clients[client] = plugin_name
 
         # Explicit local schedulers used by the driver can share this process cache.
-        _setup_worker_cache(weights_key, self._weights_matrix)
+        _setup_worker_cache(weights_key, weights_matrix)
         if total_key is not None:
             _setup_worker_cache(total_key, self._total_weights)
 
