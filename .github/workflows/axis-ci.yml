@@ -64,7 +64,7 @@ jobs:
           add_executable(consumer main.cpp)
           target_link_libraries(consumer PRIVATE HELM::AXIS)
           EOF
-            printf "#include <axis/axis.hpp>\\nint main() { return 0; }\\n" > /tmp/axis_consumer/main.cpp
+            printf "#include <axis/axis.hpp>\nint main() { return 0; }\n" > /tmp/axis_consumer/main.cpp
             cd /tmp/axis_consumer
             cmake -B build -G Ninja -DAXIS_BUILD_TESTING=OFF
             cmake --build build --target consumer
