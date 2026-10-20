@@ -1591,6 +1591,10 @@ void GRIB2_Driver::flush() {
 
 void GRIB2_Driver::close() {
     if (!initialized_) {
+#ifdef AMIO_HAS_MPI
+        io_comm_.reset();
+        parallel_mode_ = false;
+#endif
         return;
     }
 #ifdef AMIO_HAS_MPI
@@ -1598,7 +1602,17 @@ void GRIB2_Driver::close() {
         const int rc = MPI_File_close(&message_file_);
         initialized_ = false;
         next_message_offset_ = 0;
-        check_collective_failure(rc != MPI_SUCCESS, "shared file close");
+        // Keep the communicator for the final status collective, but release
+        // it even when that collective reports a close failure.
+        try {
+            check_collective_failure(rc != MPI_SUCCESS, "shared file close");
+        } catch (...) {
+            io_comm_.reset();
+            parallel_mode_ = false;
+            throw;
+        }
+        io_comm_.reset();
+        parallel_mode_ = false;
         return;
     }
 #endif
@@ -1616,6 +1630,10 @@ void GRIB2_Driver::close() {
     read_mode_ = false;
     input_path_.clear();
 
+#ifdef AMIO_HAS_MPI
+    io_comm_.reset();
+    parallel_mode_ = false;
+#endif
     initialized_ = false;
 }
 

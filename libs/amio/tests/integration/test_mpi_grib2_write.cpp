@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "amio/amio.h"
+#include "mpi_comm_tracker.hpp"
 extern "C" {
 #include <grib2.h>
 }
@@ -96,6 +97,7 @@ amio_io_handle submit(amio_dataset_handle dataset, int rank, int round, int file
 }
 /** @brief Exercise multiple active datasets, worker ordering, truncation, and rank-local messages. */
 void round_trip(const halo::Communicator &comm, amio_core_handle core, const std::string &prefix, const std::string &drt) {
+    const auto baseline_comms = amio_test::live_duplicates();
     std::array<amio_dataset_handle, 2> datasets{};
     std::array<std::string, 2> paths{prefix + "-a.grb2", prefix + "-b.grb2"};
     for (int file = 0; file < 2; ++file) {
@@ -115,6 +117,7 @@ void round_trip(const halo::Communicator &comm, amio_core_handle core, const std
         status_is(amio_flush(dataset, 10000), AMIO_OK, "MPI file sync");
         status_is(amio_close_dataset(dataset), AMIO_OK, "MPI file close");
     }
+    require(amio_test::live_duplicates() == baseline_comms, "GRIB outputs release duplicates while core retains records");
     sync(comm);
     if (comm.rank() == 0)
         for (int file = 0; file < 2; ++file) {
@@ -131,6 +134,7 @@ void round_trip(const halo::Communicator &comm, amio_core_handle core, const std
 }
 /** @brief One rank's encode failure must complete every handle without writing a partial round. */
 void asymmetric_failure(const halo::Communicator &comm, amio_core_handle core, const std::string &path) {
+    const auto baseline_comms = amio_test::live_duplicates();
     const auto cfg = manifest(path, comm.rank(), "libaec");
     amio_dataset_handle dataset = nullptr;
     status_is(amio_open_dataset_from_string(core, cfg.c_str(), "yaml", AMIO_MODE_WRITE, &dataset), AMIO_OK, "open failure-test output");
@@ -150,6 +154,7 @@ void asymmetric_failure(const halo::Communicator &comm, amio_core_handle core, c
     status_is(amio_wait(after_failure, 10000), AMIO_ERR_BACKEND_FAILURE, "poisoned file rejects later appends");
     status_is(amio_flush(dataset, 10000), AMIO_ERR_BACKEND_FAILURE, "flush reports failure");
     status_is(amio_close_dataset(dataset), AMIO_ERR_BACKEND_FAILURE, "close releases failed dataset");
+    require(amio_test::live_duplicates() == baseline_comms, "failed dataset close releases communicator");
     sync(comm);
     if (comm.rank() == 0) {
         require(std::filesystem::file_size(path) == prefix_size, "failed round emitted zero bytes");

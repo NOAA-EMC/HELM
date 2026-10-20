@@ -520,6 +520,12 @@ void Zarr_Driver::flush() {
 // ===================================================================
 
 void Zarr_Driver::close() {
+#ifdef AMIO_HAS_MPI
+    // No close operation uses this communicator; release it also on no-op
+    // and error paths, while the DatasetRecord may retain the driver.
+    io_comm_.reset();
+#endif
+
     std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_) {
         return;  // No-op if not open.

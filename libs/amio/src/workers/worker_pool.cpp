@@ -76,15 +76,11 @@ WorkerPool::~WorkerPool() {
 }
 
 void WorkerPool::shutdown() {
-    bool expected = false;
-    if (!shutdown_.compare_exchange_strong(expected, true)) {
-        // Already shut down -- just ensure threads are joined.
-        for (auto &t : workers_) {
-            if (t.joinable()) {
-                t.join();
-            }
-        }
-        return;
+    {
+        // Match the mutex used by the wait predicates: a notifier must not
+        // change shutdown between a predicate check and entering the wait.
+        std::lock_guard<std::mutex> lock(mu_);
+        shutdown_.store(true, std::memory_order_release);
     }
 
     // Wake all workers so they can observe the shutdown flag.
@@ -301,7 +297,8 @@ bool WorkerPool::try_execute_one(std::unique_lock<std::mutex> &lock) {
     // Priority: write tasks first, then prefetch tasks.
 
     // --- Try write queue ---
-    if (!write_queue_.empty()) {
+    const auto candidates = write_queue_.size();
+    for (std::size_t candidate = 0; candidate < candidates; ++candidate) {
         WriteTask task = std::move(write_queue_.front());
         write_queue_.pop();
 
@@ -312,42 +309,9 @@ bool WorkerPool::try_execute_one(std::unique_lock<std::mutex> &lock) {
         if (state.running || task.dv_seq != state.exec_seq) {
             // Not ready yet -- re-enqueue and try something else.
             write_queue_.push(std::move(task));
-            // Try a prefetch task instead.
-            if (!prefetch_queue_.empty()) {
-                PrefetchTask ptask = std::move(const_cast<PrefetchTask &>(prefetch_queue_.top()));
-                prefetch_queue_.pop();
-
-                in_flight_.fetch_add(1, std::memory_order_acq_rel);
-                lock.unlock();
-
-                // Execute prefetch callback with exception cordon
-                // (R12.1, R12.2).
-                if (ptask.handle_id != 0) {
-                    execute_with_exception_cordon(ptask.callback, ptask.handle_id, io_comm_, outcome_registry_);
-                } else {
-                    try {
-                        if (ptask.callback) {
-                            ptask.callback();
-                        }
-                    } catch (const std::exception &e) {
-                        emit_parallel_stacktrace(io_comm_, AMIO_ERR_BACKEND_FAILURE, e.what());
-                    } catch (...) {
-                        emit_parallel_stacktrace(io_comm_, AMIO_ERR_BACKEND_FAILURE, "Unknown exception (non-std)");
-                    }
-                }
-
-                {
-                    // drain() checks in_flight_ while holding mu_. Update it
-                    // under the same mutex so its predicate cannot miss the
-                    // transition to idle between checking and sleeping.
-                    std::lock_guard<std::mutex> completion_lock(mu_);
-                    prefetches_completed_.fetch_add(1, std::memory_order_release);
-                    in_flight_.fetch_sub(1, std::memory_order_acq_rel);
-                }
-                drain_cv_.notify_all();
-                return true;
-            }
-            return false;
+            // Examine the entire rotation before falling back to prefetch
+            // or sleeping; a runnable successor may be behind blocked writes.
+            continue;
         }
 
         in_flight_.fetch_add(1, std::memory_order_acq_rel);

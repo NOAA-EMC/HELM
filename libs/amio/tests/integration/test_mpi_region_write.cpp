@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "amio/amio.h"
+#include "mpi_comm_tracker.hpp"
 #ifdef AMIO_TEST_TENSORSTORE
 #include <tensorstore/open.h>
 #include <tensorstore/tensorstore.h>
@@ -56,6 +57,7 @@ int main(int argc, char **argv) {
         }
         amio_core_handle core = nullptr;
         check(amio_init_from_string(manifest.c_str(), "yaml", &core) == AMIO_OK, "init");
+        const auto baseline_comms = amio_test::live_duplicates();
         amio_dataset_handle dataset = nullptr;
         const auto opened = amio_open_dataset_from_string(core, manifest.c_str(), "yaml", AMIO_MODE_WRITE, &dataset);
         if (fallback) {
@@ -75,7 +77,7 @@ int main(int argc, char **argv) {
                 check(amio_close_dataset(dataset) == AMIO_OK, "rank-zero-only NCZarr read close");
             }
             (void)halo::allreduce(comm, std::vector<int>{1}, MPI_SUM);
-        } else if (single) {
+        } else if (single && ranks > 1) {
             check(opened == AMIO_ERR_THREADING_UNSUPPORTED && dataset == nullptr, "reject insufficient thread support before file creation");
         } else {
             check(opened == AMIO_OK, "collectively open shared output");
@@ -117,6 +119,7 @@ int main(int argc, char **argv) {
                 check(amio_flush(output, 30000) == AMIO_OK, "flush shared output");
                 check(amio_close_dataset(output) == AMIO_OK, "close shared output");
             }
+            check(amio_test::live_duplicates() == baseline_comms, "closed outputs release communicators before core finalization");
             (void)halo::allreduce(comm, std::vector<int>{1}, MPI_SUM);
             if (rank == 0) {
                 std::vector<float> actual(rows * 3);
@@ -154,7 +157,7 @@ int main(int argc, char **argv) {
         }
         check(amio_finalize(core) == AMIO_OK, "finalize");
         (void)halo::allreduce(comm, std::vector<int>{1}, MPI_SUM);
-        if (rank == 0 && !single) {
+        if (rank == 0 && !(single && ranks > 1)) {
             std::filesystem::remove_all(path);
             if (!zarr) std::filesystem::remove_all(path + ".second.nc");
         }

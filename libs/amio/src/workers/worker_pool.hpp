@@ -370,6 +370,7 @@ class WorkerPool {
     const OutcomeRegistry &outcome_registry() const noexcept;
 
    private:
+    friend struct WorkerPoolTestAccess;
     /** @brief Worker thread main loop (no pinning).
      */
     void worker_loop();

@@ -374,7 +374,7 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
             // NCZarr cannot coordinate shared metadata/chunk mutation.
             return AMIO_ERR_INVALID_INPUT;
         }
-        if (core->worker_pool &&
+        if (size > 1 && core->worker_pool &&
             (backend_key == "netcdf4" || backend_key == "netcdf" || (backend_key == "grib2" && mode == AMIO_MODE_WRITE && size > 1))) {
             halo::Environment::initialize();
             MpiThreadingConfig threading{};
