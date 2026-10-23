@@ -3,19 +3,19 @@ name: AXIS wheels and releases
 on:
   push:
     branches: [feature/paper-source]
-    tags: ['axis-v*']
+    tags: ["axis-v*"]
     paths:
-      - 'libs/axis/**'
-      - 'libs/halo/**'
-      - '.github/scripts/axis-*'
-      - '.github/workflows/axis-wheels.yml'
+      - "libs/axis/**"
+      - "libs/halo/**"
+      - ".github/scripts/axis-*"
+      - ".github/workflows/axis-wheels.yml"
   pull_request:
     branches: [feature/paper-source]
     paths:
-      - 'libs/axis/**'
-      - 'libs/halo/**'
-      - '.github/scripts/axis-*'
-      - '.github/workflows/axis-wheels.yml'
+      - "libs/axis/**"
+      - "libs/halo/**"
+      - ".github/scripts/axis-*"
+      - ".github/workflows/axis-wheels.yml"
   workflow_dispatch:
 
 permissions:
@@ -34,7 +34,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Check package versions
         run: python .github/scripts/axis-release-version.py
       - name: Validate release tag and branch ancestry
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Build, repair, and test wheels
         uses: pypa/cibuildwheel@v3.3.0
         with:

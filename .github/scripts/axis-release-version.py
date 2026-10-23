@@ -1,7 +1,9 @@
 """Validate stable AXIS SemVer tags and both package version declarations."""
-from pathlib import Path
+
 import re
 import sys
+from pathlib import Path
+
 import tomllib
 
 root = Path(__file__).resolve().parents[2]

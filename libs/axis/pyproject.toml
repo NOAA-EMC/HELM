@@ -89,10 +89,10 @@ ignore_missing_imports = true
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 skip = "*-musllinux* *-win*"
 build-verbosity = 1
-before-all = "bash {project}/../../.github/scripts/axis-build-mpi.sh {project}"
+before-all = "bash {project}/.github/scripts/axis-build-mpi.sh {project}/libs/axis"
 environment = { CMAKE_PREFIX_PATH = "/tmp/axis-mpich", CMAKE_BUILD_PARALLEL_LEVEL = "3" }
 config-settings = { "cmake.define.AXIS_KOKKOS_OPENMP" = "OFF", "cmake.define.AXIS_ENABLE_PROJ" = "OFF", "cmake.define.AXIS_ENABLE_NETCDF" = "OFF", "cmake.define.HALO_BUILD_FORTRAN" = "OFF", "cmake.define.BUILD_SHARED_LIBS" = "OFF", "cmake.define.MPI_CXX_COMPILER" = "/tmp/axis-mpich/bin/mpicxx" }
-test-command = "python {project}/../../.github/scripts/axis-wheel-smoke.py"
+test-command = "python {project}/.github/scripts/axis-wheel-smoke.py"
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_28"

@@ -1,8 +1,9 @@
 """Exercise the installed wheel outside the source package."""
+
 import importlib.metadata
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import axis
 import numpy as np
