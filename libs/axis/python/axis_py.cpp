@@ -45,6 +45,7 @@
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -70,6 +71,15 @@ void ensure_kokkos() {
     if (!kokkos_initialized && !Kokkos::is_initialized()) {
         Kokkos::initialize();
         kokkos_initialized = true;
+        // Python's atexit handlers run before module globals are released. Use
+        // the process exit hook so Python-owned meshes and matrices die first,
+        // then finalize before Kokkos' static execution-space objects are torn
+        // down. Only finalize a runtime initialized by this extension.
+        std::atexit([]() {
+            if (kokkos_initialized && Kokkos::is_initialized() && !Kokkos::is_finalized()) {
+                Kokkos::finalize();
+            }
+        });
     }
 }
 

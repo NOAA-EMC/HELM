@@ -69,6 +69,7 @@ elseif(DEFINED ENV{VIRTUAL_ENV})
 endif()
 
 # Kokkos — the ONLY required third-party dependency (HELM Law #2).
+option(AXIS_KOKKOS_OPENMP "Enable OpenMP in fetched Kokkos (OFF for portable wheels)" ON)
 option(AXIS_FETCH_KOKKOS "Fetch and build Kokkos automatically if not found on system" ON)
 
 find_package(Kokkos QUIET)
@@ -82,7 +83,7 @@ if(NOT TARGET Kokkos::kokkos AND AXIS_FETCH_KOKKOS)
     )
 
     # Ensure Kokkos builds with position independent code and suitable default backend
-    set(Kokkos_ENABLE_OPENMP ON CACHE BOOL "Enable OpenMP backend" FORCE)
+    set(Kokkos_ENABLE_OPENMP ${AXIS_KOKKOS_OPENMP} CACHE BOOL "Enable OpenMP backend" FORCE)
     set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 

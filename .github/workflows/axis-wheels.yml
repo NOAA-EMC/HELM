@@ -1,0 +1,109 @@
+name: AXIS wheels and releases
+
+on:
+  push:
+    branches: [feature/paper-source]
+    tags: ["axis-v*"]
+    paths:
+      - "libs/axis/**"
+      - "libs/halo/**"
+      - ".github/scripts/axis-*"
+      - ".github/workflows/axis-wheels.yml"
+  pull_request:
+    branches: [feature/paper-source]
+    paths:
+      - "libs/axis/**"
+      - "libs/halo/**"
+      - ".github/scripts/axis-*"
+      - ".github/workflows/axis-wheels.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: axis-wheels-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check package versions
+        run: python .github/scripts/axis-release-version.py
+      - name: Validate release tag and branch ancestry
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python .github/scripts/axis-release-version.py "$RELEASE_TAG"
+          git merge-base --is-ancestor HEAD origin/feature/paper-source
+
+  wheels:
+    needs: version
+    name: Wheels (${{ matrix.os }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+          - os: macos-15-intel
+            arch: x86_64
+          - os: macos-14
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build, repair, and test wheels
+        uses: pypa/cibuildwheel@v3.3.0
+        with:
+          package-dir: libs/axis
+          output-dir: wheelhouse
+        env:
+          CIBW_ARCHS: ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: axis-wheels-${{ matrix.os }}-${{ matrix.arch }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/axis-v')
+    needs: [version, wheels]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: axis-wheels-*
+          merge-multiple: true
+          path: dist
+      - name: Check complete matrix and create checksums
+        working-directory: dist
+        run: |
+          test "$(find . -maxdepth 1 -name '*.whl' | wc -l)" -eq 20
+          sha256sum *.whl > SHA256SUMS
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/*.whl dist/SHA256SUMS \
+            --verify-tag --draft --title "AXIS ${RELEASE_TAG#axis-v}" \
+            --generate-notes
+          gh release edit "$RELEASE_TAG" --draft=false

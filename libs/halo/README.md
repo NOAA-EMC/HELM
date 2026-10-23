@@ -73,6 +73,10 @@ cmake --build build --parallel $(nproc)
 
 ### Build with Fortran Interface
 
+`HALO_BUILD_FORTRAN` defaults to `OFF`. C++ consumers and downstream Python
+builds do not need a Fortran compiler. Set it to `ON` explicitly to build and
+install the optional `HELM::HALO_Fortran` target and module files:
+
 ```bash
 cmake -B build -G Ninja \
   -DCMAKE_CXX_STANDARD=20 \

@@ -24,7 +24,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # ─── Options ─────────────────────────────────────────────────────────────────
 option(HALO_GPU_AWARE_MPI "Enable GPU-aware MPI (pass device pointers directly)" OFF)
 option(HALO_BUILD_TESTING "Build the HALO test suite (GTest + RapidCheck)" OFF)
-option(HALO_BUILD_FORTRAN "Build the Fortran C-interop layer (halo_mod)" ON)
+option(HALO_BUILD_FORTRAN "Build the Fortran C-interop layer (halo_mod)" OFF)
 
 # ─── Required Dependencies ───────────────────────────────────────────────────
 find_package(MPI REQUIRED COMPONENTS CXX)
