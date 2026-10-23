@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Bundle a small MPICH runtime; avoid external fabric/provider plugins.
 set -euo pipefail
+if [[ "$(uname -s)" == Linux ]]; then
+  dnf install -y gdb
+fi
 project_dir=$(cd "$1" && pwd)
 version=4.2.3
 prefix=/tmp/axis-mpich
