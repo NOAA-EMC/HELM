@@ -132,6 +132,8 @@ jobs:
           docker compose exec -T helm-dev bash -lc '
             set -e
             cd libs/axis
+            # Python source builds must not discover or invoke a Fortran compiler.
+            export FC=/nonexistent/fortran-disabled-for-python
             uv sync --no-managed-python --all-groups
             uv run pytest -v -ra
             uv run mypy

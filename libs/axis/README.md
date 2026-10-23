@@ -46,6 +46,13 @@ AXIS represents a massive paradigm shift in high-performance Earth-system regrid
 
 AXIS includes a compiled C++ extension, so installing from this repository builds native code. Python dependencies are installed by pip or uv; CMake, a C++20 compiler, and an MPI C++ implementation must already be available. The build fetches Kokkos, KokkosKernels, and ArborX if they are not installed, so the first build needs network access. PROJ and the NetCDF C library are optional and enabled when found.
 
+Fortran interfaces are optional. Python source builds disable both
+`AXIS_BUILD_FORTRAN` and `HALO_BUILD_FORTRAN`, so `pip` and `uv` do not need a
+Fortran compiler. Native CMake builds also default both interfaces to OFF.
+Enable the interfaces explicitly with `-DAXIS_BUILD_FORTRAN=ON` and/or
+`-DHALO_BUILD_FORTRAN=ON` when building for Fortran consumers; those builds
+require a Fortran compiler.
+
 ### Prerequisites
 
 - Python 3.10 or newer
