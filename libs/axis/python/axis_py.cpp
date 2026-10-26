@@ -45,9 +45,10 @@
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -64,12 +65,26 @@ using HostMatrix = axis::solver::InterpolationMatrix<Kokkos::HostSpace>;
 
 // ─── Kokkos lifecycle ────────────────────────────────────────────────────────
 
-static bool kokkos_initialized = false;
+// Own the Kokkos runtime only when AXIS is the code that initializes it.
+static std::mutex kokkos_lifecycle_mutex;
+
+void finalize_owned_kokkos() {
+    if (Kokkos::is_initialized()) {
+        Kokkos::finalize();
+    }
+}
 
 void ensure_kokkos() {
-    if (!kokkos_initialized && !Kokkos::is_initialized()) {
+    std::lock_guard<std::mutex> lock(kokkos_lifecycle_mutex);
+    if (!Kokkos::is_initialized()) {
         Kokkos::initialize();
-        kokkos_initialized = true;
+        // Register after initialize: Kokkos' OpenMP internals may register
+        // their own process-exit destructors during initialization, and the
+        // atexit stack runs in reverse order. Finalize before those destructors.
+        if (std::atexit(finalize_owned_kokkos) != 0) {
+            Kokkos::finalize();
+            throw std::runtime_error("AXIS could not register Kokkos shutdown cleanup.");
+        }
     }
 }
 
