@@ -13,6 +13,8 @@
 
 include(GoogleTest)
 
+option(AXIS_BUILD_PROPERTY_TESTING "Build RapidCheck-based AXIS property tests" ON)
+
 # ##############################################################################
 # Locate test dependencies
 # ##############################################################################
@@ -34,20 +36,24 @@ if(NOT GTest_FOUND)
     set(GTest_FOUND TRUE)
 endif()
 
-find_package(rapidcheck CONFIG QUIET)
-if(NOT rapidcheck_FOUND)
-    # Fall back to FetchContent (matches HALO's pattern).
-    include(FetchContent)
-    FetchContent_Declare(
-        rapidcheck
-        GIT_REPOSITORY https://github.com/emil-e/rapidcheck.git
-        GIT_TAG        master
-        GIT_SHALLOW    TRUE
-        GIT_SUBMODULES ""
-    )
-    set(RC_ENABLE_GTEST ON CACHE BOOL "Build RapidCheck GTest integration" FORCE)
-    FetchContent_MakeAvailable(rapidcheck)
-    set(rapidcheck_FOUND TRUE)
+if(AXIS_BUILD_PROPERTY_TESTING)
+    find_package(rapidcheck CONFIG QUIET)
+    if(NOT rapidcheck_FOUND)
+        # Fall back to FetchContent (matches HALO's pattern).
+        include(FetchContent)
+        FetchContent_Declare(
+            rapidcheck
+            GIT_REPOSITORY https://github.com/emil-e/rapidcheck.git
+            GIT_TAG        master
+            GIT_SHALLOW    TRUE
+            GIT_SUBMODULES ""
+        )
+        set(RC_ENABLE_GTEST ON CACHE BOOL "Build RapidCheck GTest integration" FORCE)
+        FetchContent_MakeAvailable(rapidcheck)
+        set(rapidcheck_FOUND TRUE)
+    endif()
+else()
+    set(rapidcheck_FOUND FALSE)
 endif()
 
 # Ensure rapidcheck_gtest target is available
@@ -67,6 +73,8 @@ endif()
 set(AXIS_UNIT_TEST_SOURCES
     test_conservation.cpp
     test_constant_field.cpp
+    test_linear_conservative.cpp
+    test_performance_changes.cpp
     test_bilinear_exactness.cpp
     test_bilinear_rect.cpp
     test_bilinear_rect_nonuniform.cpp
@@ -82,6 +90,10 @@ set(AXIS_UNIT_TEST_SOURCES
     test_conservation_norm.cpp
     test_raii_handles.cpp
     test_spherical_geometry.cpp
+    test_mesh_builder.cpp
+    test_structured_grid_conversion.cpp
+    test_reduced_gaussian_grid.cpp
+    test_multi_face_grid.cpp
     test_gnomonic_projector.cpp
     test_masking.cpp
     test_morton_sort.cpp
@@ -91,6 +103,8 @@ set(AXIS_UNIT_TEST_SOURCES
     test_trig_cache.cpp
     test_spherical_cap_filter.cpp
     test_vertical_regridder.cpp
+    test_vertical_off_knots.cpp
+    test_vertical_conservative.cpp
     test_vector_regridder.cpp
     test_tripolar_regridder.cpp
     test_coastal_renormalization.cpp
@@ -138,6 +152,7 @@ if(rapidcheck_FOUND)
         prop_raii_handles.cpp
         prop_structured_to_unstructured.cpp
         prop_band_corner_synthesis.cpp
+        prop_reduced_gaussian_grid.cpp
         prop_csr_connectivity.cpp
         prop_named_grid_deterministic.cpp
         prop_named_grid_registration.cpp
@@ -214,4 +229,28 @@ if(rapidcheck_FOUND)
     )
 else()
     message(STATUS "AXIS: RapidCheck not found — skipping property-based tests")
+endif()
+
+# MPI integration tests need their own MPI/Kokkos lifecycle and launcher.
+if(TARGET halo)
+    add_executable(axis_distributed_mpi_tests test_distributed_regridder_mpi.cpp)
+    target_link_libraries(axis_distributed_mpi_tests PRIVATE axis halo)
+    foreach(ranks IN ITEMS 1 2 4 8)
+        add_test(NAME axis_distributed_${ranks}_ranks
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${ranks}
+                    ${MPIEXEC_PREFLAGS} $<TARGET_FILE:axis_distributed_mpi_tests> ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(axis_distributed_${ranks}_ranks PROPERTIES PROCESSORS ${ranks} TIMEOUT 180
+            ENVIRONMENT "OMP_NUM_THREADS=1;OMP_PROC_BIND=false")
+    endforeach()
+endif()
+
+if(TARGET halo AND Kokkos_ENABLE_OPENMP)
+    foreach(ranks IN ITEMS 2 4)
+        math(EXPR slots "${ranks} * ${ranks}")
+        add_test(NAME axis_distributed_hybrid_${ranks}x${ranks}
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${ranks}
+                    ${MPIEXEC_PREFLAGS} $<TARGET_FILE:axis_distributed_mpi_tests> ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(axis_distributed_hybrid_${ranks}x${ranks} PROPERTIES PROCESSORS ${slots} TIMEOUT 180
+            ENVIRONMENT "OMP_NUM_THREADS=${ranks};OMP_PROC_BIND=false")
+    endforeach()
 endif()

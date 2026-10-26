@@ -5,6 +5,9 @@
 #ifndef AXIS_DISTRIBUTED_WEIGHT_GENERATOR_HPP
 #define AXIS_DISTRIBUTED_WEIGHT_GENERATOR_HPP
 
+/// @file axis/distributed/distributed_weight_generator.hpp
+/// @brief Legacy MPI weight-generation adapter (see DistributedWeightGenerator).
+
 #include <mpi.h>
 
 #include <axis/solver/interpolation_matrix.hpp>
@@ -14,11 +17,13 @@
 namespace axis::distributed {
 
 /// @class DistributedWeightGenerator
-/// @brief Multi-node MPI-distributed weight generation class.
+/// @brief Legacy export of global destination row numbers.
 ///
-/// This generator leverages the adjacent HELM `halo` library to coordinate coordinate
-/// bounding-box exchanges across different MPI ranks. Each rank generates weights for its assigned
-/// local destination mesh partition and maps the results to global sparse CSR arrays.
+/// This adapter does not discover remote source geometry. Callers must provide
+/// complete source geometry (e.g. replicated source meshes). For partitioned
+/// source ownership and HALO-backed field exchange use DistributedRegridder
+/// from axis/distributed/regridder.hpp. Its matrix rows are local, unlike this
+/// legacy row-export format. Linear reconstruction uses the new operator.
 template <typename MemorySpace>
 class DistributedWeightGenerator {
    public:

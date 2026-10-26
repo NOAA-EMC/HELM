@@ -1,3 +1,6 @@
+/// @file communicator.cpp
+/// @brief Communicator implementation — handle ownership, rank/size queries,
+///        split/duplicate, and error-handler installation on owned handles.
 #include "halo/communicator.hpp"
 
 #include <mpi.h>
@@ -110,8 +113,15 @@ Communicator Communicator::split(int color, int key) const {
 }
 
 Communicator Communicator::duplicate() const {
+    return duplicate_of(comm_);
+}
+
+// Duplicates any live handle, including one borrowed from a caller that AXIS or
+// HALO does not own. The returned Communicator installs MPI_ERRORS_RETURN and
+// becomes responsible for freeing the new handle; the source is untouched.
+Communicator Communicator::duplicate_of(MPI_Comm comm) {
     MPI_Comm new_comm = MPI_COMM_NULL;
-    int rc = MPI_Comm_dup(comm_, &new_comm);
+    int rc = MPI_Comm_dup(comm, &new_comm);
     if (rc != MPI_SUCCESS) {
         char err_str[MPI_MAX_ERROR_STRING];
         int len = 0;
