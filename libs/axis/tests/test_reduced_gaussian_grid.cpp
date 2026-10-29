@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include "common/test_kokkos_env.hpp"
+
 #include <Kokkos_Core.hpp>
 #include <axis/topology/reduced_gaussian_grid.hpp>
 #include <cmath>
@@ -13,16 +15,7 @@
 
 namespace {
 
-class KokkosEnv : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) Kokkos::initialize();
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) Kokkos::finalize();
-    }
-};
-static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnv);
+
 
 using namespace axis::topology;
 

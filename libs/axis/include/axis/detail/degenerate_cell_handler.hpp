@@ -251,13 +251,14 @@ struct DegenerateCellHandler {
                     v.y = coords_view(node_idx, 1);
                     v.z = coords_view(node_idx, 2);
                 } else {
-                    // Spherical coordinates (lon, lat) in degrees — convert to
-                    // unit-sphere Cartesian.
-                    double lon_deg = coords_view(node_idx, 0);
-                    double lat_deg = coords_view(node_idx, 1);
+                    // Convert spherical coordinates to radians before projecting
+                    // them onto the unit sphere. SphericalRad coordinates are
+                    // already in radians.
+                    const bool in_degrees = (mesh.coord_system() == topology::CoordinateSystem::SphericalDeg);
                     constexpr double deg2rad = 3.14159265358979323846 / 180.0;
-                    double lon = lon_deg * deg2rad;
-                    double lat = lat_deg * deg2rad;
+                    const double to_rad = in_degrees ? deg2rad : 1.0;
+                    double lon = coords_view(node_idx, 0) * to_rad;
+                    double lat = coords_view(node_idx, 1) * to_rad;
                     double cos_lat = Kokkos::cos(lat);
                     v.x = cos_lat * Kokkos::cos(lon);
                     v.y = cos_lat * Kokkos::sin(lon);

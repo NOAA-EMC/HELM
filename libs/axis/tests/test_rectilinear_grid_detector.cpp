@@ -3,20 +3,13 @@
 
 #include <gtest/gtest.h>
 
+#include "common/test_kokkos_env.hpp"
+
 #include <axis/detail/regular_grid_detector.hpp>
 #include <axis/topology/structured_grid.hpp>
 
 namespace {
-class KokkosEnv : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) Kokkos::initialize();
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) Kokkos::finalize();
-    }
-};
-static auto *const kenv = ::testing::AddGlobalTestEnvironment(new KokkosEnv);
+
 }  // namespace
 
 namespace axis::test {
