@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include "common/test_kokkos_env.hpp"
+
 #include <Kokkos_Core.hpp>
 #include <axis/solver/apply.hpp>
 #include <axis/solver/conservation.hpp>
@@ -16,16 +18,7 @@
 #include <cmath>
 
 namespace {
-class KokkosEnv : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) Kokkos::initialize();
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) Kokkos::finalize();
-    }
-};
-static auto *const kenv = ::testing::AddGlobalTestEnvironment(new KokkosEnv);
+
 }  // namespace
 
 namespace axis::test {

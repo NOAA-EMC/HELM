@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include "common/test_kokkos_env.hpp"
+
 #include <Kokkos_Core.hpp>
 #include <axis/detail/spherical_geometry.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
@@ -15,16 +17,7 @@
 
 namespace {
 
-class KokkosEnv : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) Kokkos::initialize();
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) Kokkos::finalize();
-    }
-};
-static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnv);
+
 
 using namespace axis::detail::spherical;
 constexpr double deg2rad = pi / 180.0;

@@ -23,6 +23,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
+
+#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -37,20 +39,7 @@ namespace {
 
 using MemSpace = Kokkos::HostSpace;
 
-class KokkosEnvironment : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) {
-            Kokkos::initialize();
-        }
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) {
-            Kokkos::finalize();
-        }
-    }
-};
-static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnvironment);
+
 
 // Build whole-grid synthesized corners by running the real StructuredGrid path
 // with the same explicit seam declaration supplied to the band helper.

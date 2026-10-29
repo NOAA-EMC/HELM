@@ -3,6 +3,8 @@
 // Copyright (c) HELM Project Contributors
 
 #include <gtest/gtest.h>
+
+#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -21,16 +23,7 @@ using axis::topology::LongitudePeriodicity;
 using axis::topology::ReducedGaussianGrid;
 using axis::topology::ReducedGaussianRow;
 
-class KokkosEnvironment : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) Kokkos::initialize();
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) Kokkos::finalize();
-    }
-};
-static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnvironment);
+
 
 RC_GTEST_PROP(PropReducedGaussianGrid, RaggedRowsPreserveOrderAndConserveArea, ()) {
     const std::size_t n_rows = *rc::gen::inRange<std::size_t>(2, 7);
