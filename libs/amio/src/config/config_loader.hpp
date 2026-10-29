@@ -114,6 +114,34 @@ struct CodecConfig {
     std::string active_codec;
 };
 
+struct EvolutionBudgetConfig {
+    std::size_t total_bytes = 0;
+    std::size_t staging_bytes = 0;
+    std::size_t metadata_bytes = 0;
+    std::size_t transport_bytes = 0;
+    std::size_t view_bytes = 0;
+    std::size_t control_reserve_bytes = 0;
+    std::size_t total_descriptors = 0;
+    std::size_t control_reserve_descriptors = 0;
+    std::size_t chunk_bytes = 0;
+    std::size_t credits_per_peer = 0;
+};
+
+struct EvolutionConfig {
+    bool enabled = false;
+    int version = 0;
+    std::string execution_mode = "persistent_direct";
+    std::string progress_mode = "background";
+    std::string layout = "step_collection";
+    std::string destination_backend;
+    std::string destination_path;
+    std::string create_policy = "exclusive";
+    std::vector<int> producers;
+    std::vector<int> writers;
+    std::vector<int> consumers;
+    EvolutionBudgetConfig budgets;
+};
+
 // Config -- top-level configuration struct.
 struct Config {
     // Staging pool configuration.
@@ -139,6 +167,9 @@ struct Config {
 
     // MPI I/O rank set (empty = all ranks participate).
     std::vector<int> io_ranks;
+
+    // Additive strict schema used only when amio_version is present.
+    EvolutionConfig evolution;
 };
 
 // ===================================================================
@@ -250,7 +281,21 @@ inline bool operator==(const CodecConfig &a, const CodecConfig &b) {
 inline bool operator==(const Config &a, const Config &b) {
     return a.staging_pool == b.staging_pool && a.worker_pool == b.worker_pool && a.prefetch == b.prefetch &&
            a.staging_timeout_ms == b.staging_timeout_ms && a.backpressure == b.backpressure && a.backend == b.backend && a.codec == b.codec &&
-           a.io_ranks == b.io_ranks;
+           a.io_ranks == b.io_ranks && a.evolution.enabled == b.evolution.enabled && a.evolution.version == b.evolution.version &&
+           a.evolution.execution_mode == b.evolution.execution_mode && a.evolution.progress_mode == b.evolution.progress_mode &&
+           a.evolution.layout == b.evolution.layout &&
+           a.evolution.destination_backend == b.evolution.destination_backend && a.evolution.destination_path == b.evolution.destination_path &&
+           a.evolution.create_policy == b.evolution.create_policy && a.evolution.producers == b.evolution.producers &&
+           a.evolution.writers == b.evolution.writers && a.evolution.consumers == b.evolution.consumers &&
+           a.evolution.budgets.total_bytes == b.evolution.budgets.total_bytes &&
+           a.evolution.budgets.staging_bytes == b.evolution.budgets.staging_bytes &&
+           a.evolution.budgets.metadata_bytes == b.evolution.budgets.metadata_bytes &&
+           a.evolution.budgets.transport_bytes == b.evolution.budgets.transport_bytes && a.evolution.budgets.view_bytes == b.evolution.budgets.view_bytes &&
+           a.evolution.budgets.control_reserve_bytes == b.evolution.budgets.control_reserve_bytes &&
+           a.evolution.budgets.total_descriptors == b.evolution.budgets.total_descriptors &&
+           a.evolution.budgets.control_reserve_descriptors == b.evolution.budgets.control_reserve_descriptors &&
+           a.evolution.budgets.chunk_bytes == b.evolution.budgets.chunk_bytes &&
+           a.evolution.budgets.credits_per_peer == b.evolution.budgets.credits_per_peer;
 }
 
 inline bool operator!=(const Config &a, const Config &b) {

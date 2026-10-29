@@ -40,3 +40,7 @@ else()
 endif()
 
 add_subdirectory(integration)
+
+if(AMIO_BUILD_QUALIFICATION)
+    add_subdirectory(qualification)
+endif()

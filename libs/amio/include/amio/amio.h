@@ -31,6 +31,7 @@
 #include "amio/amio_export.h"
 #include "amio/amio_mdspan_fwd.h"
 #include "amio/amio_types.h"
+#include "amio/amio_evolution.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,7 +46,7 @@ extern "C" {
  *  @{
  */
 #define AMIO_ABI_VERSION_MAJOR 0 /**< ABI major version */
-#define AMIO_ABI_VERSION_MINOR 2 /**< ABI minor version */
+#define AMIO_ABI_VERSION_MINOR 3 /**< ABI minor version */
 #define AMIO_ABI_VERSION_PATCH 0 /**< ABI patch version */
 /** @} */
 

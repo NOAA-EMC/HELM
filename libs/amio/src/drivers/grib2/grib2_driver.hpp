@@ -58,6 +58,7 @@
 #include <vector>
 
 #include "factory/backend_driver.hpp"
+#include "drivers/grib2/grib2_steps.hpp"
 #ifdef AMIO_HAS_MPI
 #include <halo/communicator.hpp>
 #endif
@@ -250,7 +251,17 @@ class GRIB2_Driver : public Backend_Driver {
      * validated on every rank before creating or truncating the shared file.
      */
     void open_write(const conf::Config &config) override;
+    /** Initialize the encoder for immutable step payloads without opening a shared output file. */
+    void open_step_encoder(const conf::Config &config);
     void open_read(const conf::Config &config) override;
+    /** Encode one complete local field for a step collection after producer memory preflight. */
+    [[nodiscard]] std::vector<unsigned char> encode_step_message(const StagingBuffer &src, const VarMeta &meta,
+                                                                  std::size_t encoded_buffer_budget,
+                                                                  std::size_t codec_scratch_budget);
+    [[nodiscard]] std::vector<unsigned char> encode_step_message(const StagingBuffer &src, const VarMeta &meta,
+                                                                  std::size_t encoded_buffer_budget,
+                                                                  std::size_t codec_scratch_budget,
+                                                                  const Grib2Settings &settings);
     /** @brief Encode a complete field and commit one GRIB2 message.
      * @param src Immutable staged F32 field, retained through write completion.
      * @param meta Complete-field shape and type; no partial-region destination.
@@ -480,11 +491,13 @@ class GRIB2_Driver : public Backend_Driver {
      */
     static std::vector<std::int64_t> build_drs_template(GRIB2_DRT drt, const Grib2Settings &s);
 
-   private:
+   public:
     /** @brief Read all Grib2Settings fields from the configuration, applying
      * defaults for any absent key.
      */
     static Grib2Settings read_settings(const conf::Config &config);
+
+   private:
 
 #ifdef AMIO_HAS_MPI
     std::optional<halo::Communicator> io_comm_;  ///< HALO-owned duplicate of the host communicator.

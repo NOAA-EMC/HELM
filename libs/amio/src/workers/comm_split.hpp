@@ -200,6 +200,11 @@ struct IOCommunicator {
 //   set is invalid.
 amio_err_t split_communicator(const CommConfig &config, int my_rank, IOCommunicator &result);
 
+#ifdef AMIO_HAS_MPI
+/** Duplicate a caller-owned communicator into HALO-managed RAII ownership. */
+std::optional<halo::Communicator> duplicate_context_communicator(MPI_Comm caller_communicator) noexcept;
+#endif
+
 // validate_comm_config -- check that the CommConfig is internally
 // consistent without performing the actual MPI split.
 //

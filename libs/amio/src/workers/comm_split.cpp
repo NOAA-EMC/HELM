@@ -39,6 +39,22 @@ AMIO_API void amio_set_parent_communicator(int comm_f) {
 
 namespace amio::detail {
 
+#ifdef AMIO_HAS_MPI
+std::optional<halo::Communicator> duplicate_context_communicator(MPI_Comm caller_communicator) noexcept {
+    if (caller_communicator == MPI_COMM_NULL) {
+        return std::nullopt;
+    }
+    MPI_Comm duplicate = MPI_COMM_NULL;
+    if (MPI_Comm_dup(caller_communicator, &duplicate) != MPI_SUCCESS || duplicate == MPI_COMM_NULL) {
+        return std::nullopt;
+    }
+    std::optional<halo::Communicator> owned;
+    owned.emplace(duplicate);
+    duplicate = MPI_COMM_NULL;
+    return owned;
+}
+#endif
+
 amio_err_t validate_comm_config(const CommConfig &config) {
     if (config.is_default()) {
         return AMIO_OK;

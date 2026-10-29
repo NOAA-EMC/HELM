@@ -24,6 +24,13 @@ target_link_libraries(example_grib2_write_c PRIVATE AMIO::amio_core m)
 add_executable(example_netcdf4_read_c c/example_netcdf4_read.c)
 target_link_libraries(example_netcdf4_read_c PRIVATE AMIO::amio_core m)
 
+add_executable(example_step_collection_c c/example_step_collection.c)
+target_link_libraries(example_step_collection_c PRIVATE AMIO::amio_core)
+if(TARGET MPI::MPI_C)
+    target_link_libraries(example_step_collection_c PRIVATE MPI::MPI_C)
+    target_compile_definitions(example_step_collection_c PRIVATE AMIO_EXAMPLE_HAS_MPI=1)
+endif()
+
 # -------------------------------------------------------------------
 # Fortran Examples
 #
@@ -35,12 +42,18 @@ if(MPI_Fortran_FOUND)
     add_executable(example_netcdf4_write_f90 fortran/example_netcdf4_write.f90)
     target_link_libraries(example_netcdf4_write_f90 PRIVATE AMIO::amio_fortran MPI::MPI_Fortran)
 
+    add_executable(example_step_collection_f90 fortran/example_step_collection.f90)
+    target_link_libraries(example_step_collection_f90 PRIVATE AMIO::amio_fortran MPI::MPI_Fortran)
+
     if(AMIO_BUILD_TESTING)
         file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/examples/manifests")
         configure_file("${CMAKE_CURRENT_SOURCE_DIR}/manifests/netcdf4_manifest.yaml" "${CMAKE_BINARY_DIR}/examples/manifests/netcdf4_manifest.yaml"
                        COPYONLY)
         add_test(NAME example.netcdf4_write_fortran COMMAND example_netcdf4_write_f90)
         set_tests_properties(example.netcdf4_write_fortran PROPERTIES LABELS "examples" WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+        add_test(NAME example.step_collection_fortran COMMAND example_step_collection_f90)
+        set_tests_properties(example.step_collection_fortran PROPERTIES
+            LABELS "examples;amio_step;amio_fortran" WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 60)
     endif()
 else()
     message(STATUS "AMIO NetCDF-4 Fortran example requires MPI Fortran; skipping")

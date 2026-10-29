@@ -865,6 +865,142 @@ void NetCDF_Driver::close() {
     file_path_.clear();
 }
 
+void NetCDF_Driver::open_step_write(const std::string &path, const Schema &schema, double model_time) {
+#ifdef AMIO_HAS_NETCDF
+    if (is_open_) throw std::runtime_error("NetCDF_Driver::open_step_write: driver is already open");
+    if (path.empty()) throw std::runtime_error("NetCDF_Driver::open_step_write: path cannot be empty");
+    std::string validation_error;
+    if (!validate_netcdf_step_schema(schema, validation_error)) throw std::runtime_error(validation_error);
+
+    int created_ncid = -1;
+    int status = NC_NOERR;
+    {
+        std::lock_guard<std::mutex> lock(netcdf_mutex());
+#if defined(AMIO_HAS_PARALLEL_NETCDF)
+        if (comm_ != MPI_COMM_NULL) {
+            status = nc_create_par(path.c_str(), NC_NETCDF4 | NC_CLOBBER, comm_, info_, &created_ncid);
+            use_parallel_ = true;
+        } else {
+            status = nc_create(path.c_str(), NC_NETCDF4 | NC_CLOBBER, &created_ncid);
+            use_parallel_ = false;
+        }
+#else
+        if (comm_ != MPI_COMM_NULL) {
+            throw std::runtime_error("NetCDF_Driver::open_step_write: parallel step output is unsupported by this NetCDF build");
+        }
+        status = nc_create(path.c_str(), NC_NETCDF4 | NC_CLOBBER, &created_ncid);
+        use_parallel_ = false;
+#endif
+    }
+    nc_check(status, "create immutable step payload '" + path + "'");
+    try {
+        if (!define_netcdf_step_schema(created_ncid, schema, model_time, validation_error)) {
+            throw std::runtime_error(validation_error);
+        }
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(netcdf_mutex());
+        (void)nc_close(created_ncid);
+        throw;
+    }
+    ncid_ = created_ncid;
+    file_path_ = path;
+    is_open_ = true;
+    is_write_mode_ = true;
+#else
+    (void)path;
+    (void)schema;
+    (void)model_time;
+    throw std::runtime_error("NetCDF_Driver::open_step_write: AMIO built without netCDF support");
+#endif
+}
+
+void NetCDF_Driver::write_step_region(const std::string &variable, const RegionSelection &region, const void *data) {
+#ifdef AMIO_HAS_NETCDF
+    if (!is_open_ || !is_write_mode_) throw std::runtime_error("NetCDF_Driver::write_step_region: no step payload is open for writing");
+    std::string error;
+    if (!write_netcdf_step_region(ncid_, variable, region, data, error)) throw std::runtime_error(error);
+#else
+    (void)variable;
+    (void)region;
+    (void)data;
+    throw std::runtime_error("NetCDF_Driver::write_step_region: AMIO built without netCDF support");
+#endif
+}
+
+void NetCDF_Driver::close_step_write() {
+    if (!is_open_ || !is_write_mode_) throw std::runtime_error("NetCDF_Driver::close_step_write: no step payload is open");
+#ifdef AMIO_HAS_NETCDF
+    const MPI_Comm communicator = comm_;
+    const MPI_Info info = info_;
+    close();
+    // A driver writes many immutable step files within one dataset. Keep its
+    // caller-owned communicator binding across payload close/open cycles.
+    comm_ = communicator;
+    info_ = info;
+#else
+    close();
+#endif
+}
+
+void NetCDF_Driver::read_step_region(const std::string &path, const std::string &variable,
+                                     const RegionSelection &region, void *data) {
+#ifdef AMIO_HAS_NETCDF
+    std::string error;
+    if (!read_netcdf_step_region(path, variable, region, data, error)) throw std::runtime_error(error);
+#else
+    (void)path;
+    (void)variable;
+    (void)region;
+    (void)data;
+    throw std::runtime_error("NetCDF_Driver::read_step_region: AMIO built without netCDF support");
+#endif
+}
+
+void write_netcdf_step_payload(const std::string &path, const Schema &schema, double model_time,
+                               const std::map<std::string, NetCDFStepFieldView, std::less<>> &fields,
+                               std::int64_t fortran_communicator) {
+    NetCDF_Driver driver;
+#if defined(AMIO_HAS_MPI) && defined(AMIO_HAS_NETCDF)
+    if (fortran_communicator < std::numeric_limits<MPI_Fint>::min() ||
+        fortran_communicator > std::numeric_limits<MPI_Fint>::max())
+        throw std::runtime_error("NetCDF step communicator handle is out of range");
+    // MPI_COMM_WORLD is commonly represented by Fortran handle zero. Do not
+    // use zero as an absence sentinel in MPI-enabled builds: callers pass a
+    // valid communicator handle even when its integer representation is 0.
+    driver.set_communicator(MPI_Comm_f2c(static_cast<MPI_Fint>(fortran_communicator)));
+#else
+    if (fortran_communicator != 0) throw std::runtime_error("parallel NetCDF step output is unavailable in this build");
+#endif
+    driver.open_step_write(path, schema, model_time);
+    try {
+        // All ranks follow the sealed schema's canonical variable order.
+        // A rank with no region for a variable still enters NetCDF's
+        // collective variable write using a zero-count selection.
+        for (const auto &[name, variable] : schema.variables()) {
+            (void)variable;
+            const auto field = fields.find(name);
+            if (field != fields.end()) {
+                driver.write_step_region(name, field->second.region, field->second.data);
+            } else {
+                RegionSelection empty;
+                empty.offsets.assign(variable.dimensions.size(), 0);
+                empty.extents.assign(variable.dimensions.size(), 0);
+                empty.empty = true;
+                driver.write_step_region(name, empty, nullptr);
+            }
+        }
+        for (const auto &[name, field] : fields) {
+            (void)field;
+            if (!schema.variables().contains(name))
+                throw std::runtime_error("NetCDF step contribution is absent from the sealed schema: " + name);
+        }
+        driver.close_step_write();
+    } catch (...) {
+        try { driver.close_step_write(); } catch (...) {}
+        throw;
+    }
+}
+
 // ===================================================================
 // describe_variable -- introspect a variable's dtype, shape, and
 // timestep count from the open NetCDF file (Req 4.1, 4.2, 4.5, 9.1).

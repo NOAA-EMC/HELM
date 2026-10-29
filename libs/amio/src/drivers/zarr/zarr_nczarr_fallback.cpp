@@ -190,6 +190,17 @@ void Zarr_Driver::open_write(const conf::Config &config) {
         throw std::runtime_error("Zarr_Driver: already open");
     }
 
+    // NCZarr is a legacy single-dataset fallback. It cannot provide
+    // immutable per-step multi-array payloads or shared collection output.
+    // Reject opt-in requests before creating/clobbering the destination.
+    if ((config.has("step_mode") && config.get_bool("step_mode")) ||
+        (config.has("collection") && config.get_bool("collection")) ||
+        (config.has("shared_output") && config.get_bool("shared_output"))) {
+        throw std::runtime_error(
+            "Zarr_Driver [NCZarr fallback]: step collections and shared output "
+            "require the TensorStore backend; no destination was created");
+    }
+
     // Parse and validate configuration.
     config_ = parse_zarr_config(config);
 

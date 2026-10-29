@@ -52,9 +52,12 @@
 #endif
 
 #include <string>
+#include <map>
+#include <cstdint>
 #include <vector>
 
 #include "drivers/common/var_attributes.hpp"
+#include "drivers/netcdf/netcdf_steps.hpp"
 
 namespace amio::detail {
 
@@ -122,6 +125,16 @@ class NetCDF_Driver : public Backend_Driver {
      */
     std::optional<double> get_numeric_attribute(const std::string &var_name, const std::string &attr_name) override;
 
+    /** Open one immutable native file for a logical step and define its sealed schema. */
+    void open_step_write(const std::string &path, const Schema &schema, double model_time);
+    /** Submit one local region; all ranks in a parallel file call in the same field order. */
+    void write_step_region(const std::string &variable, const RegionSelection &region, const void *data);
+    /** Close the step payload before its catalog completion record may be published. */
+    void close_step_write();
+    /** Independently read a selected region from a closed step payload. */
+    static void read_step_region(const std::string &path, const std::string &variable,
+                                 const RegionSelection &region, void *data);
+
    public:
     // ----- Static utility methods (public for testability) -----
 
@@ -166,6 +179,15 @@ class NetCDF_Driver : public Backend_Driver {
     DatasetAttributes attributes_;
     bool global_attrs_written_ = false;
 };
+
+/** ABI-stable internal bridge so callers need not instantiate the macro-configured driver class. */
+struct NetCDFStepFieldView {
+    RegionSelection region;
+    const void *data = nullptr;
+};
+void write_netcdf_step_payload(const std::string &path, const Schema &schema, double model_time,
+                               const std::map<std::string, NetCDFStepFieldView, std::less<>> &fields,
+                               std::int64_t fortran_communicator);
 
 }  // namespace amio::detail
 

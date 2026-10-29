@@ -41,6 +41,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 
 #ifdef AMIO_HAS_MPI
 #include <mpi.h>
@@ -182,6 +183,22 @@ struct VariableInfo {
     std::int64_t total_timesteps = 1;
 };
 
+/** Highest evidence level reached by one named capability. */
+enum class CapabilityLevel : std::uint8_t { Unsupported, Compiled, EnvironmentValidated, DestinationCertified };
+
+/**
+ * Capability claims are explicit and evidence-scoped. Missing entries mean
+ * unsupported; successful compilation alone never implies destination safety.
+ */
+struct BackendCapabilities {
+    std::unordered_map<std::string, CapabilityLevel> features;
+
+    [[nodiscard]] CapabilityLevel level(const std::string &feature) const noexcept {
+        const auto found = features.find(feature);
+        return found == features.end() ? CapabilityLevel::Unsupported : found->second;
+    }
+};
+
 // ---------------------------------------------------------------
 // Backend_Driver -- abstract base class for all backend drivers
 // ---------------------------------------------------------------
@@ -213,6 +230,9 @@ struct VariableInfo {
  */
 class Backend_Driver {
    public:
+    /** Conservative default: drivers make no new-engine claims until certified. */
+    virtual BackendCapabilities capabilities() const { return {}; }
+
     /** @brief Whether this driver accepts VarMeta::write_region destinations.
      * @return True for implemented region writes; false rejects before admission.
      * @note This reports a driver capability, not MPI availability or thread safety.

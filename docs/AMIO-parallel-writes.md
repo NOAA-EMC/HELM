@@ -166,3 +166,35 @@ paths/settings, failed file opens, and insufficient thread support.
 
 The GRIB2 implementation passed 1-, 2-, and 4-rank round trips with AEC and
 JPEG2000, along with the targeted MPI/serial regression suite and Doxygen checks.
+
+## Step-collection direction
+
+The next-generation collection path is being developed alongside this legacy
+shared-dataset interface. It gives each logical step a schema digest, model
+time, monotonic step ID, explicit local field regions, and an immutable
+completion record. Payload files/arrays are written first; the catalog
+publishes the step only after all required fields and writer outcomes succeed.
+Readers then select their own regions and consult the catalog rather than
+assuming that native time-axis length means a step is complete.
+
+Per-step NetCDF and Zarr adapters, GRIB2 immutable message-payload and indexed
+field-read helpers, optional catalog message-range records, a catalog reader,
+and a bounded selection-aware cache are present. The C evolution lifecycle
+supports POSIX NetCDF-4 and single-rank TensorStore Zarr v3. Parallel NetCDF
+builds also expose collective direct submission through
+`amio_begin_step_partitioned`; each rank contributes one global-coordinate
+box per field, zero-count boxes represent empty contributors, and end-step
+checks that required/present fields are exactly covered before rank zero
+publishes the catalog record. The 4-rank 100-step qualification passes with
+uneven partitions, an empty rank, optional absences, shape
+changes, collective cancellation, incomplete-coverage failure propagation,
+different reader partitions, and native-reader comparisons; this run passes
+in `cece/cece-dev:latest` with parallel NetCDF.
+
+GRIB2 remains helper-only and is not yet connected to public collection
+publication. NCZarr collections and shared Zarr output are rejected. Zarr
+execution and shared-shard guarantees remain backend/build dependent. The
+public API reports durability as unsupported until a sync guarantee is
+certified. Aggregated submission, public GRIB2 collection publication/native
+encoding, shared-shard Zarr output, and durable-storage guarantees remain open;
+keep production on the established legacy calls until M1 is qualified.

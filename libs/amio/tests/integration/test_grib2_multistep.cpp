@@ -95,7 +95,7 @@ int main() {
 
     const std::string yaml = std::string("path: ") + OUTPUT_PATH +
                              "\n"
-                             "drt: jpeg2000\n"
+                             "drt: libaec\n"
                              "grib2:\n"
                              "  discipline: 0\n"
                              "  center: 7\n"
@@ -129,7 +129,7 @@ int main() {
         writer.flush();
         writer.close();
     } catch (const std::exception &e) {
-        std::fprintf(stdout, "NOTE: GRIB2 write path unavailable (JPEG2000 encoder not in this g2c build), skipping: %s\n", e.what());
+        report_failure("write phase", __FILE__, __LINE__, e.what());
         functional = false;
     }
 

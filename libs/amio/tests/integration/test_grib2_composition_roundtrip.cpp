@@ -101,7 +101,7 @@ std::string expected_identity_name(int pdt_number) {
 std::string build_yaml(const char *path, int pdt_number, int gdt_number = 0) {
     std::string yaml = std::string("path: ") + path +
                        "\n"
-                       "drt: jpeg2000\n"
+                       "drt: libaec\n"
                        "grib2:\n"
                        "  discipline: 0\n"
                        "  center: 7\n"
@@ -209,7 +209,7 @@ bool test_pdt_roundtrip(int pdt_number) {
         writer.flush();
         writer.close();
     } catch (const std::exception &e) {
-        std::fprintf(stdout, "NOTE: %s write path unavailable (encoder not in this g2c build), skipping: %s\n", label.c_str(), e.what());
+        report_failure("write phase", __FILE__, __LINE__, label + ": " + e.what());
         std::remove(tmp_path.c_str());
         return false;
     }
@@ -299,7 +299,7 @@ bool test_gdt_3_40_roundtrip() {
         writer.flush();
         writer.close();
     } catch (const std::exception &e) {
-        std::fprintf(stdout, "NOTE: %s write path unavailable (encoder not in this g2c build), skipping: %s\n", label.c_str(), e.what());
+        report_failure("write phase", __FILE__, __LINE__, label + ": " + e.what());
         std::remove(tmp_path);
         return false;
     }
@@ -363,7 +363,7 @@ bool test_backward_compatibility_pdt_4_0() {
     // This mimics a pre-feature manifest that only uses basic PDT 4.0.
     std::string yaml = std::string("path: ") + tmp_path +
                        "\n"
-                       "drt: jpeg2000\n"
+                       "drt: libaec\n"
                        "grib2:\n"
                        "  discipline: 0\n"
                        "  center: 7\n"
@@ -417,7 +417,7 @@ bool test_backward_compatibility_pdt_4_0() {
         writer.flush();
         writer.close();
     } catch (const std::exception &e) {
-        std::fprintf(stdout, "NOTE: %s write path unavailable (encoder not in this g2c build), skipping: %s\n", label.c_str(), e.what());
+        report_failure("write phase", __FILE__, __LINE__, label + ": " + e.what());
         std::remove(tmp_path);
         return false;
     }

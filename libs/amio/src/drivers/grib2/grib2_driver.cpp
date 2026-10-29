@@ -295,6 +295,14 @@ void GRIB2_Driver::open_write(const conf::Config &config) {
     initialize(config);
 }
 
+void GRIB2_Driver::open_step_encoder(const conf::Config &config) {
+    if (initialized_) throw std::runtime_error("GRIB2_Driver: step encoder is already initialized");
+    active_drt_ = validate_drt(config);
+    settings_ = read_settings(config);
+    read_mode_ = false;
+    initialized_ = true;
+}
+
 void GRIB2_Driver::open_read(const conf::Config &config) {
 #ifndef AMIO_HAS_G2C
     // g2c is not available in this build.  A read open must fail so the
@@ -1180,6 +1188,37 @@ std::vector<std::int64_t> GRIB2_Driver::build_drs_template(GRIB2_DRT drt, const 
 // write -- encode a GRIB2 record (R9.3, R9.4, R9.5, R9.6, R9.7, R9.8)
 // ---------------------------------------------------------------
 
+std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta,
+                                                              std::size_t encoded_buffer_budget,
+                                                              std::size_t codec_scratch_budget) {
+    require_complete_grib2_message(meta.write_region.rank == 0);
+    if (meta.dtype != AMIO_DTYPE_F32) throw std::runtime_error("GRIB2 step messages require F32 fields");
+    const auto elements = total_elements(meta.shape);
+    if (elements == 0 || elements > std::numeric_limits<std::size_t>::max() / sizeof(float))
+        throw std::overflow_error("GRIB2 step field byte size cannot be represented");
+    const auto bytes = elements * sizeof(float);
+    preflight_grib2_message(bytes, !is_contiguous_row_major(meta.shape), encoded_buffer_budget, codec_scratch_budget);
+    auto message = encode_message(src, meta);
+    validate_complete_grib2_message(message);
+    return message;
+}
+
+std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta,
+                                                              std::size_t encoded_buffer_budget,
+                                                              std::size_t codec_scratch_budget,
+                                                              const Grib2Settings &settings) {
+    const auto saved = settings_;
+    settings_ = settings;
+    try {
+        auto message = encode_step_message(src, meta, encoded_buffer_budget, codec_scratch_budget);
+        settings_ = saved;
+        return message;
+    } catch (...) {
+        settings_ = saved;
+        throw;
+    }
+}
+
 void GRIB2_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
 #ifdef AMIO_HAS_MPI
     if (parallel_mode_) {
@@ -1254,6 +1293,7 @@ std::vector<unsigned char> GRIB2_Driver::encode_message(const StagingBuffer &src
         nj = 1;
         ni = static_cast<std::int64_t>(num_elements);
     }
+    validate_grib2_representability(settings_, ni, nj);
 
     // Section 0 (indicator): [discipline, edition].
     g2int listsec0[2];

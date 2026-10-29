@@ -54,10 +54,22 @@ typedef enum amio_err_e {
     AMIO_ERR_QUEUE_FULL = 14,            /**< Write queue at capacity (R6.9) */
     AMIO_ERR_TIMEOUT = 15,               /**< Operation timed out (R3.9, R5.5, R6.10) */
     AMIO_ERR_BACKEND_FAILURE = 16,       /**< Backend driver reported an error (R6.6, R7.6) */
-    AMIO_ERR_INVALID_INPUT = 17          /**< Invalid argument (NULL, out-of-range, etc.) (R2.10) */
+    AMIO_ERR_INVALID_INPUT = 17,         /**< Invalid argument (NULL, out-of-range, etc.) (R2.10) */
+    AMIO_ERR_UNSUPPORTED = 18,           /**< Requested capability is unavailable */
+    AMIO_ERR_FIELD_NOT_PRESENT = 19,     /**< Optional field is absent from this step */
+    AMIO_ERR_SCHEMA_MISMATCH = 20,       /**< Participants supplied incompatible schemas */
+    AMIO_ERR_PARTITION_INVALID = 21,     /**< Region bounds or partition plan is invalid */
+    AMIO_ERR_PUBLICATION_PENDING = 22,   /**< Publication outcome needs reconciliation */
+    AMIO_ERR_STEP_FAILED = 23,           /**< Step reached a terminal failure */
+    AMIO_ERR_STREAM_END = 24,            /**< Consumer reached normal end of stream */
+    AMIO_ERR_STREAM_DISCONNECTED = 25,   /**< Stream ended with an unmet delivery obligation */
+    AMIO_ERR_INVALID_POLICY = 26,        /**< Execution or storage policy is incompatible */
+    AMIO_ERR_BUDGET_EXCEEDED = 27,       /**< A configured finite resource ceiling was exceeded */
+    AMIO_ERR_OPERATION_PENDING = 28,    /**< Accepted operation remains active */
+    AMIO_ERR_BUFFER_TOO_SMALL = 29       /**< Caller-provided result buffer cannot hold the requested page */
     /*
      * Extension space reserved.  Append future codes with the next
-     * unused integer (18, 19, ...).  Do NOT reorder, do NOT remove,
+     * unused integer (30, 31, ...).  Do NOT reorder, do NOT remove,
      * do NOT renumber.
      */
 } amio_err_t;
