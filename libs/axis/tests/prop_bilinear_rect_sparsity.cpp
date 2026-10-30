@@ -11,8 +11,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -27,13 +25,13 @@
 #include <cstddef>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 
 using MemSpace = Kokkos::HostSpace;
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-
 
 // ─── Generators ──────────────────────────────────────────────────────────────
 

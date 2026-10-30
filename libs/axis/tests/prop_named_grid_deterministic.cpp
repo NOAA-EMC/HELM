@@ -16,8 +16,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -25,6 +23,8 @@
 #include <axis/topology/named_grid_registry.hpp>
 #include <cstring>
 #include <string>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -142,7 +142,5 @@ RC_GTEST_PROP(PropNamedGridDeterministic, IdenticalCsrConnectivity, ()) {
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
 // RapidCheck/GTest property tests need Kokkos initialized for View allocation
 // and parallel kernel execution in the named-grid generators.
-
-
 
 }  // namespace

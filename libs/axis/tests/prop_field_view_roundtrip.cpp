@@ -19,8 +19,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -30,6 +28,8 @@
 #include <cstddef>
 #include <cstring>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -168,7 +168,5 @@ RC_GTEST_PROP(FieldViewRoundtripProperty1, ToMdspanPreservesPointer, ()) {
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
 // RapidCheck/GTest property tests need Kokkos initialized for View allocation.
-
-
 
 }  // namespace

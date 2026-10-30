@@ -6,8 +6,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -15,6 +13,8 @@
 #include <axis/solver/vertical_regridder.hpp>
 #include <cmath>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -178,7 +178,5 @@ TEST(PropVerticalRegridder, ExceptionValidation) {
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-
 
 }  // namespace

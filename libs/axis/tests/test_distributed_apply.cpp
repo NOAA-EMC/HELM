@@ -4,8 +4,6 @@
 
 #include <gtest/gtest.h>
 
-#include "common/test_kokkos_env.hpp"
-
 #include <Kokkos_Core.hpp>
 #include <axis/solver/apply.hpp>
 #include <axis/solver/halo_pattern.hpp>
@@ -13,9 +11,9 @@
 #include <axis/types.hpp>
 #include <vector>
 
-namespace {
+#include "common/test_kokkos_env.hpp"
 
-}  // namespace
+namespace {}  // namespace
 
 namespace axis::test {
 

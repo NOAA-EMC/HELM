@@ -9,8 +9,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -19,6 +17,8 @@
 #include <axis/detail/spherical_clipper.hpp>
 #include <cmath>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -232,7 +232,5 @@ RC_GTEST_PROP(PropSphericalClipper, ClipperTerminatesWithValidOutput, ()) {
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-
 
 }  // namespace

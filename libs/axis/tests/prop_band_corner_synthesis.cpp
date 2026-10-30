@@ -23,8 +23,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -35,11 +33,11 @@
 #include <cstddef>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 
 using MemSpace = Kokkos::HostSpace;
-
-
 
 // Build whole-grid synthesized corners by running the real StructuredGrid path
 // with the same explicit seam declaration supplied to the band helper.

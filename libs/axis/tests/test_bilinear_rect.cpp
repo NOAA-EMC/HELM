@@ -12,8 +12,6 @@
 
 #include <gtest/gtest.h>
 
-#include "common/test_kokkos_env.hpp"
-
 #include <Kokkos_Core.hpp>
 #include <axis/solver/interpolation_matrix.hpp>
 #include <axis/solver/regrid_config.hpp>
@@ -26,9 +24,9 @@
 #include <stdexcept>
 #include <vector>
 
-namespace {
+#include "common/test_kokkos_env.hpp"
 
-}  // namespace
+namespace {}  // namespace
 
 namespace axis::test {
 

@@ -3,14 +3,12 @@
 
 #include <gtest/gtest.h>
 
-#include "common/test_kokkos_env.hpp"
-
 #include <axis/detail/regular_grid_detector.hpp>
 #include <axis/topology/structured_grid.hpp>
 
-namespace {
+#include "common/test_kokkos_env.hpp"
 
-}  // namespace
+namespace {}  // namespace
 
 namespace axis::test {
 

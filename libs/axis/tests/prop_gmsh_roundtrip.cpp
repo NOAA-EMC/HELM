@@ -18,8 +18,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -38,6 +36,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -386,7 +386,5 @@ RC_GTEST_PROP(PropGmshRoundtrip, ConnectivityPreserved, ()) {
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
 // Property tests need Kokkos initialized for StructuredGrid conversion kernel
 // and GmshWriter (which may do Kokkos::deep_copy for device meshes).
-
-
 
 }  // namespace

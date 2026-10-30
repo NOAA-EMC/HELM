@@ -4,8 +4,6 @@
 
 #include <gtest/gtest.h>
 
-#include "common/test_kokkos_env.hpp"
-
 #include <Kokkos_Core.hpp>
 #include <axis/topology/multi_face_grid.hpp>
 #include <axis/types.hpp>
@@ -13,8 +11,9 @@
 #include <utility>
 #include <vector>
 
-namespace {
+#include "common/test_kokkos_env.hpp"
 
+namespace {
 
 using Space = Kokkos::HostSpace;
 using namespace axis::topology;

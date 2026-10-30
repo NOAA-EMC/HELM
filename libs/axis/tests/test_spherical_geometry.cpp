@@ -5,8 +5,6 @@
 
 #include <gtest/gtest.h>
 
-#include "common/test_kokkos_env.hpp"
-
 #include <Kokkos_Core.hpp>
 #include <axis/detail/spherical_geometry.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
@@ -15,9 +13,9 @@
 #include <utility>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
-
-
 
 using namespace axis::detail::spherical;
 constexpr double deg2rad = pi / 180.0;

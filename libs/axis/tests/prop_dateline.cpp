@@ -7,8 +7,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -17,6 +15,8 @@
 #include <axis/detail/dateline_handler.hpp>
 #include <cmath>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -180,7 +180,5 @@ RC_GTEST_PROP(PropDateline, NonCrossingNormalizationSafe, ()) {
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-
 
 }  // namespace

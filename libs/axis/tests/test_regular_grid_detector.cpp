@@ -4,17 +4,15 @@
 
 #include <gtest/gtest.h>
 
-#include "common/test_kokkos_env.hpp"
-
 #include <Kokkos_Core.hpp>
 #include <axis/detail/regular_grid_detector.hpp>
 #include <axis/topology/structured_grid.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
 
-namespace {
+#include "common/test_kokkos_env.hpp"
 
-}  // namespace
+namespace {}  // namespace
 
 namespace axis::test {
 

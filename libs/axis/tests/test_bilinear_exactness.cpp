@@ -3,8 +3,6 @@
 
 #include <gtest/gtest.h>
 
-#include "common/test_kokkos_env.hpp"
-
 #include <Kokkos_Core.hpp>
 #include <axis/solver/apply.hpp>
 #include <axis/solver/interpolation_matrix.hpp>
@@ -14,9 +12,9 @@
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
 
-namespace {
+#include "common/test_kokkos_env.hpp"
 
-}  // namespace
+namespace {}  // namespace
 
 namespace axis::test {
 

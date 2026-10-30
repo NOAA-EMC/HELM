@@ -20,8 +20,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -31,6 +29,8 @@
 #include <cstddef>
 #include <utility>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -312,7 +312,5 @@ RC_GTEST_PROP(PropProducerEquivalence, UgridProducerEquivalence, ()) {
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
 // Property tests need Kokkos initialized for MeshFactory (uses StructuredGrid
 // conversion kernel and Kokkos::deep_copy).
-
-
 
 }  // namespace

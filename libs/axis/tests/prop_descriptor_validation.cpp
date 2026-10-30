@@ -23,8 +23,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -36,6 +34,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -329,7 +329,5 @@ RC_GTEST_PROP(PropDescriptorValidation, UnknownConventionKind, ()) {
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
 // Property tests require Kokkos initialized for MeshFactory operations.
-
-
 
 }  // namespace

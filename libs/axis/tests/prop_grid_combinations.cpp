@@ -6,8 +6,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -16,6 +14,8 @@
 #include <axis/topology/named_grid_registry.hpp>
 #include <cmath>
 #include <string>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -131,7 +131,5 @@ RC_GTEST_PROP(PropGridCombinations, RemapBetweenAnyGridCombination, ()) {
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-
 
 }  // namespace

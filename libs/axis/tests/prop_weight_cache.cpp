@@ -13,8 +13,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -28,6 +26,8 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -278,7 +278,5 @@ TEST(PropWeightCache, DeserializeThrowsOnTruncatedBuffer) {
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-
 
 }  // namespace

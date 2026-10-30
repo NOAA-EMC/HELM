@@ -12,8 +12,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -22,6 +20,8 @@
 #include <axis/topology/unstructured_mesh.hpp>
 #include <cmath>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -289,7 +289,5 @@ RC_GTEST_PROP(PropSphericalCapFilter, AngularRadiusBoundSoundnessPolarCells, ())
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-
 
 }  // namespace

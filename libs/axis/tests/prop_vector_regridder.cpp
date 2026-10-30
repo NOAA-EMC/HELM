@@ -7,8 +7,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -17,6 +15,8 @@
 #include <axis/solver/vector_regridder.hpp>
 #include <axis/topology/structured_grid.hpp>
 #include <cmath>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -142,7 +142,5 @@ RC_GTEST_PROP(PropVectorRegridder, CoupledRotationAndInterpolation, ()) {
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-
 
 }  // namespace

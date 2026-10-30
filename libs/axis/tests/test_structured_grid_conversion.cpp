@@ -4,8 +4,6 @@
 
 #include <gtest/gtest.h>
 
-#include "common/test_kokkos_env.hpp"
-
 #include <Kokkos_Core.hpp>
 #include <axis/topology/rule_generator.hpp>
 #include <axis/topology/structured_grid.hpp>
@@ -13,9 +11,9 @@
 #include <limits>
 #include <stdexcept>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
-
-
 
 using MemSpace = Kokkos::HostSpace;
 using namespace axis::topology;

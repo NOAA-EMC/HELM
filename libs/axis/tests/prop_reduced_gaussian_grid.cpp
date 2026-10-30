@@ -3,8 +3,6 @@
 // Copyright (c) HELM Project Contributors
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -15,6 +13,8 @@
 #include <cstddef>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 
 using Space = Kokkos::HostSpace;
@@ -22,8 +22,6 @@ using axis::topology::CoordinateSystem;
 using axis::topology::LongitudePeriodicity;
 using axis::topology::ReducedGaussianGrid;
 using axis::topology::ReducedGaussianRow;
-
-
 
 RC_GTEST_PROP(PropReducedGaussianGrid, RaggedRowsPreserveOrderAndConserveArea, ()) {
     const std::size_t n_rows = *rc::gen::inRange<std::size_t>(2, 7);

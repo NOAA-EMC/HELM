@@ -12,8 +12,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -22,6 +20,8 @@
 #include <axis/detail/planar_clipper.hpp>
 #include <cmath>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -414,7 +414,5 @@ RC_GTEST_PROP(PropPlanarClipper, OverlapAreaBounds, ()) {
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-
 
 }  // namespace

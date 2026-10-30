@@ -7,8 +7,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -17,6 +15,8 @@
 #include <axis/solver/weight_generator.hpp>
 #include <axis/topology/structured_grid.hpp>
 #include <cmath>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -136,7 +136,5 @@ RC_GTEST_PROP(PropCoastalRenormalization, RenormalizeToWetCells, ()) {
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-
 
 }  // namespace

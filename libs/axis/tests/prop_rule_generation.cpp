@@ -13,8 +13,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -24,6 +22,8 @@
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -218,7 +218,5 @@ RC_GTEST_PROP(PropRuleGeneration, BboxMaxLessThanMinThrows, ()) {
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
 // RapidCheck/GTest property tests need Kokkos initialized for View allocation.
-
-
 
 }  // namespace

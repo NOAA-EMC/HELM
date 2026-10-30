@@ -4,8 +4,6 @@
 
 #include <gtest/gtest.h>
 
-#include "common/test_kokkos_env.hpp"
-
 #include <Kokkos_Core.hpp>
 #include <axis/topology/reduced_gaussian_grid.hpp>
 #include <cmath>
@@ -13,9 +11,9 @@
 #include <utility>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
-
-
 
 using namespace axis::topology;
 

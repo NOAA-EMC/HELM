@@ -24,8 +24,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -39,6 +37,8 @@
 #include <cstring>
 #include <numeric>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -335,7 +335,5 @@ RC_GTEST_PROP(PropBufferAdoption, MeshOwnsDataSeparateFromDescriptorBuffers, ())
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
 // RapidCheck/GTest property tests need Kokkos initialized for View allocation.
-
-
 
 }  // namespace

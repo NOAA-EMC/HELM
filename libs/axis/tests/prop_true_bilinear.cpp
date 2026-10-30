@@ -8,8 +8,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
-
-#include "common/test_kokkos_env.hpp"
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
@@ -18,6 +16,8 @@
 #include <axis/detail/gnomonic_projector.hpp>
 #include <axis/detail/spherical_clipper.hpp>
 #include <cmath>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -235,7 +235,5 @@ RC_GTEST_PROP(PropTrueBilinear, WeightsPartitionOfUnity, ()) {
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-
 
 }  // namespace

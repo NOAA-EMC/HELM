@@ -3,8 +3,6 @@
 
 #include <gtest/gtest.h>
 
-#include "common/test_kokkos_env.hpp"
-
 #include <Kokkos_Core.hpp>
 #include <axis/solver/apply.hpp>
 #include <axis/solver/conservation.hpp>
@@ -14,6 +12,8 @@
 #include <axis/topology/structured_grid.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 namespace axis::test {
