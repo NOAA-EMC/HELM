@@ -36,14 +36,17 @@
 #include <axis/solver/weight_generator.hpp>
 #include <axis/topology/gmsh_writer.hpp>
 #include <axis/topology/mesh_factory.hpp>
+#include <axis/topology/multi_face_grid.hpp>
 #include <axis/topology/named_grid_registry.hpp>
 #include <axis/topology/projection_builder.hpp>
+#include <axis/topology/reduced_gaussian_grid.hpp>
 #include <axis/topology/rule_generator.hpp>
 #include <axis/topology/structured_grid.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -124,7 +127,7 @@ HostMesh make_projected_mesh(std::size_t ni, std::size_t nj, const std::string &
 // ─── Helper: Build an unstructured UGRID mesh from arrays ───────────────────
 
 HostMesh make_ugrid_mesh(nb::ndarray<nb::numpy, double, nb::ndim<2>> node_coords, nb::ndarray<nb::numpy, axis::index_t, nb::ndim<1>> conn_offsets,
-                         nb::ndarray<nb::numpy, axis::index_t, nb::ndim<1>> conn_indices) {
+                         nb::ndarray<nb::numpy, axis::index_t, nb::ndim<1>> conn_indices, nb::object cell_mask = nb::none()) {
     ensure_kokkos();
 
     axis::ingest::GridDescriptor desc;
@@ -135,8 +138,95 @@ HostMesh make_ugrid_mesh(nb::ndarray<nb::numpy, double, nb::ndim<2>> node_coords
     desc.buffers.node_coords = axis::field_view<const double, 2>(node_coords.data(), node_coords.shape(0), node_coords.shape(1));
     desc.buffers.conn_offsets = axis::field_view<const axis::index_t, 1>(conn_offsets.data(), conn_offsets.shape(0));
     desc.buffers.conn_indices = axis::field_view<const axis::index_t, 1>(conn_indices.data(), conn_indices.shape(0));
+    if (!cell_mask.is_none()) {
+        auto mask = nb::cast<nb::ndarray<const int, nb::ndim<1>>>(cell_mask);
+        desc.buffers.cell_mask = axis::field_view<const int, 1>(mask.data(), mask.shape(0));
+    }
 
     return axis::topology::MeshFactory::from_descriptor<Kokkos::HostSpace>(desc);
+}
+
+HostMesh make_reduced_gaussian_mesh(nb::ndarray<const double, nb::ndim<1>> latitude_bounds, nb::list longitude_bounds_by_row, bool periodic,
+                                    double period, bool increasing, bool conforming) {
+    ensure_kokkos();
+    std::vector<double> latitudes(latitude_bounds.shape(0));
+    for (std::size_t j = 0; j < latitude_bounds.shape(0); ++j) latitudes[j] = latitude_bounds.data()[j * latitude_bounds.stride(0)];
+    std::vector<axis::topology::ReducedGaussianRow> rows;
+    rows.reserve(nb::len(longitude_bounds_by_row));
+    for (nb::handle item : longitude_bounds_by_row) {
+        auto bounds = nb::cast<nb::ndarray<const double, nb::ndim<1>>>(item);
+        std::vector<double> row(bounds.shape(0));
+        for (std::size_t i = 0; i < bounds.shape(0); ++i) row[i] = bounds.data()[i * bounds.stride(0)];
+        rows.push_back({std::move(row)});
+    }
+    axis::topology::ReducedGaussianGrid grid(std::move(latitudes), std::move(rows), axis::topology::CoordinateSystem::SphericalDeg,
+                                             axis::topology::LongitudePeriodicity{periodic, period, increasing});
+    return grid.to_unstructured<Kokkos::HostSpace>(conforming);
+}
+
+axis::topology::FaceEdge parse_face_edge(const std::string &edge) {
+    if (edge == "south" || edge == "South") return axis::topology::FaceEdge::South;
+    if (edge == "east" || edge == "East") return axis::topology::FaceEdge::East;
+    if (edge == "north" || edge == "North") return axis::topology::FaceEdge::North;
+    if (edge == "west" || edge == "West") return axis::topology::FaceEdge::West;
+    throw std::invalid_argument("make_multiface_mesh: edge must be south, east, north, or west");
+}
+
+HostMesh make_multiface_mesh(nb::list face_specs, nb::list connection_specs, axis::topology::CoordinateSystem coordinate_system,
+                             nb::list equivalence_specs) {
+    ensure_kokkos();
+    using Face = axis::topology::StructuredFace<Kokkos::HostSpace>;
+    std::vector<Face> faces;
+    faces.reserve(nb::len(face_specs));
+    for (nb::handle item : face_specs) {
+        nb::dict spec = nb::cast<nb::dict>(item);
+        const auto ni = nb::cast<std::size_t>(spec["ni"]);
+        const auto nj = nb::cast<std::size_t>(spec["nj"]);
+        auto coords = nb::cast<nb::ndarray<const double, nb::ndim<2>>>(spec["node_coords"]);
+        if (ni == std::numeric_limits<std::size_t>::max() || nj == std::numeric_limits<std::size_t>::max() ||
+            ni + 1 > std::numeric_limits<std::size_t>::max() / (nj + 1)) {
+            throw std::overflow_error("make_multiface_mesh: face node count overflows size_t");
+        }
+        const std::size_t expected_nodes = (ni + 1) * (nj + 1);
+        if (coords.shape(0) != expected_nodes || (coords.shape(1) != 2 && coords.shape(1) != 3)) {
+            throw std::invalid_argument("make_multiface_mesh: node_coords must have shape ((ni+1)*(nj+1), 2 or 3)");
+        }
+        Face face;
+        face.ni = ni;
+        face.nj = nj;
+        face.reverse_cell_orientation = spec.contains("reverse_cell_orientation") && nb::cast<bool>(spec["reverse_cell_orientation"]);
+        face.node_coords = Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace>("python_face_coords", expected_nodes, coords.shape(1));
+        for (std::size_t node = 0; node < expected_nodes; ++node) {
+            for (std::size_t d = 0; d < coords.shape(1); ++d) {
+                face.node_coords(node, d) = coords.data()[node * coords.stride(0) + d * coords.stride(1)];
+            }
+        }
+        faces.push_back(std::move(face));
+    }
+
+    std::vector<axis::topology::FaceConnection> connections;
+    connections.reserve(nb::len(connection_specs));
+    for (nb::handle item : connection_specs) {
+        nb::dict spec = nb::cast<nb::dict>(item);
+        connections.push_back({nb::cast<std::size_t>(spec["face_a"]), parse_face_edge(nb::cast<std::string>(spec["edge_a"])),
+                               nb::cast<std::size_t>(spec["face_b"]), parse_face_edge(nb::cast<std::string>(spec["edge_b"])),
+                               nb::cast<bool>(spec["reversed"])});
+    }
+
+    std::vector<std::vector<axis::topology::FaceVertexRef>> equivalences;
+    equivalences.reserve(nb::len(equivalence_specs));
+    for (nb::handle group_handle : equivalence_specs) {
+        std::vector<axis::topology::FaceVertexRef> group;
+        for (nb::handle ref_handle : nb::cast<nb::list>(group_handle)) {
+            auto ref = nb::cast<nb::tuple>(ref_handle);
+            if (nb::len(ref) != 3) throw std::invalid_argument("make_multiface_mesh: vertex references must be (face, i, j) triples");
+            group.push_back({nb::cast<std::size_t>(ref[0]), nb::cast<std::size_t>(ref[1]), nb::cast<std::size_t>(ref[2])});
+        }
+        equivalences.push_back(std::move(group));
+    }
+
+    axis::topology::MultiFaceGrid<Kokkos::HostSpace> grid(std::move(faces), std::move(connections), coordinate_system, std::move(equivalences));
+    return grid.to_unstructured();
 }
 
 // ─── Helper: Parse RegridConfig from Python dict ─────────────────────────────
@@ -265,6 +355,24 @@ NB_MODULE(axis_py, m) {
         .value("Cartesian", axis::solver::LineType::Cartesian)
         .value("GreatCircle", axis::solver::LineType::GreatCircle);
 
+    nb::enum_<axis::topology::CoordinateSystem>(m, "CoordinateSystem")
+        .value("SphericalDeg", axis::topology::CoordinateSystem::SphericalDeg)
+        .value("SphericalRad", axis::topology::CoordinateSystem::SphericalRad)
+        .value("Cartesian3D", axis::topology::CoordinateSystem::Cartesian3D);
+
+    nb::enum_<axis::topology::CornerPolicy>(m, "CornerPolicy")
+        .value("RequireExplicit", axis::topology::CornerPolicy::RequireExplicit)
+        .value("GaussianLatLon", axis::topology::CornerPolicy::GaussianLatLon)
+        .value("RectilinearMidpoint", axis::topology::CornerPolicy::RectilinearMidpoint)
+        .value("CurvilinearApproximate", axis::topology::CornerPolicy::CurvilinearApproximate);
+
+    nb::class_<axis::topology::LongitudePeriodicity>(m, "LongitudePeriodicity")
+        .def(nb::init<>())
+        .def(nb::init<bool, double, bool>(), "periodic"_a, "period"_a = 360.0, "increasing"_a = true)
+        .def_rw("periodic", &axis::topology::LongitudePeriodicity::periodic)
+        .def_rw("period", &axis::topology::LongitudePeriodicity::period)
+        .def_rw("increasing", &axis::topology::LongitudePeriodicity::increasing);
+
     // ─── Mesh wrapper class ──────────────────────────────────────────────────
     nb::class_<HostMesh>(m, "Mesh").def_prop_ro("n_nodes", &HostMesh::n_nodes).def_prop_ro("n_cells", &HostMesh::n_cells);
 
@@ -273,31 +381,62 @@ NB_MODULE(axis_py, m) {
         .def(
             "__init__",
             [](axis::topology::StructuredGrid<Kokkos::HostSpace> *grid, std::size_t ni, std::size_t nj, nb::ndarray<const double, nb::ndim<1>> cx,
-               nb::ndarray<const double, nb::ndim<1>> cy) {
+               nb::ndarray<const double, nb::ndim<1>> cy, axis::topology::CoordinateSystem coordinate_system) {
                 ensure_kokkos();
-
-                Kokkos::View<const double *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> cx_in(cx.data(), cx.shape(0));
-                Kokkos::View<const double *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> cy_in(cy.data(), cy.shape(0));
 
                 Kokkos::View<double *, Kokkos::HostSpace> cx_v("structured_grid_cx", cx.shape(0));
                 Kokkos::View<double *, Kokkos::HostSpace> cy_v("structured_grid_cy", cy.shape(0));
-                Kokkos::deep_copy(cx_v, cx_in);
-                Kokkos::deep_copy(cy_v, cy_in);
+                for (std::size_t i = 0; i < cx.shape(0); ++i) cx_v(i) = cx.data()[i * cx.stride(0)];
+                for (std::size_t i = 0; i < cy.shape(0); ++i) cy_v(i) = cy.data()[i * cy.stride(0)];
 
-                new (grid) axis::topology::StructuredGrid<Kokkos::HostSpace>(ni, nj, std::move(cx_v), std::move(cy_v),
-                                                                             axis::topology::CoordinateSystem::SphericalDeg);
+                new (grid) axis::topology::StructuredGrid<Kokkos::HostSpace>(ni, nj, std::move(cx_v), std::move(cy_v), coordinate_system);
             },
-            "ni"_a, "nj"_a, "cx"_a, "cy"_a)
+            "ni"_a, "nj"_a, "cx"_a, "cy"_a, "coordinate_system"_a = axis::topology::CoordinateSystem::SphericalDeg)
         .def(
             "set_corners",
             [](axis::topology::StructuredGrid<Kokkos::HostSpace> &grid, nb::ndarray<const double, nb::ndim<1>> crx,
                nb::ndarray<const double, nb::ndim<1>> cry) {
-                Kokkos::View<double *, Kokkos::HostSpace> crx_v(const_cast<double *>(crx.data()), crx.shape(0));
-                Kokkos::View<double *, Kokkos::HostSpace> cry_v(const_cast<double *>(cry.data()), cry.shape(0));
-                grid.set_corners(crx_v, cry_v);
+                Kokkos::View<double *, Kokkos::HostSpace> crx_v("structured_grid_corner_lon", crx.shape(0));
+                Kokkos::View<double *, Kokkos::HostSpace> cry_v("structured_grid_corner_lat", cry.shape(0));
+                for (std::size_t i = 0; i < crx.shape(0); ++i) crx_v(i) = crx.data()[i * crx.stride(0)];
+                for (std::size_t i = 0; i < cry.shape(0); ++i) cry_v(i) = cry.data()[i * cry.stride(0)];
+                grid.set_corners(std::move(crx_v), std::move(cry_v));
             },
             "crx"_a, "cry"_a)
-        .def("to_unstructured", &axis::topology::StructuredGrid<Kokkos::HostSpace>::to_unstructured, "Convert structured grid to unstructured mesh");
+        .def(
+            "set_rectilinear_bounds",
+            [](axis::topology::StructuredGrid<Kokkos::HostSpace> &grid, nb::ndarray<const double, nb::ndim<1>> lon_bounds,
+               nb::ndarray<const double, nb::ndim<1>> lat_bounds) {
+                Kokkos::View<double *, Kokkos::HostSpace> lon("structured_lon_bounds", lon_bounds.shape(0));
+                Kokkos::View<double *, Kokkos::HostSpace> lat("structured_lat_bounds", lat_bounds.shape(0));
+                for (std::size_t i = 0; i < lon_bounds.shape(0); ++i) lon(i) = lon_bounds.data()[i * lon_bounds.stride(0)];
+                for (std::size_t i = 0; i < lat_bounds.shape(0); ++i) lat(i) = lat_bounds.data()[i * lat_bounds.stride(0)];
+                grid.set_rectilinear_bounds(std::move(lon), std::move(lat));
+            },
+            "longitude_bounds"_a, "latitude_bounds"_a)
+        .def(
+            "set_gaussian_latitude_weights",
+            [](axis::topology::StructuredGrid<Kokkos::HostSpace> &grid, nb::ndarray<const double, nb::ndim<1>> weights) {
+                Kokkos::View<double *, Kokkos::HostSpace> view("gaussian_latitude_weights", weights.shape(0));
+                for (std::size_t i = 0; i < weights.shape(0); ++i) view(i) = weights.data()[i * weights.stride(0)];
+                grid.set_gaussian_latitude_weights(std::move(view));
+            },
+            "weights"_a)
+        .def(
+            "to_unstructured", [](const axis::topology::StructuredGrid<Kokkos::HostSpace> &grid) { return grid.to_unstructured(); },
+            "Convert structured grid to unstructured mesh using the default reconstruction policy")
+        .def(
+            "to_unstructured",
+            [](const axis::topology::StructuredGrid<Kokkos::HostSpace> &grid, axis::topology::CornerPolicy policy,
+               axis::topology::LongitudePeriodicity seam) { return grid.to_unstructured(policy, seam); },
+            "policy"_a, "seam"_a = axis::topology::LongitudePeriodicity{});
+
+    m.def("make_reduced_gaussian_mesh", &make_reduced_gaussian_mesh, "latitude_bounds"_a, "longitude_bounds_by_row"_a, "periodic"_a = true,
+          "period"_a = 360.0, "increasing"_a = true, "conforming"_a = true,
+          "Create a common CSR mesh from latitude-dependent Gaussian longitude rows");
+    m.def("make_multiface_mesh", &make_multiface_mesh, "faces"_a, "connections"_a,
+          "coordinate_system"_a = axis::topology::CoordinateSystem::SphericalDeg, "vertex_equivalences"_a = nb::list(),
+          "Create a common CSR mesh from structured faces and explicit oriented seam mappings");
 
     // ─── InterpolationMatrix wrapper class ───────────────────────────────────
     nb::class_<HostMatrix>(m, "Matrix")
@@ -404,7 +543,8 @@ NB_MODULE(axis_py, m) {
           "Create a projected UnstructuredMesh using PROJ");
 
     // Make an unstructured UGRID mesh
-    m.def("make_ugrid_mesh", &make_ugrid_mesh, "node_coords"_a, "conn_offsets"_a, "conn_indices"_a, "Create an unstructured UGRID UnstructuredMesh");
+    m.def("make_ugrid_mesh", &make_ugrid_mesh, "node_coords"_a, "conn_offsets"_a, "conn_indices"_a, "cell_mask"_a = nb::none(),
+          "Create an unstructured UGRID mesh, optionally masking inactive cells");
 
     m.def(
         "triangulate_poly_cells",

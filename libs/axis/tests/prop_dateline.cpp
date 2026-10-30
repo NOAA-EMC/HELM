@@ -16,6 +16,8 @@
 #include <cmath>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 
 using axis::detail::DatelineHandler;
@@ -178,21 +180,5 @@ RC_GTEST_PROP(PropDateline, NonCrossingNormalizationSafe, ()) {
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-class KokkosEnvironment : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) {
-            Kokkos::initialize();
-        }
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) {
-            Kokkos::finalize();
-        }
-    }
-};
-
-static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnvironment);
 
 }  // namespace
