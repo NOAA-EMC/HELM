@@ -84,9 +84,12 @@ struct CommConfig {
 struct IOCommunicator {
     bool valid = false;
     bool is_io_rank = false;
+    int rank_value = 0;
+    int size_value = 1;
 
 #ifdef AMIO_HAS_MPI
     std::optional<halo::Communicator> io_comm;  // RAII-owned split result
+    MPI_Comm parent_comm = MPI_COMM_NULL;       // borrowed caller-owned default communicator
 #endif
 
     IOCommunicator() = default;
@@ -94,8 +97,10 @@ struct IOCommunicator {
     IOCommunicator &operator=(IOCommunicator &&) = default;
 
     // Custom copy constructor and copy assignment operator to support duplicate wrapping
-    IOCommunicator(const IOCommunicator &other) : valid(other.valid), is_io_rank(other.is_io_rank) {
+    IOCommunicator(const IOCommunicator &other)
+        : valid(other.valid), is_io_rank(other.is_io_rank), rank_value(other.rank_value), size_value(other.size_value) {
 #ifdef AMIO_HAS_MPI
+        parent_comm = other.parent_comm;
         if (other.io_comm.has_value()) {
             io_comm.emplace(other.io_comm->duplicate());
         }
@@ -106,7 +111,10 @@ struct IOCommunicator {
         if (this != &other) {
             valid = other.valid;
             is_io_rank = other.is_io_rank;
+            rank_value = other.rank_value;
+            size_value = other.size_value;
 #ifdef AMIO_HAS_MPI
+            parent_comm = other.parent_comm;
             if (other.io_comm.has_value()) {
                 io_comm.emplace(other.io_comm->duplicate());
             } else {
@@ -120,11 +128,12 @@ struct IOCommunicator {
     // Accessors (inline, header-only)
 
     /// Returns the raw MPI_Comm handle for use in MPI C APIs.
-    /// When no split was performed (io_comm is nullopt), returns g_amio_parent_comm.
+    /// When no split was performed, returns the borrowed parent captured at
+    /// initialization; the caller must keep that communicator alive.
     /// When MPI is not available at build time, returns 0 (sentinel).
 #ifdef AMIO_HAS_MPI
     MPI_Comm handle() const noexcept {
-        return io_comm.has_value() ? io_comm->handle() : g_amio_parent_comm;
+        return io_comm.has_value() ? io_comm->handle() : (parent_comm != MPI_COMM_NULL ? parent_comm : g_amio_parent_comm);
     }
 #else
     int handle() const noexcept {
@@ -132,36 +141,14 @@ struct IOCommunicator {
     }
 #endif
 
-    /// Returns the rank of this process within the I/O communicator.
-    /// When no split was performed, returns 0.
+    /// Returns the rank within the I/O communicator, or 0 when MPI is unavailable.
     int rank() const noexcept {
-#ifdef AMIO_HAS_MPI
-        if (io_comm.has_value()) {
-            // halo::Communicator::rank() may throw on MPI failure,
-            // but post-split the communicator is valid so this is safe.
-            try {
-                return io_comm->rank();
-            } catch (...) {
-                return 0;
-            }
-        }
-#endif
-        return 0;
+        return rank_value;
     }
 
-    /// Returns the size of the I/O communicator.
-    /// When no split was performed, returns 1.
+    /// Returns the I/O communicator size, or 1 when MPI is unavailable.
     int size() const noexcept {
-#ifdef AMIO_HAS_MPI
-        if (io_comm.has_value()) {
-            try {
-                return io_comm->size();
-            } catch (...) {
-                return 1;
-            }
-        }
-#endif
-        return 1;
+        return size_value;
     }
 };
 

@@ -215,6 +215,17 @@ void test_submit_prefetch_executes_callback() {
     EXPECT_TRUE(pool.total_prefetches_completed() == 1, "total_prefetches_completed should be 1");
 }
 
+void test_prefetch_admission_is_bounded() {
+    WorkerPoolConfig config;
+    config.thread_count = 0;
+    config.backpressure.prefetch_capacity = 2;
+    WorkerPool pool(config);
+    assert(pool.try_submit_prefetch(0, 0, 1, [] {}) == AMIO_OK);
+    assert(pool.try_submit_prefetch(1, 1, 1, [] {}) == AMIO_OK);
+    assert(pool.try_submit_prefetch(2, 2, 1, [] {}) == AMIO_ERR_QUEUE_FULL);
+    assert(pool.prefetch_queue_depth() == 2);
+}
+
 // ---- Test: prefetch priority by distance ----
 
 void test_prefetch_priority_by_distance() {
@@ -1113,6 +1124,33 @@ void test_backpressure_does_not_expire_into_admission() {
     EXPECT_TRUE(pool.submit_write({1, 1}, [] {}, &seq) == AMIO_ERR_QUEUE_FULL, "explicit rejection after shutdown");
 }
 
+void test_backpressure_admission_timeout_rejects_write() {
+    WorkerPoolConfig config;
+    config.thread_count = 1;
+    config.backpressure = {true, 0, 1, 2, std::chrono::milliseconds(25)};
+    WorkerPool pool(config);
+    std::promise<void> started, release;
+    auto gate = release.get_future().share();
+    std::uint64_t seq = 0;
+    EXPECT_TRUE(pool.submit_write({1, 1}, [&] { started.set_value(); gate.wait(); }, &seq) == AMIO_OK,
+                "admit running write");
+    started.get_future().wait();
+    EXPECT_TRUE(pool.submit_write({1, 1}, [] {}, &seq) == AMIO_OK, "fill pending queue");
+
+    std::uint64_t rejected_seq = 99;
+    const auto begin = std::chrono::steady_clock::now();
+    const auto rc = pool.submit_write({1, 1}, [] {}, &rejected_seq);
+    const auto elapsed = std::chrono::steady_clock::now() - begin;
+    EXPECT_TRUE(rc == AMIO_ERR_QUEUE_FULL, "expired admission returns queue-full");
+    EXPECT_TRUE(rejected_seq == 0, "rejected write has no assigned sequence");
+    EXPECT_TRUE(elapsed >= std::chrono::milliseconds(20), "admission waits for configured timeout");
+    EXPECT_TRUE(pool.write_queue_depth() == 1, "rejected write does not consume queue capacity");
+
+    release.set_value();
+    pool.drain();
+    pool.shutdown();
+}
+
 // Slow storage must not make drain report completion while a callback still runs.
 void test_drain_has_no_silent_deadline() {
     WorkerPool pool(1);
@@ -1131,6 +1169,7 @@ int main() {
     test_zero_worker_shutdown_synchronizes_waiters();
     test_write_queue_scans_full_rotation();
     test_backpressure_does_not_expire_into_admission();
+    test_backpressure_admission_timeout_rejects_write();
     test_drain_has_no_silent_deadline();
     test_construction_thread_count();
     test_submit_write_executes_callback();
@@ -1138,6 +1177,7 @@ int main() {
     test_per_dv_ordering_preserved();
     test_different_dv_pairs_interleave();
     test_submit_prefetch_executes_callback();
+    test_prefetch_admission_is_bounded();
     test_prefetch_priority_by_distance();
     test_drain_blocks_until_complete();
     test_queue_depth_reporting();

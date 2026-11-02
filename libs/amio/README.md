@@ -138,6 +138,12 @@ prefetch:
   depth: 8
   read_timeout_s: 120
 staging_timeout_ms: 30000
+backpressure:
+  low_watermark: 32
+  high_watermark: 64
+  queue_capacity: 128
+  prefetch_capacity: 32
+  timeout_ms: 5000
 backend: netcdf4
 path: /scratch/output.nc
 data_model: classic

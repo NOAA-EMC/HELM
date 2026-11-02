@@ -9,6 +9,10 @@
 
 find_package(Threads QUIET)
 
+# Integration fixtures use assert() for checks and setup calls; keep them
+# active in Release builds so MPI ranks execute identical fixture operations.
+add_compile_options("$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-UNDEBUG>")
+
 add_executable(test_catalog_guarantees test_catalog_guarantees.cpp
     ${CMAKE_SOURCE_DIR}/src/catalog/catalog_format.cpp
     ${CMAKE_SOURCE_DIR}/src/catalog/posix_catalog.cpp
@@ -20,8 +24,58 @@ set_tests_properties(integration.catalog_guarantees PROPERTIES
     LABELS "integration;catalog;amio_step" TIMEOUT 60 RUN_SERIAL TRUE)
 
 if(MPI_CXX_FOUND)
+    add_executable(test_mpi_core_roles test_mpi_core_roles.cpp)
+    target_link_libraries(test_mpi_core_roles PRIVATE AMIO::amio_core MPI::MPI_CXX)
+    add_test(NAME integration.mpi_core_roles COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+             $<TARGET_FILE:test_mpi_core_roles> ${MPIEXEC_POSTFLAGS})
+    set_tests_properties(integration.mpi_core_roles PROPERTIES
+        LABELS "integration;mpi;roles;amio_aggregate" TIMEOUT 60 RUN_SERIAL TRUE
+        ENVIRONMENT "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
+
+    add_executable(test_mpi_role_api test_mpi_role_api.cpp)
+    target_link_libraries(test_mpi_role_api PRIVATE AMIO::amio_core MPI::MPI_CXX)
+    add_test(NAME integration.mpi_role_api COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS}
+             $<TARGET_FILE:test_mpi_role_api> ${MPIEXEC_POSTFLAGS})
+    set_tests_properties(integration.mpi_role_api PROPERTIES
+        LABELS "integration;mpi;roles;amio_aggregate" TIMEOUT 60 RUN_SERIAL TRUE
+        ENVIRONMENT "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
+
+    add_executable(test_mpi_aggregation test_mpi_aggregation.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/aggregated_execution.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/context.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/role_map.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/transport_protocol.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/mpi_transport.cpp
+        ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp
+        ${CMAKE_SOURCE_DIR}/src/workers/thread_pinning.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/credit_window.cpp
+        ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp)
+    target_include_directories(test_mpi_aggregation PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(test_mpi_aggregation PRIVATE AMIO_HAS_MPI=1)
+    target_link_libraries(test_mpi_aggregation PRIVATE AMIO::public_headers MPI::MPI_CXX HELM::HALO HELM::CONF Threads::Threads)
+    if(netCDF_FOUND AND AMIO_NETCDF_PAR_LIB)
+        target_sources(test_mpi_aggregation PRIVATE ${CMAKE_SOURCE_DIR}/src/schema/schema.cpp
+            ${CMAKE_SOURCE_DIR}/src/staging/resource_budget.cpp
+            ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp)
+        target_compile_definitions(test_mpi_aggregation PRIVATE AMIO_HAS_NETCDF=1 AMIO_TEST_NATIVE_NETCDF=1)
+        target_link_libraries(test_mpi_aggregation PRIVATE driver_netcdf HELM::CONF ${AMIO_NETCDF_PAR_LIB})
+        if(AMIO_NETCDF_MPI_INCLUDE_DIR)
+            target_include_directories(test_mpi_aggregation BEFORE PRIVATE ${AMIO_NETCDF_MPI_INCLUDE_DIR})
+        endif()
+        get_target_property(_amio_agg_nc_inc netCDF::netcdf INTERFACE_INCLUDE_DIRECTORIES)
+        if(_amio_agg_nc_inc)
+            target_include_directories(test_mpi_aggregation PRIVATE ${_amio_agg_nc_inc})
+        endif()
+    endif()
+    add_test(NAME integration.mpi_aggregation COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS}
+             $<TARGET_FILE:test_mpi_aggregation> ${MPIEXEC_POSTFLAGS})
+    set_tests_properties(integration.mpi_aggregation PROPERTIES
+        LABELS "integration;mpi;aggregation;amio_aggregate" TIMEOUT 60 RUN_SERIAL TRUE
+        ENVIRONMENT "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
+
     add_executable(
-        test_mpi_steps test_mpi_steps.cpp ${CMAKE_SOURCE_DIR}/src/execution/context.cpp ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp
+        test_mpi_steps test_mpi_steps.cpp ${CMAKE_SOURCE_DIR}/src/execution/context.cpp ${CMAKE_SOURCE_DIR}/src/execution/role_map.cpp
+                         ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp
                          ${CMAKE_SOURCE_DIR}/src/steps/collective_preflight.cpp ${CMAKE_SOURCE_DIR}/src/schema/partition_validator.cpp
                          ${CMAKE_SOURCE_DIR}/src/staging/resource_budget.cpp)
     target_include_directories(test_mpi_steps PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -31,7 +85,8 @@ if(MPI_CXX_FOUND)
                                                 $<TARGET_FILE:test_mpi_steps> ${MPIEXEC_POSTFLAGS})
     set_tests_properties(integration.mpi_steps PROPERTIES LABELS "integration;mpi;steps;amio_step" TIMEOUT 60 RUN_SERIAL TRUE)
 
-    add_executable(test_mpi_step_failure test_mpi_step_failure.cpp ${CMAKE_SOURCE_DIR}/src/execution/context.cpp ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp)
+    add_executable(test_mpi_step_failure test_mpi_step_failure.cpp ${CMAKE_SOURCE_DIR}/src/execution/context.cpp
+                   ${CMAKE_SOURCE_DIR}/src/execution/role_map.cpp ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp)
     target_include_directories(test_mpi_step_failure PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_compile_definitions(test_mpi_step_failure PRIVATE AMIO_HAS_MPI=1)
     target_link_libraries(test_mpi_step_failure PRIVATE AMIO::public_headers MPI::MPI_CXX HELM::HALO)
@@ -51,7 +106,8 @@ endif()
 if(netCDF_FOUND AND MPI_C_FOUND)
     add_executable(
         test_netcdf4_multistep
-        test_netcdf4_multistep.cpp ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_driver.cpp ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp
+        test_netcdf4_multistep.cpp ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_driver.cpp
+        ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_steps.cpp ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp
         ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp)
 
     target_include_directories(test_netcdf4_multistep PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -167,6 +223,10 @@ if(netCDF_FOUND AND MPI_CXX_FOUND)
             target_include_directories(test_mpi_netcdf_step_payload PRIVATE ${_amio_mpi_step_nc_inc})
         endif()
         target_include_directories(test_mpi_netcdf_step_payload PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        target_compile_definitions(test_mpi_netcdf_step_payload PRIVATE AMIO_HAS_MPI=1 AMIO_HAS_NETCDF=1)
+        if(AMIO_NETCDF_MPI_INCLUDE_DIR)
+            target_include_directories(test_mpi_netcdf_step_payload BEFORE PRIVATE ${AMIO_NETCDF_MPI_INCLUDE_DIR})
+        endif()
         target_link_libraries(test_mpi_netcdf_step_payload PRIVATE ${AMIO_NETCDF_PAR_LIB})
         if(CONF_FOUND)
             target_link_libraries(test_mpi_netcdf_step_payload PRIVATE HELM::CONF)

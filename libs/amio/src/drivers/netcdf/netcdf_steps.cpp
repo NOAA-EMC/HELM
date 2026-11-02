@@ -128,7 +128,7 @@ bool define_netcdf_step_schema(int ncid, const Schema &schema, double model_time
 }
 
 bool write_netcdf_step_region(int ncid, const std::string &name, const RegionSelection &region,
-                              const void *data, std::string &error) {
+                              const void *data, std::string &error, bool independent) {
     std::lock_guard<std::mutex> lock(netcdf_mutex());
     try {
         int varid=-1; check_nc(nc_inq_varid(ncid,name.c_str(),&varid),"find variable " + name);
@@ -142,13 +142,29 @@ bool write_netcdf_step_region(int ncid, const std::string &name, const RegionSel
         const auto start=to_size(region.offsets), count=to_size(region.extents);
         if (!region.empty && data==nullptr) throw std::runtime_error("nonempty NetCDF selection has null data");
 #ifdef AMIO_HAS_PARALLEL_NETCDF
-        check_nc(nc_var_par_access(ncid,varid,NC_COLLECTIVE),"set collective variable access");
+        if (!independent) check_nc(nc_var_par_access(ncid,varid,NC_COLLECTIVE),"set collective variable access");
+#else
+        (void)independent;
 #endif
-        // Parallel NetCDF collective mode requires every rank to enter, including
-        // ranks with one or more zero counts. NetCDF ignores data for that rank.
-        check_nc(nc_put_vara(ncid,varid,start.data(),count.data(),data),"collective hyperslab write " + name);
+        // Collective mode requires every rank, including zero-count ranks.
+        // Prepared independent mode permits different numbers of bounded writes.
+        check_nc(nc_put_vara(ncid,varid,start.data(),count.data(),data),"hyperslab write " + name);
         return true;
     } catch (const std::exception &e) { error=e.what(); return false; }
+}
+
+bool prepare_netcdf_independent_region_writes(int ncid, const std::string &name, std::string &error, bool parallel) {
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
+    try {
+        int varid = -1;
+        check_nc(nc_inq_varid(ncid, name.c_str(), &varid), "find variable " + name);
+#ifdef AMIO_HAS_PARALLEL_NETCDF
+        if (parallel) check_nc(nc_var_par_access(ncid, varid, NC_INDEPENDENT), "set independent variable access " + name);
+#else
+        (void)parallel;
+#endif
+        return true;
+    } catch (const std::exception &e) { error = e.what(); return false; }
 }
 
 bool read_netcdf_step_region(const std::string &path, const std::string &name,

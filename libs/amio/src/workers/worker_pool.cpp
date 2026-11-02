@@ -38,6 +38,7 @@
 #include "workers/worker_pool.hpp"
 
 #include <cassert>
+#include <stdexcept>
 
 namespace amio::detail {
 
@@ -45,8 +46,8 @@ WorkerPool::WorkerPool(std::size_t thread_count) : thread_count_(thread_count) {
     assert(thread_count >= kMinThreadCount && thread_count <= kMaxThreadCount);
 
     // Default IOCommunicator: all ranks do I/O on world communicator.
-    io_comm_.valid = true;
-    io_comm_.is_io_rank = true;
+    if (split_communicator(CommConfig{}, 0, io_comm_) != AMIO_OK)
+        throw std::runtime_error("unable to initialize worker I/O communicator");
 
     workers_.reserve(thread_count);
     for (std::size_t i = 0; i < thread_count; ++i) {
@@ -55,14 +56,16 @@ WorkerPool::WorkerPool(std::size_t thread_count) : thread_count_(thread_count) {
 }
 
 WorkerPool::WorkerPool(const WorkerPoolConfig &config)
-    : thread_count_(config.thread_count), thread_configs_(config.thread_configs), io_comm_(config.io_comm), backpressure_(config.backpressure) {
+    : thread_count_(config.thread_count), thread_configs_(config.thread_configs), io_comm_(config.io_comm),
+      backpressure_(config.backpressure), prefetch_capacity_(config.backpressure.prefetch_capacity) {
     assert(config.thread_count >= kMinThreadCount && config.thread_count <= kMaxThreadCount);
+    assert(config.backpressure.admission_timeout.count() > 0);
 
     // If no IOCommunicator was provided (default-constructed), set
     // up the default "all ranks do I/O" mode.
     if (!io_comm_.valid) {
-        io_comm_.valid = true;
-        io_comm_.is_io_rank = true;
+        if (split_communicator(CommConfig{}, 0, io_comm_) != AMIO_OK)
+            throw std::runtime_error("unable to initialize worker I/O communicator");
     }
 
     workers_.reserve(config.thread_count);
@@ -119,8 +122,10 @@ amio_err_t WorkerPool::submit_write(DatasetVariableKey dv_key, std::uint64_t han
     if (shutdown_.load(std::memory_order_acquire)) return AMIO_ERR_QUEUE_FULL;
 
     if (backpressure_.enabled && write_queue_.size() >= backpressure_.high_watermark) {
-        backpressure_cv_.wait(lock,
-                              [this]() { return write_queue_.size() <= backpressure_.low_watermark || shutdown_.load(std::memory_order_acquire); });
+        const bool admitted = backpressure_cv_.wait_for(
+            lock, backpressure_.admission_timeout,
+            [this]() { return write_queue_.size() <= backpressure_.low_watermark || shutdown_.load(std::memory_order_acquire); });
+        if (!admitted) return AMIO_ERR_QUEUE_FULL;
     }
     if (shutdown_.load(std::memory_order_acquire) || write_queue_.size() >= backpressure_.queue_capacity) {
         return AMIO_ERR_QUEUE_FULL;
@@ -142,43 +147,41 @@ amio_err_t WorkerPool::submit_write(DatasetVariableKey dv_key, std::uint64_t han
 }
 
 void WorkerPool::submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id, std::function<void()> callback) {
-    if (shutdown_.load(std::memory_order_acquire)) {
-        return;  // No-op after shutdown.
-    }
+    (void)try_submit_prefetch(timestep, distance, dataset_id, std::move(callback));
+}
 
-    {
-        std::lock_guard<std::mutex> lock(mu_);
-
-        PrefetchTask task;
-        task.timestep = timestep;
-        task.distance = distance;
-        task.dataset_id = dataset_id;
-        task.callback = std::move(callback);
-        prefetch_queue_.push(std::move(task));
-    }
-
+amio_err_t WorkerPool::try_submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id,
+                                           std::function<void()> callback) {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (shutdown_.load(std::memory_order_acquire) || prefetch_queue_.size() >= prefetch_capacity_) return AMIO_ERR_QUEUE_FULL;
+    PrefetchTask task;
+    task.timestep = timestep;
+    task.distance = distance;
+    task.dataset_id = dataset_id;
+    task.callback = std::move(callback);
+    prefetch_queue_.push(std::move(task));
     cv_.notify_one();
+    return AMIO_OK;
 }
 
 void WorkerPool::submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id, std::uint64_t handle_id,
                                  std::function<void()> callback) {
-    if (shutdown_.load(std::memory_order_acquire)) {
-        return;  // No-op after shutdown.
-    }
+    (void)try_submit_prefetch(timestep, distance, dataset_id, handle_id, std::move(callback));
+}
 
-    {
-        std::lock_guard<std::mutex> lock(mu_);
-
-        PrefetchTask task;
-        task.timestep = timestep;
-        task.distance = distance;
-        task.dataset_id = dataset_id;
-        task.handle_id = handle_id;
-        task.callback = std::move(callback);
-        prefetch_queue_.push(std::move(task));
-    }
-
+amio_err_t WorkerPool::try_submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id,
+                                           std::uint64_t handle_id, std::function<void()> callback) {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (shutdown_.load(std::memory_order_acquire) || prefetch_queue_.size() >= prefetch_capacity_) return AMIO_ERR_QUEUE_FULL;
+    PrefetchTask task;
+    task.timestep = timestep;
+    task.distance = distance;
+    task.dataset_id = dataset_id;
+    task.handle_id = handle_id;
+    task.callback = std::move(callback);
+    prefetch_queue_.push(std::move(task));
     cv_.notify_one();
+    return AMIO_OK;
 }
 
 void WorkerPool::drain() {

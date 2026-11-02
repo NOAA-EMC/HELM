@@ -30,6 +30,10 @@ target_link_libraries(test_amio_strerror PRIVATE AMIO::public_headers AMIO::amio
 
 # The harness uses std::thread; on most Unix toolchains this requires linking pthreads.  CMake's Threads module exposes that portably.
 find_package(Threads QUIET)
+
+# Unit tests use assert() for checks and occasionally for setup calls. Keep
+# assertions enabled even when the production build type defines NDEBUG.
+add_compile_options("$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-UNDEBUG>")
 if(Threads_FOUND)
     target_link_libraries(test_amio_strerror PRIVATE Threads::Threads)
 endif()
@@ -56,6 +60,25 @@ if(MPI_CXX_FOUND)
 endif()
 add_test(NAME unit.evolution_contract COMMAND test_evolution_contract)
 set_tests_properties(unit.evolution_contract PROPERTIES LABELS "unit;abi;evolution")
+
+add_executable(test_transport_protocol test_transport_protocol.cpp
+    ${CMAKE_SOURCE_DIR}/src/execution/transport_protocol.cpp)
+target_include_directories(test_transport_protocol PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_transport_protocol PRIVATE AMIO::public_headers)
+add_test(NAME unit.transport_protocol COMMAND test_transport_protocol)
+set_tests_properties(unit.transport_protocol PROPERTIES LABELS "unit;transport;protocol" TIMEOUT 30)
+
+add_executable(test_diagnostics test_diagnostics.cpp ${CMAKE_SOURCE_DIR}/src/diagnostics/diagnostic_store.cpp)
+target_include_directories(test_diagnostics PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_diagnostics PRIVATE AMIO::public_headers)
+add_test(NAME unit.diagnostics COMMAND test_diagnostics)
+set_tests_properties(unit.diagnostics PROPERTIES LABELS "unit;diagnostics;budget" TIMEOUT 30)
+
+add_executable(test_credit_window test_credit_window.cpp ${CMAKE_SOURCE_DIR}/src/execution/credit_window.cpp)
+target_include_directories(test_credit_window PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_credit_window PRIVATE AMIO::public_headers Threads::Threads)
+add_test(NAME unit.credit_window COMMAND test_credit_window)
+set_tests_properties(unit.credit_window PROPERTIES LABELS "unit;transport;credits" TIMEOUT 30)
 
 add_executable(test_step_coordinator test_step_coordinator.cpp
     ${CMAKE_SOURCE_DIR}/src/execution/direct_execution.cpp
@@ -173,6 +196,7 @@ set_tests_properties(unit.operation_record PROPERTIES LABELS "unit;c_boundary;op
 add_executable(test_execution_context
     test_execution_context.cpp
     ${CMAKE_SOURCE_DIR}/src/execution/context.cpp
+    ${CMAKE_SOURCE_DIR}/src/execution/role_map.cpp
     ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp)
 target_include_directories(test_execution_context PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_execution_context PRIVATE AMIO::public_headers)
@@ -861,7 +885,8 @@ endif()
 if(netCDF_FOUND AND MPI_C_FOUND)
     add_executable(
         test_read_netcdf4
-        test_read_netcdf4.cpp ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_driver.cpp ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp
+        test_read_netcdf4.cpp ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_driver.cpp
+        ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_steps.cpp ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp
         ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp)
 
     target_include_directories(test_read_netcdf4 PRIVATE ${CMAKE_SOURCE_DIR}/src)

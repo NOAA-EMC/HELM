@@ -29,6 +29,9 @@ int main(int argc, char **argv) {
     std::unique_ptr<ExecutionContext> context;
     const auto status = ExecutionContext::create(roles, ProgressPolicy::Caller, "schema=consistent;step=1", MPI_COMM_WORLD, context);
     assert(status == AMIO_OK);
+    assert(context->control_communicator() != MPI_COMM_NULL);
+    assert(context->data_communicator() != MPI_COMM_NULL);
+    assert(context->control_communicator() != context->data_communicator());
     assert(context && context->rank() == static_cast<std::uint32_t>(rank));
     assert(context->size() == static_cast<std::uint32_t>(size));
     std::unique_ptr<ExecutionContext> second_output;

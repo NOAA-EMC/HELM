@@ -350,7 +350,7 @@ bool write_zarr_step_regions(const std::string &collection_root, const std::stri
             std::vector<tensorstore::Index> offsets, extents, dims;
             for (std::size_t d = 0; d < variable.dimensions.size(); ++d) {
                 const auto global = variable.dimensions[d].extent;
-                if (region.offsets[d] > global || region.extents[d] > global - region.offsets[d] ||
+                if (shard_it->second[d] == 0 || region.offsets[d] > global || region.extents[d] > global - region.offsets[d] ||
                     region.extents[d] == 0 || region.offsets[d] % shard_it->second[d] != 0 ||
                     (region.offsets[d] + region.extents[d] != global && region.extents[d] % shard_it->second[d] != 0))
                     throw std::runtime_error("Zarr region is not aligned to complete shards: " + field);

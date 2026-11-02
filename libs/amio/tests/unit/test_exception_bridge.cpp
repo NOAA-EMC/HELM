@@ -420,6 +420,36 @@ void test_multiple_exceptions_same_handle() {
     EXPECT_TRUE(all_failures, "all outcomes should be failures");
 }
 
+void test_outcome_registry_bounds_history_and_sample_size() {
+    OutcomeRegistry registry;
+    for (std::size_t i = 0; i < OutcomeRegistry::kMaxOutcomesPerHandle + 12; ++i) {
+        TaskOutcome failure;
+        failure.error_code = AMIO_ERR_BACKEND_FAILURE;
+        failure.message = i == 0 ? "first cause" : std::string(OutcomeRegistry::kMaxMessageBytes + 10, 'm');
+        failure.stack_trace = std::string(OutcomeRegistry::kMaxStackTraceBytes + 10, 't');
+        registry.record(900, std::move(failure));
+    }
+    const auto outcomes = registry.get_outcomes(900);
+    EXPECT_TRUE(outcomes.size() == OutcomeRegistry::kMaxOutcomesPerHandle, "retained exception history stays capped");
+    EXPECT_TRUE(outcomes.front().message == "first cause", "first causal failure remains available");
+    EXPECT_TRUE(outcomes.back().message.size() == OutcomeRegistry::kMaxMessageBytes, "message sample stays bounded");
+    EXPECT_TRUE(outcomes.back().stack_trace.size() == OutcomeRegistry::kMaxStackTraceBytes, "stack sample stays bounded");
+    EXPECT_TRUE(registry.dropped_outcome_count() == 12, "dropped failure samples are counted");
+    registry.clear_all();
+    EXPECT_TRUE(registry.dropped_outcome_count() == 0, "clearing registry resets dropped-sample count");
+}
+
+void test_outcome_registry_bounds_handle_cardinality() {
+    OutcomeRegistry registry;
+    TaskOutcome failure;
+    failure.error_code = AMIO_ERR_BACKEND_FAILURE;
+    for (std::uint64_t handle = 0; handle < OutcomeRegistry::kMaxTrackedHandles + 8; ++handle) {
+        registry.record(handle, failure);
+    }
+    EXPECT_TRUE(registry.failure_count() == OutcomeRegistry::kMaxTrackedHandles, "tracked handle count stays bounded");
+    EXPECT_TRUE(registry.dropped_outcome_count() == 8, "unretained handle outcomes are counted");
+}
+
 // ---- Test: Stack trace emitted BEFORE outcome is recorded (R12.3, R12.4) ----
 //
 // This test verifies the ordering guarantee: the stack trace is
@@ -489,14 +519,19 @@ void test_outcome_registry_thread_safety() {
         t.join();
     }
 
-    // Each thread should have recorded kOpsPerThread outcomes.
+    // Each per-handle history remains bounded while retaining a first cause.
     for (int t = 0; t < kThreads; ++t) {
         auto outcomes = registry.get_outcomes(static_cast<std::uint64_t>(t));
-        EXPECT_TRUE(outcomes.size() == kOpsPerThread, "thread " + std::to_string(t) + " should have " + std::to_string(kOpsPerThread) +
+        EXPECT_TRUE(outcomes.size() == OutcomeRegistry::kMaxOutcomesPerHandle, "thread " + std::to_string(t) + " should retain " +
+                                                          std::to_string(OutcomeRegistry::kMaxOutcomesPerHandle) +
                                                           " outcomes, got " + std::to_string(outcomes.size()));
+        EXPECT_TRUE(!outcomes.empty() && outcomes.front().message == "thread " + std::to_string(t) + " op 0",
+                    "thread " + std::to_string(t) + " should preserve its first cause");
     }
 
     EXPECT_TRUE(registry.failure_count() == kThreads, "failure_count should be " + std::to_string(kThreads));
+    EXPECT_TRUE(registry.dropped_outcome_count() == kThreads * (kOpsPerThread - OutcomeRegistry::kMaxOutcomesPerHandle),
+                "all omitted history samples should be counted");
 }
 
 }  // namespace
@@ -520,6 +555,8 @@ int main() {
     test_worker_pool_catches_exceptions();
     test_worker_pool_prefetch_exception_cordon();
     test_multiple_exceptions_same_handle();
+    test_outcome_registry_bounds_history_and_sample_size();
+    test_outcome_registry_bounds_handle_cardinality();
     test_stack_trace_before_recording();
     test_cordon_null_callback();
     test_outcome_registry_thread_safety();

@@ -107,6 +107,25 @@ int main(int argc, char **argv) {
     schema_desc.variable_count = variables.size();
     schema_desc.variables = variables.data();
     amio_schema_handle schema = nullptr;
+    if (rank_count > 1) {
+        const char attribute_name[] = "metadata";
+        std::string value(rank == 0 ? 8192 : 1, 'x');
+        amio_attribute_descriptor_t attribute{};
+        attribute.struct_size = sizeof(attribute);
+        attribute.version = AMIO_EVOLUTION_DESCRIPTOR_VERSION_1;
+        attribute.name = attribute_name;
+        attribute.name_bytes = sizeof(attribute_name) - 1;
+        attribute.type = AMIO_ATTRIBUTE_UTF8;
+        attribute.element_count = 1;
+        attribute.value = value.data();
+        attribute.value_bytes = value.size();
+        auto oversized_variables = variables;
+        oversized_variables[0].attribute_count = 1;
+        oversized_variables[0].attributes = &attribute;
+        auto oversized_schema = schema_desc;
+        oversized_schema.variables = oversized_variables.data();
+        assert(amio_define_schema(dataset, &oversized_schema, &schema) == AMIO_ERR_BUDGET_EXCEEDED && schema == nullptr);
+    }
     ok(amio_define_schema(dataset, &schema_desc, &schema));
 
     amio_step_descriptor_t step_desc{};

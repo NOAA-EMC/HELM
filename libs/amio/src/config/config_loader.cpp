@@ -22,7 +22,7 @@ namespace amio::detail {
 namespace {
 
 bool validate_evolution_keys(const conf::Config &manifest, ValidationError &error) {
-    static const std::set<std::string> root_keys{"amio_version", "execution", "layout", "destination", "membership", "budgets", "transfer"};
+    static const std::set<std::string> root_keys{"amio_version", "execution", "layout", "destination", "membership", "budgets", "transfer", "worker_pool"};
     static const std::map<std::string, std::set<std::string>> nested_keys{
         {"execution", {"mode", "progress"}},
         {"layout", {"kind"}},
@@ -31,6 +31,7 @@ bool validate_evolution_keys(const conf::Config &manifest, ValidationError &erro
         {"budgets", {"total_bytes", "staging_bytes", "metadata_bytes", "transport_bytes", "view_bytes", "control_reserve_bytes",
                       "total_descriptors", "control_reserve_descriptors"}},
         {"transfer", {"chunk_bytes", "credits_per_peer"}},
+        {"worker_pool", {"threads", "cpu_cores", "numa_domain"}},
     };
 
     const conf::Value root = manifest.root();
@@ -128,6 +129,9 @@ amio_err_t populate_evolution_config(const conf::Config &manifest, Config &confi
         if (manifest.has("membership.producers")) evolution.producers = manifest.get_int_list("membership.producers");
         if (manifest.has("membership.writers")) evolution.writers = manifest.get_int_list("membership.writers");
         if (manifest.has("membership.consumers")) evolution.consumers = manifest.get_int_list("membership.consumers");
+        if (manifest.has("worker_pool.threads")) config.worker_pool.threads = static_cast<std::size_t>(manifest.get_int("worker_pool.threads"));
+        if (manifest.has("worker_pool.cpu_cores")) config.worker_pool.cpu_cores = manifest.get_int_list("worker_pool.cpu_cores");
+        if (manifest.has("worker_pool.numa_domain")) config.worker_pool.numa_domain = manifest.get_int("worker_pool.numa_domain");
     } catch (const conf::Conf_Error &exception) {
         error.message = exception.what();
         return AMIO_ERR_MANIFEST_INVALID;
@@ -204,6 +208,7 @@ amio_err_t ConfigLoader::validate(const Config &config, ValidationError &error_o
             return code;
         };
         if (evolution.version != 1) return fail("amio_version", "only amio_version: 1 is supported");
+        if (config.worker_pool.threads > kMaxThreads) return fail("worker_pool.threads", "threads must be in [0, 256]");
         if (evolution.execution_mode != "persistent_direct" && evolution.execution_mode != "persistent_aggregated" &&
             evolution.execution_mode != "mpi_stream") {
             return fail("execution.mode", "unsupported execution mode");
@@ -229,8 +234,9 @@ amio_err_t ConfigLoader::validate(const Config &config, ValidationError &error_o
             if (evolution.create_policy != "exclusive") {
                 return fail("destination.create_policy", "only exclusive creation is currently supported", AMIO_ERR_UNSUPPORTED);
             }
-            if (evolution.execution_mode == "persistent_aggregated" && (evolution.producers.empty() || evolution.writers.empty())) {
-                return fail("membership", "aggregated output requires nonempty producer and writer rank lists");
+            if (evolution.execution_mode == "persistent_aggregated" &&
+                (evolution.producers.empty() || evolution.writers.empty() || !evolution.consumers.empty())) {
+                return fail("membership", "aggregated output requires producer and writer ranks and no consumer ranks");
             }
             if (evolution.execution_mode == "persistent_direct" && (!evolution.writers.empty() || !evolution.consumers.empty())) {
                 return fail("membership", "direct persistent output uses producers as writers and has no consumer role");
@@ -335,6 +341,17 @@ amio_err_t ConfigLoader::validate(const Config &config, ValidationError &error_o
             return AMIO_ERR_MANIFEST_INVALID;
         }
     }
+    if (config.backpressure.timeout_ms < kMinStagingTimeoutMs || config.backpressure.timeout_ms > kMaxStagingTimeoutMs) {
+        error_out.field_path = "backpressure.timeout_ms";
+        error_out.message = "timeout_ms must be in [1, 60000], got " + std::to_string(config.backpressure.timeout_ms);
+        return AMIO_ERR_MANIFEST_INVALID;
+    }
+    if (config.backpressure.prefetch_capacity == 0 || config.backpressure.prefetch_capacity > 1'000'000) {
+        error_out.field_path = "backpressure.prefetch_capacity";
+        error_out.message = "prefetch_capacity must be in [1, 1000000], got " +
+                            std::to_string(config.backpressure.prefetch_capacity);
+        return AMIO_ERR_MANIFEST_INVALID;
+    }
 
     // Codec allow-list enforcement (R11.6, R11.7).
     for (const auto &codec : config.codec.lossless_allow_list) {
@@ -428,6 +445,12 @@ amio_err_t ConfigLoader::populate_from_conf(const conf::Config &manifest, Config
 
         current_key = "backpressure.queue_capacity";
         if (manifest.has(current_key)) config_out.backpressure.queue_capacity = static_cast<std::size_t>(manifest.get_int(current_key));
+
+        current_key = "backpressure.prefetch_capacity";
+        if (manifest.has(current_key)) config_out.backpressure.prefetch_capacity = static_cast<std::size_t>(manifest.get_int(current_key));
+
+        current_key = "backpressure.timeout_ms";
+        if (manifest.has(current_key)) config_out.backpressure.timeout_ms = static_cast<std::size_t>(manifest.get_int(current_key));
 
         // -- Backend (string scalar) --
         current_key = "backend";
@@ -576,6 +599,9 @@ std::string ConfigLoader::serialize(const Config &config) {
             << "  total_descriptors: " << budget.total_descriptors << '\n'
             << "  control_reserve_descriptors: " << budget.control_reserve_descriptors << '\n';
         out << "transfer:\n  chunk_bytes: " << budget.chunk_bytes << "\n  credits_per_peer: " << budget.credits_per_peer << '\n';
+        out << "worker_pool:\n  threads: " << config.worker_pool.threads << '\n';
+        write_rank_list(out, "cpu_cores", config.worker_pool.cpu_cores);
+        if (config.worker_pool.numa_domain.has_value()) out << "  numa_domain: " << *config.worker_pool.numa_domain << '\n';
         return out.str();
     }
 
@@ -606,6 +632,8 @@ std::string ConfigLoader::serialize(const Config &config) {
     out << "  low_watermark: " << config.backpressure.low_watermark << "\n";
     out << "  high_watermark: " << config.backpressure.high_watermark << "\n";
     out << "  queue_capacity: " << config.backpressure.queue_capacity << "\n";
+    out << "  prefetch_capacity: " << config.backpressure.prefetch_capacity << "\n";
+    out << "  timeout_ms: " << config.backpressure.timeout_ms << "\n";
 
     out << "backend: " << config.backend << "\n";
 

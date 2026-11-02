@@ -88,7 +88,11 @@ module amio_mod
     public :: amio_validation_request_t, amio_validation_result_t
     public :: amio_validate_dataset, amio_release_step_handle, amio_release_step_lease
     public :: amio_acquire_step_lease
-    public :: amio_context_descriptor_t, amio_init_ex, amio_query_capabilities, amio_release_context
+    public :: amio_context_descriptor_t, amio_init_ex, amio_query_capabilities, amio_query_diagnostics
+    public :: amio_query_context_role, amio_reduce_diagnostics, amio_release_context
+    public :: AMIO_ROLE_INACTIVE, AMIO_ROLE_PRODUCER, AMIO_ROLE_WRITER, AMIO_ROLE_CONSUMER
+    integer(c_int32_t), parameter :: AMIO_ROLE_INACTIVE = 0, AMIO_ROLE_PRODUCER = 1
+    integer(c_int32_t), parameter :: AMIO_ROLE_WRITER = 2, AMIO_ROLE_CONSUMER = 3
     public :: AMIO_FORMAT_NETCDF4, AMIO_FORMAT_ZARR3, AMIO_FORMAT_GRIB2
     public :: AMIO_ATTRIBUTE_BOOL, AMIO_ATTRIBUTE_I64, AMIO_ATTRIBUTE_U64, AMIO_ATTRIBUTE_F64, AMIO_ATTRIBUTE_UTF8
     public :: AMIO_OPERATION_PENDING, AMIO_OPERATION_SUCCEEDED, AMIO_OPERATION_FAILED
@@ -236,6 +240,9 @@ module amio_mod
         integer(c_int64_t) :: reserved(2)
     end type amio_context_descriptor_t
 
+    ! budget_bytes/descriptors bound retained local payloads. The control
+    ! budgets bound local schema metadata and control descriptors; each
+    ! distinct registered schema consumes one control descriptor.
     type, bind(C) :: amio_dataset_descriptor_t
         integer(c_int32_t) :: struct_size, version
         type(c_ptr) :: location
@@ -441,6 +448,38 @@ module amio_mod
             integer(c_size_t), intent(out) :: out_required_bytes
             integer(c_int32_t) :: status
         end function amio_query_capabilities
+
+        !> Query this rank's effective role and its local role-group rank; no collective is entered.
+        function amio_query_context_role(context, out_role, out_group_rank) result(status) &
+            bind(C, name="amio_query_context_role")
+            import :: c_ptr, c_int32_t
+            type(c_ptr), value, intent(in) :: context
+            integer(c_int32_t), intent(out) :: out_role, out_group_rank
+            integer(c_int32_t) :: status
+        end function amio_query_context_role
+
+        !> Return a bounded local diagnostics JSON snapshot with effective context topology.
+        !! No MPI collective is entered.
+        !! C signature:
+        !!   amio_status_t amio_query_diagnostics(amio_context_handle, char *, size_t, size_t *);
+        function amio_query_diagnostics(context, buffer, buffer_capacity, out_required_bytes) result(status) &
+            bind(C, name="amio_query_diagnostics")
+            import :: c_ptr, c_size_t, c_int32_t
+            type(c_ptr), value, intent(in) :: context, buffer
+            integer(c_size_t), value, intent(in) :: buffer_capacity
+            integer(c_size_t), intent(out) :: out_required_bytes
+            integer(c_int32_t) :: status
+        end function amio_query_diagnostics
+
+        !> Collectively sum context counters. Only the size query is local.
+        function amio_reduce_diagnostics(context, buffer, buffer_capacity, out_required_bytes) result(status) &
+            bind(C, name="amio_reduce_diagnostics")
+            import :: c_ptr, c_size_t, c_int32_t
+            type(c_ptr), value, intent(in) :: context, buffer
+            integer(c_size_t), value, intent(in) :: buffer_capacity
+            integer(c_size_t), intent(out) :: out_required_bytes
+            integer(c_int32_t) :: status
+        end function amio_reduce_diagnostics
 
         function amio_release_context(context) result(status) bind(C, name="amio_release_context")
             import :: c_ptr, c_int32_t

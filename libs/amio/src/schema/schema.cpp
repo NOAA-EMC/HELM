@@ -1,6 +1,7 @@
 #include "schema/schema.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -297,6 +298,137 @@ SchemaStatus Schema::seal() {
 
 bool Schema::equivalent(const Schema &other) const noexcept {
     return sealed_ && other.sealed_ && digest_ == other.digest_ && canonical_ == other.canonical_;
+}
+
+SchemaStatus Schema::from_canonical(std::string_view wire, std::size_t max_wire_bytes, Schema &out) {
+    if (wire.size() > max_wire_bytes || wire.size() > kMaxCanonicalBytes)
+        return SchemaStatus::failure("canonical schema exceeds wire limit");
+    try {
+        struct Reader {
+            std::string_view text;
+            bool literal(std::string_view value) {
+                if (!text.starts_with(value)) return false;
+                text.remove_prefix(value.size());
+                return true;
+            }
+            bool token(char delimiter, std::string_view &value) {
+                const auto end = text.find(delimiter);
+                if (end == std::string_view::npos) return false;
+                value = text.substr(0, end);
+                text.remove_prefix(end + 1);
+                return true;
+            }
+            bool unsigned_number(char delimiter, std::uint64_t &value) {
+                std::string_view token_value;
+                if (!token(delimiter, token_value) || token_value.empty()) return false;
+                const auto parsed = std::from_chars(token_value.data(), token_value.data() + token_value.size(), value);
+                return parsed.ec == std::errc{} && parsed.ptr == token_value.data() + token_value.size();
+            }
+            bool signed_number(std::int64_t &value) {
+                std::string_view token_value;
+                if (!token(';', token_value) || token_value.empty()) return false;
+                const auto parsed = std::from_chars(token_value.data(), token_value.data() + token_value.size(), value);
+                return parsed.ec == std::errc{} && parsed.ptr == token_value.data() + token_value.size();
+            }
+            bool string(std::string &value) {
+                std::uint64_t size = 0;
+                if (!unsigned_number(':', size) || size > Schema::kMaxStringBytes || size >= text.size()) return false;
+                value.assign(text.substr(0, static_cast<std::size_t>(size)));
+                text.remove_prefix(static_cast<std::size_t>(size));
+                return literal(";");
+            }
+            bool real(double &value) {
+                std::string_view item;
+                if (!token(';', item)) return false;
+                if (item == "nan") { value = std::numeric_limits<double>::quiet_NaN(); return true; }
+                if (item == "inf") { value = std::numeric_limits<double>::infinity(); return true; }
+                if (item == "-inf") { value = -std::numeric_limits<double>::infinity(); return true; }
+                bool negative = item.starts_with('-');
+                if (negative) item.remove_prefix(1);
+                if (!item.starts_with("0x")) return false;
+                item.remove_prefix(2);
+                const auto parsed = std::from_chars(item.data(), item.data() + item.size(), value, std::chars_format::hex);
+                if (parsed.ec != std::errc{} || parsed.ptr != item.data() + item.size()) return false;
+                if (negative) value = -value;
+                return true;
+            }
+        };
+        Reader reader{wire};
+        const auto invalid = [] { return SchemaStatus::failure("invalid canonical schema"); };
+        if (!reader.literal("amio-schema-v1;digest=fnv1a64-v1;variables=")) return invalid();
+        std::uint64_t variables = 0;
+        if (!reader.unsigned_number(';', variables) || variables == 0 || variables > kMaxVariables) return invalid();
+        Schema decoded;
+        for (std::uint64_t i = 0; i < variables; ++i) {
+            Variable variable;
+            std::uint64_t source = 0, stored = 0, required = 0, dimensions = 0;
+            if (!reader.string(variable.name) || !reader.unsigned_number(';', source) ||
+                !reader.unsigned_number(';', stored) || !reader.unsigned_number(';', required) ||
+                !reader.unsigned_number(';', dimensions) || source > AMIO_DTYPE_U64 || stored > AMIO_DTYPE_U64 ||
+                required > 1 || dimensions == 0 || dimensions > AMIO_MAX_RANK) return invalid();
+            variable.source_dtype = static_cast<amio_dtype_t>(source);
+            variable.stored_dtype = static_cast<amio_dtype_t>(stored);
+            variable.required = required != 0;
+            for (std::uint64_t d = 0; d < dimensions; ++d) {
+                Dimension dimension;
+                std::uint64_t coordinate = 0;
+                if (!reader.string(dimension.name) || !reader.unsigned_number(';', dimension.extent) ||
+                    !reader.unsigned_number(';', coordinate) || coordinate > 1) return invalid();
+                if (coordinate) {
+                    std::string name;
+                    if (!reader.string(name)) return invalid();
+                    dimension.coordinate_variable = std::move(name);
+                }
+                variable.dimensions.push_back(std::move(dimension));
+            }
+            std::uint64_t attributes = 0;
+            if (!reader.unsigned_number(';', attributes) || attributes > kMaxAttributesPerVariable) return invalid();
+            for (std::uint64_t a = 0; a < attributes; ++a) {
+                std::string name;
+                std::uint64_t type = 0, count = 0;
+                if (!reader.string(name) || !reader.unsigned_number(':', type) ||
+                    !reader.unsigned_number(':', count) || type > 8 || (type < 5 && count != 1) ||
+                    count > reader.text.size()) return invalid();
+                if ((type >= 5 && type <= 7 && count > kMaxCanonicalBytes / 32) ||
+                    (type == 8 && count > kMaxCanonicalBytes / sizeof(std::uint64_t))) return invalid();
+                Attribute attribute;
+                if (type == 0 || type == 2) {
+                    std::uint64_t v = 0;
+                    if (!reader.unsigned_number(';', v) || (type == 0 && v > 1)) return invalid();
+                    if (type == 0) attribute.value = v != 0; else attribute.value = v;
+                } else if (type == 1) {
+                    std::int64_t v = 0; if (!reader.signed_number(v)) return invalid(); attribute.value = v;
+                } else if (type == 3) {
+                    double v = 0; if (!reader.real(v)) return invalid(); attribute.value = v;
+                } else if (type == 4) {
+                    std::string v; if (!reader.string(v)) return invalid(); attribute.value = std::move(v);
+                } else if (type == 5) {
+                    std::vector<std::int64_t> v; v.reserve(static_cast<std::size_t>(count));
+                    for (std::uint64_t n = 0; n < count; ++n) { std::int64_t x = 0; if (!reader.signed_number(x)) return invalid(); v.push_back(x); }
+                    attribute.value = std::move(v);
+                } else if (type == 6) {
+                    std::vector<std::uint64_t> v; v.reserve(static_cast<std::size_t>(count));
+                    for (std::uint64_t n = 0; n < count; ++n) { std::uint64_t x = 0; if (!reader.unsigned_number(';', x)) return invalid(); v.push_back(x); }
+                    attribute.value = std::move(v);
+                } else if (type == 7) {
+                    std::vector<double> v; v.reserve(static_cast<std::size_t>(count));
+                    for (std::uint64_t n = 0; n < count; ++n) { double x = 0; if (!reader.real(x)) return invalid(); v.push_back(x); }
+                    attribute.value = std::move(v);
+                } else {
+                    std::vector<std::string> v; v.reserve(static_cast<std::size_t>(count));
+                    for (std::uint64_t n = 0; n < count; ++n) { std::string x; if (!reader.string(x)) return invalid(); v.push_back(std::move(x)); }
+                    attribute.value = std::move(v);
+                }
+                if (!variable.attributes.emplace(std::move(name), std::move(attribute)).second) return invalid();
+            }
+            if (!decoded.add_variable(std::move(variable)).ok()) return invalid();
+        }
+        if (!reader.text.empty() || !decoded.seal().ok() || decoded.canonical() != wire) return invalid();
+        out = std::move(decoded);
+        return {};
+    } catch (...) {
+        return SchemaStatus::failure("unable to decode canonical schema");
+    }
 }
 
 std::string schema_digest(std::string_view canonical) {

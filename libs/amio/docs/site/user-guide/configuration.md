@@ -3,6 +3,13 @@
 AMIO is configured through YAML manifest files that specify the backend driver,
 staging pool parameters, worker pool settings, and output paths.
 
+The legacy `amio_init` and `amio_init_from_string` entry points reject
+`persistent_aggregated` evolution manifests with `AMIO_ERR_UNSUPPORTED`.
+They do not provide the collective initialization contract needed to agree
+on producer and writer roles after a rank-local parse failure. The collective
+`amio_init_ex` interface can create a role context; aggregated dataset and
+service execution remain subject to their separate capability support.
+
 ## Manifest Structure
 
 ```yaml
@@ -48,6 +55,28 @@ synchronous data snapshots during writes.
 |-------|------|-------|---------|-------------|
 | `thread_count` | integer | [1, 256] | 1 | Number of background I/O threads |
 | `pin_threads` | boolean | — | false | Pin threads to CPU cores |
+
+## Queue Admission
+
+The current manifest parser accepts a top-level `backpressure` mapping. Write
+submissions can wait for a bounded interval before returning
+`AMIO_ERR_QUEUE_FULL`; background read-ahead uses immediate bounded admission
+and reports saturation to the read request.
+
+```yaml
+backpressure:
+  low_watermark: 32
+  high_watermark: 64
+  queue_capacity: 128
+  prefetch_capacity: 32
+  timeout_ms: 5000
+```
+
+`low_watermark` must be less than `high_watermark`, and the high watermark
+cannot exceed `queue_capacity`. `prefetch_capacity` is independently limited
+to 1–1,000,000 queued read-ahead operations. The finite prefetch setting bounds
+queued descriptors; staging payload capacity is governed separately by the
+staging pool budget.
 
 ## Backend: NetCDF-4
 

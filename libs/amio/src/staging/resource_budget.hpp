@@ -45,6 +45,8 @@ class ResourceBudget {
     /** Release a reservation once; returns false for an unknown/already released ID. */
     bool release(const Reservation &reservation) noexcept;
     [[nodiscard]] Snapshot snapshot() const noexcept;
+    /** Return peak reservations per resource counter since construction. */
+    [[nodiscard]] Snapshot high_water() const noexcept;
     [[nodiscard]] const Limits &limits() const noexcept { return limits_; }
 
    private:
@@ -59,6 +61,7 @@ class ResourceBudget {
     std::unordered_map<std::uint64_t, Record> live_;
     std::uint64_t next_id_ = 1;
     Snapshot usage_;
+    Snapshot high_water_;
 };
 
 } // namespace amio::detail

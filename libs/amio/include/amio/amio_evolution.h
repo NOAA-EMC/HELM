@@ -37,6 +37,14 @@ typedef enum amio_execution_mode_e {
 
 typedef enum amio_progress_mode_e { AMIO_PROGRESS_CALLER = 1, AMIO_PROGRESS_BACKGROUND = 2 } amio_progress_mode_t;
 
+/** Effective local role reported by amio_query_context_role(). */
+typedef enum amio_rank_role_e {
+    AMIO_ROLE_INACTIVE = 0,
+    AMIO_ROLE_PRODUCER = 1,
+    AMIO_ROLE_WRITER = 2,
+    AMIO_ROLE_CONSUMER = 3
+} amio_rank_role_t;
+
 typedef enum amio_evolution_format_e {
     AMIO_FORMAT_NETCDF4 = 1,
     AMIO_FORMAT_ZARR3 = 2,
@@ -75,7 +83,15 @@ typedef struct amio_descriptor_header_s {
     uint32_t version;
 } amio_descriptor_header_t;
 
-/** Exclusive persistent collection location and finite local producer budget. */
+/** Exclusive persistent collection location and finite local resource budgets.
+ *
+ * @param budget_bytes The local retained payload/snapshot byte ceiling.
+ * @param budget_descriptors The local payload/snapshot descriptor ceiling.
+ * @param control_budget_bytes The reserved local control/metadata byte ceiling;
+ *        registered schema retention is charged here for the dataset lifetime.
+ * @param control_budget_descriptors The reserved local control/metadata
+ *        descriptor ceiling; each distinct registered schema consumes one.
+ */
 typedef struct amio_dataset_descriptor_s {
     uint32_t struct_size;
     uint32_t version;
@@ -259,11 +275,40 @@ AMIO_API amio_status_t amio_validate_dataset(amio_dataset_handle dataset, const 
                                              amio_validation_result_t *results, size_t result_capacity, size_t *out_result_count,
                                              uint64_t *out_next_cursor);
 
-/** Collectively create a context and duplicate its caller-owned communicator. */
+/** Collectively create a context and duplicate its caller-owned communicator.
+ * All members must provide a complete descriptor and the same usable caller
+ * communicator. Once the communicator is known, descriptor and role errors
+ * are agreed before context communicators are created.
+ */
 AMIO_API amio_status_t amio_init_ex(const amio_context_descriptor_t *descriptor, amio_context_handle *out_context);
 
 /** Query a stable JSON capability description using size-query then fill. */
 AMIO_API amio_status_t amio_query_capabilities(amio_context_handle context, char *buffer, size_t buffer_capacity,
+                                               size_t *out_required_bytes);
+
+/** Query this rank's effective role and rank within its role group; local operation, no MPI collective. */
+AMIO_API amio_status_t amio_query_context_role(amio_context_handle context, uint32_t *out_role,
+                                               uint32_t *out_group_rank);
+
+/**
+ * Query a bounded, process-local diagnostic snapshot as versioned JSON.
+ * This operation never performs an MPI collective. Pass a null buffer and
+ * zero capacity to obtain the required byte count, then provide that buffer
+ * including room for the trailing NUL byte. The snapshot includes this
+ * process's effective execution topology and bounded resource counters. JSON
+ * API version 2 names the per-scope counter, histogram, and resource arrays;
+ * the resource high-water values include retained step-read cache occupancy
+ * under the prefetch-bytes dimension.
+ */
+AMIO_API amio_status_t amio_query_diagnostics(amio_context_handle context, char *buffer, size_t buffer_capacity,
+                                              size_t *out_required_bytes);
+
+/**
+ * Collectively sum context-wide diagnostic counters and return version 2 JSON.
+ * All members of the context communicator must call the fill operation in the
+ * same order. A null/zero size query is local and does not enter MPI.
+ */
+AMIO_API amio_status_t amio_reduce_diagnostics(amio_context_handle context, char *buffer, size_t buffer_capacity,
                                                size_t *out_required_bytes);
 
 /** Release a context handle and its duplicated communicator. */

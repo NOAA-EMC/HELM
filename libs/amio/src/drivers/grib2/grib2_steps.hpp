@@ -5,6 +5,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
+#include <cstdio>
 #include <span>
 #include <string>
 #include <vector>
@@ -30,6 +32,48 @@ struct Grib2FieldRanges {
 struct Grib2StepPayload {
     std::vector<unsigned char> bytes;
     std::vector<Grib2FieldRanges> fields;
+};
+
+/** Indexed location of a producer-encoded message in a streamed step payload. */
+struct Grib2StreamIndexEntry {
+    std::uint32_t field_id = 0;
+    std::uint32_t producer = 0;
+    Grib2MessageRange message;
+};
+
+/** Create an immutable GRIB2 payload from bounded chunks of complete messages.
+ *
+ * A fixed-size header and trailer are retained for validation; encoded messages
+ * are never assembled in writer memory. Index capacity and chunk size are
+ * bounded at construction. The temporary payload is linked into place only
+ * after every message is complete and validated.
+ */
+class Grib2StreamWriter {
+public:
+    Grib2StreamWriter(const std::string &path, std::size_t max_chunk_bytes,
+                      std::size_t max_index_entries, std::uint64_t max_message_bytes);
+    ~Grib2StreamWriter();
+    Grib2StreamWriter(const Grib2StreamWriter &) = delete;
+    Grib2StreamWriter &operator=(const Grib2StreamWriter &) = delete;
+    /** Begin one complete producer-encoded message; only one may be active. */
+    [[nodiscard]] bool begin_message(std::uint32_t field_id, std::uint32_t producer,
+                                     std::uint64_t message_bytes, std::string &error);
+    /** Append the next contiguous bounded chunk of the active message. */
+    [[nodiscard]] bool append_chunk(std::uint64_t offset, std::span<const std::byte> bytes, std::string &error);
+    /** Close and create the immutable payload name after all messages complete. */
+    [[nodiscard]] bool finish(std::string &error);
+    /** Access the bounded message index after successful completion. */
+    [[nodiscard]] const std::vector<Grib2StreamIndexEntry> &index() const noexcept { return index_; }
+private:
+    std::string path_, temporary_;
+    std::FILE *stream_ = nullptr;
+    std::vector<Grib2StreamIndexEntry> index_;
+    std::array<unsigned char, 16> header_{};
+    std::array<unsigned char, 4> trailer_{};
+    std::size_t max_chunk_bytes_, max_index_entries_;
+    std::uint64_t max_message_bytes_, payload_bytes_ = 0, expected_ = 0, received_ = 0;
+    std::uint32_t field_id_ = 0, producer_ = 0;
+    bool active_ = false, failed_ = false, finished_ = false;
 };
 
 /** Append a complete message and return its location. Reject overflow and empty messages. */

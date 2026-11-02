@@ -114,6 +114,7 @@ AMIO_API amio_status_t amio_finalize(amio_core_handle core);
  *   - AMIO_ERR_NULL_HANDLE — core is NULL
  *   - AMIO_ERR_INVALID_HANDLE — core stale or wrong kind
  *   - AMIO_ERR_INVALID_INPUT — NULL arguments or invalid mode
+ *   - AMIO_ERR_INVALID_POLICY — write requested on a rank outside the configured I/O group
  *   - AMIO_ERR_UNKNOWN_BACKEND — backend name not in registry (R4.6)
  *   - AMIO_ERR_BACKEND_FAILURE — driver open failed
  */
@@ -163,6 +164,7 @@ AMIO_API amio_status_t amio_init_from_string(const char *manifest_content, const
  *   - AMIO_ERR_INVALID_HANDLE — core stale or wrong kind
  *   - AMIO_ERR_INVALID_INPUT — NULL config_content/format/out_dataset, or invalid mode
  *   - AMIO_ERR_MANIFEST_INVALID — config parse/validation error
+ *   - AMIO_ERR_INVALID_POLICY — write requested on a rank outside the configured I/O group
  *   - AMIO_ERR_UNKNOWN_BACKEND — backend name not in registry (R4.6)
  *   - AMIO_ERR_BACKEND_FAILURE — driver open failed
  */

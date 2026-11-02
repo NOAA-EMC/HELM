@@ -1,6 +1,7 @@
 #include "drivers/grib2/grib2_driver.hpp"
 #include "drivers/grib2/grib2_steps.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstdint>
@@ -63,6 +64,64 @@ std::vector<unsigned char> valid_message(unsigned char marker) {
     message[16] = marker;
     message[17] = '7'; message[18] = '7'; message[19] = '7'; message[20] = '7';
     return message;
+}
+
+void test_streamed_messages_are_bounded_validated_and_create_only() {
+    const auto path = std::filesystem::temp_directory_path() / "amio-grib2-streamed-step.bin";
+    const auto invalid_path = std::filesystem::temp_directory_path() / "amio-grib2-streamed-invalid.bin";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    std::filesystem::remove(invalid_path, ec);
+    const auto first = valid_message(4);
+    const auto second = valid_message(5);
+    std::string error;
+    auto append = [&](Grib2StreamWriter &writer, const std::vector<unsigned char> &message) {
+        const auto bytes = std::as_bytes(std::span(message));
+        for (std::size_t offset = 0; offset < bytes.size(); offset += 3) {
+            const auto count = std::min<std::size_t>(3, bytes.size() - offset);
+            assert(writer.append_chunk(offset, bytes.subspan(offset, count), error));
+        }
+    };
+    {
+        Grib2StreamWriter writer(path.string(), 3, 2, 64);
+        assert(writer.begin_message(10, 4, first.size(), error));
+        assert(!writer.append_chunk(1, std::as_bytes(std::span(first)).first(3), error));
+        assert(!writer.finish(error));
+        append(writer, first);
+        assert(writer.begin_message(11, 5, second.size(), error));
+        append(writer, second);
+        assert(!writer.begin_message(12, 6, first.size(), error));
+        assert(writer.finish(error));
+        assert(writer.index().size() == 2 && writer.index()[0].field_id == 10 && writer.index()[0].producer == 4 &&
+               writer.index()[0].message.offset == 0 && writer.index()[0].message.length == first.size() &&
+               writer.index()[1].message.offset == first.size() && writer.index()[1].message.length == second.size());
+    }
+    Grib2FieldRanges first_field{"temperature", 4, {{0, first.size()}}};
+    std::vector<std::vector<unsigned char>> readback;
+    assert(read_grib2_field_messages(path.string(), first_field, 64, readback, error) && readback.size() == 1 &&
+           readback[0] == first);
+    {
+        Grib2StreamWriter collision(path.string(), 3, 1, 64);
+        assert(collision.begin_message(10, 4, first.size(), error));
+        append(collision, first);
+        assert(!collision.finish(error));
+    }
+    assert(read_grib2_field_messages(path.string(), first_field, 64, readback, error) && readback[0] == first);
+    {
+        auto corrupt = first;
+        corrupt.back() = 'X';
+        Grib2StreamWriter writer(invalid_path.string(), 3, 1, 64);
+        assert(writer.begin_message(10, 4, corrupt.size(), error));
+        const auto bytes = std::as_bytes(std::span(corrupt));
+        for (std::size_t offset = 0; offset < bytes.size(); offset += 3) {
+            const auto count = std::min<std::size_t>(3, bytes.size() - offset);
+            const auto ok = writer.append_chunk(offset, bytes.subspan(offset, count), error);
+            assert(ok == (offset + count < bytes.size()));
+        }
+        assert(!writer.finish(error));
+    }
+    assert(!std::filesystem::exists(invalid_path));
+    std::filesystem::remove(path, ec);
 }
 
 void test_step_payload_appends_complete_messages_and_indexes_ranges() {
@@ -162,6 +221,7 @@ int main() {
     test_complete_message_ranges_are_ordered_and_checked();
     test_encoded_and_scratch_budgets_preflight_before_encoding();
     test_grib2_complete_message_validation();
+    test_streamed_messages_are_bounded_validated_and_create_only();
     test_step_payload_appends_complete_messages_and_indexes_ranges();
     test_immutable_step_payload_file_and_indexed_field_reads();
     test_grib2_message_index_is_added_to_the_completion_record();

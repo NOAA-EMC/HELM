@@ -17,6 +17,7 @@
 #include "factory/backend_driver.hpp"
 #include "prefetch/prefetch_queue.hpp"
 #include "staging/staging_pool.hpp"
+#include "workers/worker_pool.hpp"
 
 namespace amio::detail {
 namespace test {
@@ -153,6 +154,22 @@ void test_schedule_initial_min_n_m() {
     }
 
     std::cout << "PASSED\n";
+}
+
+void test_prefetch_queue_reports_worker_admission_failure() {
+    StagingPool pool(2, 1024, 5000);
+    MockBackendDriver driver;
+    WorkerPoolConfig config;
+    config.thread_count = 0;
+    config.backpressure.prefetch_capacity = 0;
+    WorkerPool workers(config);
+    PrefetchQueue queue(1, 1, &pool, &workers, &driver, 1, "var", kVarInfo, 1);
+    queue.schedule_initial();
+    assert(queue.pending_count() == 0);
+    assert(queue.failed_count() == 1);
+    StagingBuffer *buffer = nullptr;
+    assert(queue.get_buffer(0, nullptr, &buffer) == AMIO_ERR_QUEUE_FULL);
+    assert(buffer == nullptr);
 }
 
 // ---------------------------------------------------------------
@@ -547,6 +564,7 @@ int main() {
     std::cout << "Running read prefetch path tests (task 9.2):\n";
 
     amio::detail::test::test_schedule_initial_min_n_m();
+    amio::detail::test::test_prefetch_queue_reports_worker_admission_failure();
     amio::detail::test::test_get_buffer_immediate_return();
     amio::detail::test::test_schedule_next_maintains_lookahead();
     amio::detail::test::test_schedule_next_bounds_check();

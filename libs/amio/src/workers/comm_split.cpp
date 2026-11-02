@@ -89,9 +89,24 @@ amio_err_t validate_comm_config(const CommConfig &config) {
 amio_err_t split_communicator(const CommConfig &config, int my_rank, IOCommunicator &result) {
     // Default: no split requested.  All ranks participate in I/O.
     if (config.is_default()) {
+        int rank = 0, size = 1;
+#if AMIO_CAN_SPLIT
+        int initialized = 0, finalized = 0;
+        if (MPI_Initialized(&initialized) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+        if (initialized) {
+            if (MPI_Finalized(&finalized) != MPI_SUCCESS || finalized || g_amio_parent_comm == MPI_COMM_NULL ||
+                MPI_Comm_rank(g_amio_parent_comm, &rank) != MPI_SUCCESS ||
+                MPI_Comm_size(g_amio_parent_comm, &size) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+        }
+#endif
         result.valid = true;
         result.is_io_rank = true;
-        // io_comm remains nullopt -- accessors return MPI_COMM_WORLD / 0 / 1.
+        result.rank_value = rank;
+        result.size_value = size;
+#if AMIO_CAN_SPLIT
+        result.parent_comm = g_amio_parent_comm;
+#endif
+        // io_comm remains nullopt -- handle() uses the caller's parent.
         return AMIO_OK;
     }
 
@@ -123,6 +138,10 @@ amio_err_t split_communicator(const CommConfig &config, int my_rank, IOCommunica
         // split() returns a new RAII-owned Communicator.
         halo::Communicator split_comm = world.split(color, my_rank);
 
+        const int split_rank = split_comm.rank();
+        const int split_size = split_comm.size();
+        result.rank_value = split_rank;
+        result.size_value = split_size;
         result.valid = true;
         result.is_io_rank = is_io;
         result.io_comm = std::move(split_comm);

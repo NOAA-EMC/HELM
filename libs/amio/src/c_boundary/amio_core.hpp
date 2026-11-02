@@ -35,6 +35,7 @@
 #include "config/config_loader.hpp"
 #include "factory/backend_driver.hpp"
 #include "prefetch/prefetch_queue.hpp"
+#include "workers/comm_split.hpp"
 
 namespace amio::detail {
 
@@ -212,6 +213,10 @@ struct AMIO_Core {
 
     // Staging timeout from config (milliseconds).
     std::int64_t staging_timeout_ms = 5000;
+
+    // Context-owned rank split shared by synchronous drivers and workers.
+    // Declared before worker_pool so worker communicator copies are freed first.
+    IOCommunicator io_communicator;
 
     // Worker pool (owned by AMIO_Core, may be null in stub mode).
     std::unique_ptr<WorkerPool> worker_pool;

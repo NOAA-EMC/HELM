@@ -53,6 +53,7 @@ backpressure:
   low_watermark: 10
   high_watermark: 50
   queue_capacity: 100
+  prefetch_capacity: 128
 backend: netcdf4
 codec:
   active_codec: blosc
@@ -79,6 +80,7 @@ io_ranks:
     assert(config.backpressure.low_watermark == 10);
     assert(config.backpressure.high_watermark == 50);
     assert(config.backpressure.queue_capacity == 100);
+    assert(config.backpressure.prefetch_capacity == 128);
     assert(config.backend == "netcdf4");
     assert(config.codec.active_codec == "blosc");
     assert(config.codec.lossless_allow_list.size() == 2);
@@ -530,6 +532,7 @@ static void test_round_trip() {
     original.backpressure.low_watermark = 5;
     original.backpressure.high_watermark = 20;
     original.backpressure.queue_capacity = 50;
+    original.backpressure.prefetch_capacity = 77;
     original.backend = "zarr3";
     original.codec.active_codec = "zstandard";
     original.codec.lossless_allow_list = {"blosc", "zstandard"};
@@ -634,6 +637,7 @@ codec:
     assert(config.backpressure.low_watermark == 0);
     assert(config.backpressure.high_watermark == 0);
     assert(config.backpressure.queue_capacity == 1024);
+    assert(config.backpressure.prefetch_capacity == 1024);
     // io_ranks defaults to empty.
     assert(config.io_ranks.empty());
     // cpu_cores defaults to empty.
@@ -771,6 +775,74 @@ codec:
     std::cout << "  PASS: test_backpressure_high_exceeds_capacity\n";
 }
 
+static void test_backpressure_timeout_config() {
+    const std::string valid = R"(
+staging_pool:
+  buffer_count: 1
+  buffer_capacity_bytes: 1024
+worker_pool:
+  threads: 1
+prefetch:
+  depth: 1
+  read_timeout_s: 1
+staging_timeout_ms: 5000
+backpressure:
+  low_watermark: 0
+  high_watermark: 2
+  queue_capacity: 4
+  timeout_ms: 250
+backend: netcdf4
+codec:
+  active_codec: blosc
+  lossless_allow_list:
+    - blosc
+)";
+    Config config;
+    ValidationError err;
+    assert(ConfigLoader::parse_string(valid, "yaml", config, err) == AMIO_OK);
+    assert(config.backpressure.timeout_ms == 250);
+    const auto serialized = ConfigLoader::serialize(config);
+    assert(serialized.find("timeout_ms: 250") != std::string::npos);
+
+    const auto invalid = valid.substr(0, valid.find("timeout_ms: 250")) + "timeout_ms: 0" +
+                         valid.substr(valid.find("timeout_ms: 250") + std::string("timeout_ms: 250").size());
+    assert(ConfigLoader::parse_string(invalid, "yaml", config, err) == AMIO_ERR_MANIFEST_INVALID);
+    assert(err.field_path == "backpressure.timeout_ms");
+    std::cout << "  PASS: test_backpressure_timeout_config\n";
+}
+
+static void test_prefetch_capacity_config_bounds() {
+    const std::string valid = R"(
+staging_pool:
+  buffer_count: 1
+  buffer_capacity_bytes: 1024
+worker_pool:
+  threads: 0
+prefetch:
+  depth: 1
+  read_timeout_s: 1
+staging_timeout_ms: 1000
+backpressure:
+  prefetch_capacity: 9
+backend: netcdf4
+codec:
+  active_codec: blosc
+  lossless_allow_list:
+    - blosc
+)";
+    Config config;
+    ValidationError error;
+    assert(ConfigLoader::parse_string(valid, "yaml", config, error) == AMIO_OK);
+    assert(config.backpressure.prefetch_capacity == 9);
+    const auto serialized = ConfigLoader::serialize(config);
+    assert(serialized.find("prefetch_capacity: 9") != std::string::npos);
+    const auto position = valid.find("prefetch_capacity: 9");
+    const auto invalid = valid.substr(0, position) + "prefetch_capacity: 0" +
+                         valid.substr(position + std::string("prefetch_capacity: 9").size());
+    assert(ConfigLoader::parse_string(invalid, "yaml", config, error) == AMIO_ERR_MANIFEST_INVALID);
+    assert(error.field_path == "backpressure.prefetch_capacity");
+}
+
 // ===================================================================
 // Test: validate() standalone.
 // ===================================================================
@@ -815,6 +887,8 @@ static void test_valid_codecs() {
     std::cout << "  PASS: test_valid_codecs\n";
 }
 
+static std::string valid_evolution_yaml();
+
 static std::string valid_evolution_yaml() {
     return R"(
 amio_version: 1
@@ -856,6 +930,15 @@ static void test_evolution_mode_is_opt_in_and_bounded() {
     Config reparsed;
     assert(ConfigLoader::parse_string(ConfigLoader::serialize(config), "yaml", reparsed, error) == AMIO_OK);
     assert(reparsed == config);
+
+    auto configured = valid_evolution_yaml();
+    configured += "worker_pool:\n  threads: 2\n  cpu_cores: [1, 2]\n  numa_domain: 0\n";
+    assert(ConfigLoader::parse_string(configured, "yaml", config, error) == AMIO_OK);
+    assert(config.worker_pool.threads == 2 && config.worker_pool.cpu_cores == std::vector<int>({1, 2}));
+    assert(config.worker_pool.numa_domain == 0);
+    assert(ConfigLoader::parse_string(ConfigLoader::serialize(config), "yaml", reparsed, error) == AMIO_OK);
+    assert(reparsed == config);
+
 }
 
 static void test_evolution_rejects_unknown_version_and_keys() {
@@ -900,6 +983,13 @@ static void test_evolution_requires_finite_budget_and_valid_roles() {
     assert(error.field_path == "membership");
 
     yaml = valid_evolution_yaml();
+    yaml.replace(yaml.find("persistent_direct"), std::string("persistent_direct").size(), "persistent_aggregated");
+    yaml.replace(yaml.find("producers: [0]"), std::string("producers: [0]").size(),
+                 "producers: [0]\n  writers: [1]\n  consumers: [2]");
+    assert(ConfigLoader::parse_string(yaml, "yaml", config, error) == AMIO_ERR_MANIFEST_INVALID);
+    assert(error.field_path == "membership");
+
+    yaml = valid_evolution_yaml();
     const auto chunk = yaml.find("chunk_bytes: 4096");
     yaml.replace(chunk, std::string("chunk_bytes: 4096").size(), "chunk_bytes: 300000");
     assert(ConfigLoader::parse_string(yaml, "yaml", config, error) == AMIO_ERR_MANIFEST_INVALID);
@@ -935,6 +1025,8 @@ int main() {
     test_boundary_values();
     test_backpressure_invariant();
     test_backpressure_high_exceeds_capacity();
+    test_backpressure_timeout_config();
+    test_prefetch_capacity_config_bounds();
     test_validate_standalone();
     test_valid_codecs();
     test_evolution_mode_is_opt_in_and_bounded();

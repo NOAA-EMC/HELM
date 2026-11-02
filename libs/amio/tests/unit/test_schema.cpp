@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -63,6 +64,46 @@ void test_rejects_duplicate_names_and_nonfinite_extents() {
     assert(!invalid_extent.add_variable(variable).ok());
 }
 
+void test_bounded_canonical_decode() {
+    using namespace amio::detail;
+    Schema original;
+    auto field = scalar("field", AMIO_DTYPE_F64);
+    field.attributes.emplace("bool", Attribute{true});
+    field.attributes.emplace("signed", Attribute{std::int64_t{-4}});
+    field.attributes.emplace("unsigned", Attribute{std::uint64_t{8}});
+    field.attributes.emplace("real", Attribute{-1.25});
+    field.attributes.emplace("text", Attribute{std::string("x:;y")});
+    field.attributes.emplace("ints", Attribute{std::vector<std::int64_t>{-1, 2}});
+    field.attributes.emplace("uints", Attribute{std::vector<std::uint64_t>{0, 2}});
+    field.attributes.emplace("reals", Attribute{std::vector<double>{0.0, -0.0, std::numeric_limits<double>::denorm_min(),
+                                                                   std::numeric_limits<double>::max(), std::numeric_limits<double>::infinity(),
+                                                                   std::numeric_limits<double>::quiet_NaN()}});
+    field.attributes.emplace("texts", Attribute{std::vector<std::string>{"", "ab"}});
+    assert(original.add_variable(std::move(field)).ok());
+    assert(original.seal().ok());
+    Schema decoded;
+    assert(Schema::from_canonical(original.canonical(), original.canonical().size(), decoded).ok());
+    assert(original.equivalent(decoded));
+    const auto digest = decoded.digest();
+    assert(!Schema::from_canonical(original.canonical(), original.canonical().size() - 1, decoded).ok());
+    assert(decoded.digest() == digest);
+    auto malformed = original.canonical();
+    malformed.pop_back();
+    assert(!Schema::from_canonical(malformed, malformed.size(), decoded).ok());
+    assert(decoded.digest() == digest);
+    malformed = original.canonical() + "junk";
+    assert(!Schema::from_canonical(malformed, malformed.size(), decoded).ok());
+    assert(decoded.digest() == digest);
+    const std::string excessive_count =
+        "amio-schema-v1;digest=fnv1a64-v1;variables=1;1:x;0;0;1;1;1:d;1;0;1;1:a;5:18446744073709551615:";
+    assert(!Schema::from_canonical(excessive_count, excessive_count.size(), decoded).ok());
+    assert(decoded.digest() == digest);
+    const std::string noncanonical =
+        "amio-schema-v1;digest=fnv1a64-v1;variables=01;1:x;0;0;1;1;1:d;1;0;0;";
+    assert(!Schema::from_canonical(noncanonical, noncanonical.size(), decoded).ok());
+    assert(decoded.digest() == digest);
+}
+
 } // namespace
 
 int main() {
@@ -70,5 +111,6 @@ int main() {
     test_canonical_order_and_typed_attributes();
     test_rejects_bad_names_and_coordinate_references();
     test_rejects_duplicate_names_and_nonfinite_extents();
+    test_bounded_canonical_decode();
     return 0;
 }

@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "c_boundary/handle_table.hpp"
@@ -27,6 +28,7 @@
 #include "catalog/catalog_format.hpp"
 #include "catalog/collection_reader.hpp"
 #include "execution/context.hpp"
+#include "execution/role_map.hpp"
 #include "c_boundary/amio_core.hpp"
 #include "schema/schema.hpp"
 #include "staging/resource_budget.hpp"
@@ -37,6 +39,10 @@
 #include "drivers/zarr/zarr_steps.hpp"
 #include "drivers/grib2/grib2_steps.hpp"
 #include "prefetch/step_read_queue.hpp"
+#include "diagnostics/diagnostic_store.hpp"
+#include "workers/worker_pool.hpp"
+#include <chrono>
+#include <sstream>
 
 #ifdef AMIO_HAS_NETCDF
 #include <netcdf.h>
@@ -60,6 +66,9 @@ constexpr bool kTensorStoreAvailable = false;
 struct ContextPayload {
     std::unique_ptr<amio::detail::ExecutionContext> context;
     std::string canonical_configuration;
+    std::unique_ptr<amio::detail::DiagnosticStore> diagnostics;
+    // Declared after context so workers are joined before the communicator is freed.
+    std::unique_ptr<amio::detail::WorkerPool> writer_workers;
     std::atomic<std::uint64_t> open_datasets{0};
     std::atomic<std::uint64_t> open_step_handles{0};
 };
@@ -77,6 +86,7 @@ struct EvolutionDatasetPayload {
     std::string uuid;
     std::unique_ptr<amio::detail::ResourceBudget> budget;
     std::unique_ptr<amio::detail::StepCoordinator> steps;
+    std::map<std::string, amio::detail::ResourceBudget::Reservation, std::less<>> schema_reservations;
     std::unique_ptr<amio::detail::PosixCatalog> catalog;
     std::map<std::string, std::shared_ptr<const amio::detail::Schema>, std::less<>> schemas;
     std::map<std::string, bool, std::less<>> global_present_fields;
@@ -102,8 +112,34 @@ struct ProducerStepPayload {
     std::uint64_t step_id = 0;
     bool partitioned = false;
     std::map<std::string, amio::detail::RegionSelection, std::less<>> partitions;
+    /** Field identifiers retained until publication so staging gauges can return to zero. */
+    std::map<std::string, std::uint32_t, std::less<>> diagnostic_field_ids;
     bool ended = false;
 };
+
+void record_step_publication(ContextPayload &context, const EvolutionDatasetPayload &dataset,
+                             const ProducerStepPayload &step, std::uint64_t bytes, std::uint64_t elapsed_ns) {
+    if (!context.diagnostics) return;
+    amio::detail::DiagnosticScope scope;
+    scope.context_epoch = 1;
+    scope.dataset_id = std::hash<std::string>{}(dataset.uuid);
+    scope.step_id = step.step_id;
+    scope.role = amio::detail::DiagnosticRole::Producer;
+    scope.participant = context.context->rank();
+    context.diagnostics->add_counter(scope, amio::detail::DiagnosticCounter::Completed);
+    context.diagnostics->add_counter(scope, amio::detail::DiagnosticCounter::BytesWritten, bytes);
+    context.diagnostics->add_counter(scope, amio::detail::DiagnosticCounter::BytesPublished, bytes);
+    context.diagnostics->observe_duration(scope, amio::detail::DiagnosticHistogram::PublicationNs, elapsed_ns);
+    context.diagnostics->record_event(scope, amio::detail::DiagnosticEventKind::Publication, "step became reader-visible");
+    for (const auto &[field, field_id] : step.diagnostic_field_ids) {
+        (void)field;
+        scope.field_id = field_id;
+        context.diagnostics->set_resource(scope, amio::detail::DiagnosticResource::StagingRetainedBytes, 0,
+                                          dataset.payload_budget_bytes);
+        context.diagnostics->set_resource(scope, amio::detail::DiagnosticResource::ActiveOperations, 0,
+                                          dataset.budget ? dataset.budget->limits().descriptors : 0);
+    }
+}
 
 struct OperationHandlePayload {
     std::shared_ptr<amio::detail::OperationRecord> operation;
@@ -113,6 +149,21 @@ struct ConsumerLeasePayload {
     EvolutionDatasetPayload *dataset = nullptr;
     std::uint64_t step_id = 0;
 };
+
+void record_step_read_cache_occupancy(EvolutionDatasetPayload &dataset, std::uint64_t step_id,
+                                      std::string_view field) {
+    auto *context = dataset.context;
+    if (context == nullptr || !context->diagnostics) return;
+    amio::detail::DiagnosticScope scope;
+    scope.context_epoch = 1;
+    scope.dataset_id = std::hash<std::string>{}(dataset.uuid);
+    scope.step_id = step_id;
+    scope.field_id = static_cast<std::uint32_t>(std::hash<std::string_view>{}(field));
+    scope.role = amio::detail::DiagnosticRole::Consumer;
+    scope.participant = context->context->rank();
+    context->diagnostics->set_resource(scope, amio::detail::DiagnosticResource::PrefetchBytes,
+                                       dataset.read_cache.bytes_used(), EvolutionDatasetPayload::kStepReadCacheBytes);
+}
 
 std::size_t dtype_size(amio_dtype_t dtype) noexcept {
     switch (dtype) {
@@ -201,6 +252,57 @@ bool variable_payload_size(const amio::detail::Variable &variable, std::size_t &
     }
     if (width > std::numeric_limits<std::size_t>::max() / elements) return false;
     bytes = width * elements;
+    return true;
+}
+
+/** Estimate retained schema metadata from its canonical bytes and owned record/container objects. */
+bool schema_metadata_bytes(const amio::detail::Schema &schema, std::size_t &bytes) noexcept {
+    bytes = sizeof(amio::detail::Schema);
+    const auto add = [&bytes](std::size_t amount) {
+        if (amount > std::numeric_limits<std::size_t>::max() - bytes) return false;
+        bytes += amount;
+        return true;
+    };
+    // Charge retained capacity, including the duplicate key and variable name
+    // owned by the schema map. Small-string capacity is charged conservatively.
+    const auto add_string = [&add](const std::string &value) {
+        return value.capacity() != std::numeric_limits<std::size_t>::max() && add(value.capacity() + 1);
+    };
+    constexpr std::size_t node_links = 4 * sizeof(void *);
+    if (!add_string(schema.canonical()) || !add_string(schema.digest())) return false;
+    for (const auto &[name, variable] : schema.variables()) {
+        if (!add(sizeof(std::string) + sizeof(amio::detail::Variable) + node_links) ||
+            !add_string(name) || !add_string(variable.name) ||
+            variable.dimensions.capacity() > std::numeric_limits<std::size_t>::max() / sizeof(amio::detail::Dimension) ||
+            !add(variable.dimensions.capacity() * sizeof(amio::detail::Dimension)) ||
+            variable.attributes.size() > std::numeric_limits<std::size_t>::max() /
+                                             (sizeof(amio::detail::Attribute) + sizeof(std::string)))
+            return false;
+        for (const auto &dimension : variable.dimensions) {
+            if (!add_string(dimension.name) ||
+                (dimension.coordinate_variable && !add_string(*dimension.coordinate_variable))) return false;
+        }
+        for (const auto &[attribute_name, attribute] : variable.attributes) {
+            if (!add(sizeof(amio::detail::Attribute) + sizeof(std::string) + node_links) || !add_string(attribute_name)) return false;
+            const bool values_fit = std::visit([&add, &add_string](const auto &value) {
+                using Value = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<Value, std::string>) {
+                    return add_string(value);
+                } else if constexpr (requires { typename Value::value_type; value.size(); }) {
+                    using Element = typename Value::value_type;
+                    if (value.capacity() > std::numeric_limits<std::size_t>::max() / sizeof(Element) ||
+                        !add(value.capacity() * sizeof(Element))) return false;
+                    if constexpr (std::is_same_v<Element, std::string>) {
+                        for (const auto &text : value) if (!add_string(text)) return false;
+                    }
+                    return true;
+                } else {
+                    return true;
+                }
+            }, attribute.value);
+            if (!values_fit) return false;
+        }
+    }
     return true;
 }
 
@@ -340,29 +442,7 @@ bool convert_attribute(const amio_attribute_descriptor_t &descriptor, amio::deta
 }
 
 amio_status_t compare_schema_collectively(const amio::detail::ExecutionContext &context, const std::string &canonical) {
-#ifdef AMIO_HAS_MPI
-    const MPI_Comm comm = context.communicator();
-    unsigned long long root_bytes = context.rank() == 0 ? static_cast<unsigned long long>(canonical.size()) : 0;
-    if (MPI_Bcast(&root_bytes, 1, MPI_UNSIGNED_LONG_LONG, 0, comm) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
-    if (root_bytes > amio::detail::Schema::kMaxCanonicalBytes) return AMIO_ERR_INVALID_INPUT;
-    std::string root_canonical(static_cast<std::size_t>(root_bytes), '\0');
-    if (context.rank() == 0) root_canonical = canonical;
-    constexpr std::size_t chunk_bytes = 1u << 20;
-    for (std::size_t offset = 0; offset < root_canonical.size(); offset += chunk_bytes) {
-        const auto count = std::min(chunk_bytes, root_canonical.size() - offset);
-        if (MPI_Bcast(root_canonical.data() + offset, static_cast<int>(count), MPI_CHAR, 0, comm) != MPI_SUCCESS)
-            return AMIO_ERR_COMM_SPLIT_FAILED;
-    }
-    const int mismatch_local = canonical != root_canonical ? 1 : 0;
-    int mismatch_any = 0;
-    if (MPI_Allreduce(&mismatch_local, &mismatch_any, 1, MPI_INT, MPI_MAX, comm) != MPI_SUCCESS)
-        return AMIO_ERR_COMM_SPLIT_FAILED;
-    return mismatch_any ? AMIO_ERR_SCHEMA_MISMATCH : AMIO_OK;
-#else
-    (void)context;
-    (void)canonical;
-    return AMIO_OK;
-#endif
+    return amio::detail::compare_context_metadata(context, canonical, amio::detail::Schema::kMaxCanonicalBytes);
 }
 
 amio_status_t collective_status(const amio::detail::ExecutionContext &context, amio_status_t local_status) {
@@ -540,17 +620,19 @@ amio_status_t broadcast_publication(const amio::detail::ExecutionContext &contex
                                     amio::detail::PublicationResult &result) {
 #ifdef AMIO_HAS_MPI
     const MPI_Comm comm = context.communicator();
+    const int root = static_cast<int>(context.storage_root_rank());
     int wire[2] = {static_cast<int>(result.status), static_cast<int>(result.state)};
     unsigned long long path_bytes = static_cast<unsigned long long>(result.commit_path.size());
-    if (MPI_Bcast(wire, 2, MPI_INT, 0, comm) != MPI_SUCCESS ||
-        MPI_Bcast(&path_bytes, 1, MPI_UNSIGNED_LONG_LONG, 0, comm) != MPI_SUCCESS)
+    if (MPI_Bcast(wire, 2, MPI_INT, root, comm) != MPI_SUCCESS ||
+        MPI_Bcast(&path_bytes, 1, MPI_UNSIGNED_LONG_LONG, root, comm) != MPI_SUCCESS)
         return AMIO_ERR_COMM_SPLIT_FAILED;
     if (path_bytes > 1024 * 1024) return AMIO_ERR_BACKEND_FAILURE;
-    if (context.rank() != 0) result.commit_path.resize(static_cast<std::size_t>(path_bytes));
+    if (context.rank() != static_cast<int>(context.storage_root_rank()))
+        result.commit_path.resize(static_cast<std::size_t>(path_bytes));
     constexpr std::size_t chunk = 1u << 20;
     for (std::size_t offset = 0; offset < result.commit_path.size(); offset += chunk) {
         const auto count = std::min(chunk, result.commit_path.size() - offset);
-        if (MPI_Bcast(result.commit_path.data() + offset, static_cast<int>(count), MPI_CHAR, 0, comm) != MPI_SUCCESS)
+        if (MPI_Bcast(result.commit_path.data() + offset, static_cast<int>(count), MPI_CHAR, root, comm) != MPI_SUCCESS)
             return AMIO_ERR_COMM_SPLIT_FAILED;
     }
     result.status = static_cast<amio_status_t>(wire[0]);
@@ -562,6 +644,165 @@ amio_status_t broadcast_publication(const amio::detail::ExecutionContext &contex
 }
 } // namespace
 
+namespace {
+std::string json_escape(std::string_view value) {
+    std::string output;
+    output.reserve(value.size() + 2);
+    for (const unsigned char ch : value) {
+        switch (ch) {
+            case '"': output += "\\\""; break;
+            case '\\': output += "\\\\"; break;
+            case '\b': output += "\\b"; break;
+            case '\f': output += "\\f"; break;
+            case '\n': output += "\\n"; break;
+            case '\r': output += "\\r"; break;
+            case '\t': output += "\\t"; break;
+            default:
+                if (ch < 0x20) {
+                    constexpr char hex[] = "0123456789abcdef";
+                    output += "\\u00";
+                    output += hex[(ch >> 4) & 0xf];
+                    output += hex[ch & 0xf];
+                } else output += static_cast<char>(ch);
+        }
+    }
+    return output;
+}
+
+std::string diagnostics_json(const amio::detail::DiagnosticSnapshot &snapshot,
+                             const amio::detail::ExecutionContext &context) {
+    static constexpr const char *counter_names[] = {"accepted", "rejected", "completed", "failed", "bytes_accepted",
+        "bytes_written", "bytes_published", "source_released_bytes", "transport_received_bytes", "transport_published_bytes",
+        "view_bytes", "stream_skips"};
+    static constexpr const char *histogram_names[] = {"admission_ns", "snapshot_ns", "operator_ns", "transport_ns",
+        "backend_ns", "publication_ns", "end_to_end_ns", "wait_ns", "source_release_ns"};
+    static constexpr const char *resource_names[] = {"queue_descriptors", "staging_retained_bytes", "staging_descriptors",
+        "transport_bytes", "transport_descriptors", "metadata_bytes", "prefetch_bytes", "view_bytes",
+        "operator_scratch_bytes", "exception_history_bytes", "event_history_bytes", "active_operations"};
+    const char *execution_mode = "unknown";
+    switch (context.roles().mode) {
+        case amio::detail::ExecutionMode::Direct: execution_mode = "persistent_direct"; break;
+        case amio::detail::ExecutionMode::Aggregated: execution_mode = "persistent_aggregated"; break;
+        case amio::detail::ExecutionMode::Stream: execution_mode = "mpi_stream"; break;
+    }
+    const char *progress_mode = context.progress_policy() == amio::detail::ProgressPolicy::Caller ? "caller" : "background";
+    std::ostringstream out;
+    const auto &roles = context.role_map();
+    out << "{\"api_version\":2,\"topology\":{\"execution_mode\":\""
+        << execution_mode << "\",\"progress_mode\":\"" << progress_mode << "\",\"rank\":" << context.rank()
+        << ",\"rank_count\":" << context.size() << ",\"producers\":[";
+    const auto write_ranks = [&out](const std::vector<int> &ranks) {
+        for (std::size_t i = 0; i < ranks.size(); ++i) {
+            if (i != 0) out << ',';
+            out << ranks[i];
+        }
+    };
+    write_ranks(roles.producers());
+    out << "],\"writers\":[";
+    write_ranks(roles.writers());
+    out << "],\"consumers\":[";
+    write_ranks(context.roles().consumers);
+    out << "]},\"scope_count\":" << snapshot.scope_count
+        << ",\"evicted_scope_count\":" << snapshot.evicted_scope_count
+        << ",\"dropped_sample_count\":" << snapshot.dropped_sample_count << ",\"cumulative_counters\":{";
+    for (std::size_t i = 0; i < snapshot.cumulative.size(); ++i) {
+        if (i != 0) out << ',';
+        out << '\"' << counter_names[i] << "\":" << snapshot.cumulative[i];
+    }
+    out << "},\"counter_names\":[";
+    for (std::size_t i = 0; i < snapshot.cumulative.size(); ++i) {
+        if (i != 0) out << ',';
+        out << '\"' << counter_names[i] << '\"';
+    }
+    out << "],\"histogram_names\":[";
+    for (std::size_t i = 0; i < snapshot.cumulative_histograms.size(); ++i) {
+        if (i != 0) out << ',';
+        out << '\"' << histogram_names[i] << '\"';
+    }
+    out << "],\"resource_names\":[";
+    for (std::size_t i = 0; i < snapshot.cumulative_resource_high_water.size(); ++i) {
+        if (i != 0) out << ',';
+        out << '\"' << resource_names[i] << '\"';
+    }
+    out << "],\"cumulative_histograms\":[";
+    for (std::size_t i = 0; i < snapshot.cumulative_histograms.size(); ++i) {
+        if (i != 0) out << ',';
+        out << '[';
+        for (std::size_t bin = 0; bin < snapshot.cumulative_histograms[i].size(); ++bin) {
+            if (bin != 0) out << ',';
+            out << snapshot.cumulative_histograms[i][bin];
+        }
+        out << ']';
+    }
+    out << "],\"cumulative_resource_high_water\":[";
+    for (std::size_t i = 0; i < snapshot.cumulative_resource_high_water.size(); ++i) {
+        if (i != 0) out << ',';
+        out << snapshot.cumulative_resource_high_water[i];
+    }
+    out << "],\"scopes\":[";
+    bool first_scope = true;
+    for (const auto &[scope, value] : snapshot.scopes) {
+        if (!first_scope) out << ',';
+        first_scope = false;
+        out << "{\"context_epoch\":" << scope.context_epoch << ",\"dataset_id\":" << scope.dataset_id
+            << ",\"step_id\":" << scope.step_id << ",\"field_id\":" << scope.field_id
+            << ",\"role\":" << static_cast<unsigned>(scope.role) << ",\"participant\":" << scope.participant
+            << ",\"counters\":[";
+        for (std::size_t i = 0; i < value.counters.size(); ++i) { if (i != 0) out << ','; out << value.counters[i]; }
+        out << "],\"histograms\":[";
+        for (std::size_t i = 0; i < value.histograms.size(); ++i) {
+            if (i != 0) out << ',';
+            out << '[';
+            for (std::size_t bin = 0; bin < value.histograms[i].size(); ++bin) {
+                if (bin != 0) out << ',';
+                out << value.histograms[i][bin];
+            }
+            out << ']';
+        }
+        out << "],\"resource_current\":[";
+        for (std::size_t i = 0; i < value.resource_current.size(); ++i) { if (i != 0) out << ','; out << value.resource_current[i]; }
+        out << "],\"resource_high_water\":[";
+        for (std::size_t i = 0; i < value.resource_high_water.size(); ++i) { if (i != 0) out << ','; out << value.resource_high_water[i]; }
+        out << "],\"resource_ceilings\":[";
+        for (std::size_t i = 0; i < value.resource_ceilings.size(); ++i) { if (i != 0) out << ','; out << value.resource_ceilings[i]; }
+        out << "],\"first_error\":{\"status\":" << value.first_error.status
+            << ",\"message\":\"" << json_escape(value.first_error.message) << "\"}}";
+    }
+    out << "],\"first_error\":{" << "\"status\":" << snapshot.first_error.status
+        << ",\"message\":\"" << json_escape(snapshot.first_error.message) << "\"},\"events\":[";
+    bool first = true;
+    for (const auto &event : snapshot.events) {
+        if (!first) out << ',';
+        first = false;
+        out << "{\"kind\":" << static_cast<unsigned>(event.kind)
+            << ",\"context_epoch\":" << event.scope.context_epoch
+            << ",\"dataset_id\":" << event.scope.dataset_id
+            << ",\"step_id\":" << event.scope.step_id
+            << ",\"field_id\":" << event.scope.field_id
+            << ",\"role\":" << static_cast<unsigned>(event.scope.role)
+            << ",\"participant\":" << event.scope.participant
+            << ",\"message\":\"" << json_escape(event.message) << "\"}";
+    }
+    out << "]}";
+    return out.str();
+}
+
+std::string reduced_diagnostics_json(const std::array<std::uint64_t, amio::detail::kDiagnosticCounterCount> &counters) {
+    static constexpr const char *names[] = {"accepted", "rejected", "completed", "failed", "bytes_accepted",
+        "bytes_written", "bytes_published", "source_released_bytes", "transport_received_bytes", "transport_published_bytes",
+        "view_bytes", "stream_skips"};
+    std::ostringstream out;
+    out << "{\"api_version\":2,\"scope\":\"context\",\"cumulative_counters\":{";
+    for (std::size_t i = 0; i < counters.size(); ++i) {
+        if (i != 0) out << ',';
+        auto digits = std::to_string(counters[i]);
+        out << '\"' << names[i] << "\":\"" << std::string(20 - digits.size(), '0') << digits << '\"';
+    }
+    out << "}}";
+    return out.str();
+}
+} // namespace
+
 extern "C" {
 
 AMIO_API amio_status_t amio_init_ex(const amio_context_descriptor_t *descriptor, amio_context_handle *out_context) {
@@ -570,7 +811,40 @@ AMIO_API amio_status_t amio_init_ex(const amio_context_descriptor_t *descriptor,
     constexpr std::size_t minimum_size = offsetof(amio_context_descriptor_t, reserved) + 2 * sizeof(uint64_t);
     if (descriptor == nullptr) return AMIO_ERR_INVALID_INPUT;
     if (descriptor->struct_size < offsetof(amio_context_descriptor_t, version) + sizeof(descriptor->version)) return AMIO_ERR_INVALID_INPUT;
-    if (descriptor->version != AMIO_EVOLUTION_DESCRIPTOR_VERSION_1 || descriptor->struct_size < minimum_size) return AMIO_ERR_INVALID_INPUT;
+    if (descriptor->struct_size < minimum_size) return AMIO_ERR_INVALID_INPUT;
+#ifdef AMIO_HAS_MPI
+    // Once the descriptor supplies a usable communicator, agree on all local
+    // validation that would otherwise return before collective context setup.
+    // A null/short descriptor or unusable communicator cannot identify a
+    // common ordering domain and remains a caller-side precondition.
+    int initialized = 0, finalized = 0;
+    if (MPI_Initialized(&initialized) == MPI_SUCCESS && MPI_Finalized(&finalized) == MPI_SUCCESS && initialized && !finalized &&
+        descriptor->fortran_communicator >= std::numeric_limits<MPI_Fint>::min() &&
+        descriptor->fortran_communicator <= std::numeric_limits<MPI_Fint>::max()) {
+        const auto caller = MPI_Comm_f2c(static_cast<MPI_Fint>(descriptor->fortran_communicator));
+        if (caller != MPI_COMM_NULL) {
+            int local_status = AMIO_OK;
+            if (descriptor->version != AMIO_EVOLUTION_DESCRIPTOR_VERSION_1 || descriptor->reserved[0] != 0 ||
+                descriptor->reserved[1] != 0 || descriptor->rank_count == 0 || descriptor->rank_count > 1'000'000 ||
+                descriptor->configuration_bytes == 0 || descriptor->configuration_bytes > 1024 * 1024 ||
+                descriptor->canonical_configuration == nullptr || descriptor->producer_count > descriptor->rank_count ||
+                descriptor->writer_count > descriptor->rank_count || descriptor->consumer_count > descriptor->rank_count ||
+                (descriptor->producer_count != 0 && descriptor->producers == nullptr) ||
+                (descriptor->writer_count != 0 && descriptor->writers == nullptr) ||
+                (descriptor->consumer_count != 0 && descriptor->consumers == nullptr)) local_status = AMIO_ERR_INVALID_INPUT;
+            else if ((descriptor->execution_mode != AMIO_EXECUTION_PERSISTENT_DIRECT &&
+                      descriptor->execution_mode != AMIO_EXECUTION_PERSISTENT_AGGREGATED &&
+                      descriptor->execution_mode != AMIO_EXECUTION_MPI_STREAM) ||
+                     (descriptor->progress_mode != AMIO_PROGRESS_CALLER && descriptor->progress_mode != AMIO_PROGRESS_BACKGROUND))
+                local_status = AMIO_ERR_INVALID_POLICY;
+            int agreed_status = AMIO_OK;
+            if (MPI_Allreduce(&local_status, &agreed_status, 1, MPI_INT, MPI_MAX, caller) != MPI_SUCCESS)
+                return AMIO_ERR_COMM_SPLIT_FAILED;
+            if (agreed_status != AMIO_OK) return agreed_status;
+        }
+    }
+#endif
+    if (descriptor->version != AMIO_EVOLUTION_DESCRIPTOR_VERSION_1) return AMIO_ERR_INVALID_INPUT;
     if (descriptor->reserved[0] != 0 || descriptor->reserved[1] != 0) return AMIO_ERR_INVALID_INPUT;
     if (descriptor->rank_count == 0 || descriptor->rank_count > 1'000'000 || descriptor->configuration_bytes == 0 ||
         descriptor->configuration_bytes > 1024 * 1024 || descriptor->canonical_configuration == nullptr ||
@@ -593,26 +867,80 @@ AMIO_API amio_status_t amio_init_ex(const amio_context_descriptor_t *descriptor,
         if (descriptor->progress_mode == AMIO_PROGRESS_CALLER) progress = amio::detail::ProgressPolicy::Caller;
         else if (descriptor->progress_mode == AMIO_PROGRESS_BACKGROUND) progress = amio::detail::ProgressPolicy::Background;
         else return AMIO_ERR_INVALID_POLICY;
-        if (descriptor->producer_count) roles.producers.assign(descriptor->producers, descriptor->producers + descriptor->producer_count);
-        if (descriptor->writer_count) roles.writers.assign(descriptor->writers, descriptor->writers + descriptor->writer_count);
-        if (descriptor->consumer_count) roles.consumers.assign(descriptor->consumers, descriptor->consumers + descriptor->consumer_count);
-        const std::string canonical(descriptor->canonical_configuration, static_cast<std::size_t>(descriptor->configuration_bytes));
+        std::string canonical;
+        amio_status_t allocation_status = AMIO_OK;
+        try {
+            if (descriptor->producer_count) roles.producers.assign(descriptor->producers, descriptor->producers + descriptor->producer_count);
+            if (descriptor->writer_count) roles.writers.assign(descriptor->writers, descriptor->writers + descriptor->writer_count);
+            if (descriptor->consumer_count) roles.consumers.assign(descriptor->consumers, descriptor->consumers + descriptor->consumer_count);
+            canonical.assign(descriptor->canonical_configuration, static_cast<std::size_t>(descriptor->configuration_bytes));
+        } catch (...) { allocation_status = AMIO_ERR_BACKEND_FAILURE; }
         std::unique_ptr<amio::detail::ExecutionContext> context;
 #ifdef AMIO_HAS_MPI
         if (descriptor->fortran_communicator < std::numeric_limits<MPI_Fint>::min() ||
             descriptor->fortran_communicator > std::numeric_limits<MPI_Fint>::max()) return AMIO_ERR_INVALID_INPUT;
-        const MPI_Comm caller = MPI_Comm_f2c(static_cast<MPI_Fint>(descriptor->fortran_communicator));
-        const auto status = amio::detail::ExecutionContext::create(roles, progress, canonical, caller, context);
+        const MPI_Comm caller = initialized && !finalized ? MPI_Comm_f2c(static_cast<MPI_Fint>(descriptor->fortran_communicator)) : MPI_COMM_NULL;
+        if (caller != MPI_COMM_NULL) {
+            int local_allocation = allocation_status, agreed_allocation = AMIO_OK;
+            if (MPI_Allreduce(&local_allocation, &agreed_allocation, 1, MPI_INT, MPI_MAX, caller) != MPI_SUCCESS)
+                return AMIO_ERR_COMM_SPLIT_FAILED;
+            if (agreed_allocation != AMIO_OK) return agreed_allocation;
+        }
+        auto status = amio::detail::ExecutionContext::create(roles, progress, canonical, caller, context);
+        int local_creation = status, agreed_creation = AMIO_OK;
+        if (caller != MPI_COMM_NULL &&
+            MPI_Allreduce(&local_creation, &agreed_creation, 1, MPI_INT, MPI_MAX, caller) != MPI_SUCCESS)
+            return AMIO_ERR_COMM_SPLIT_FAILED;
+        if (caller != MPI_COMM_NULL) status = agreed_creation;
 #else
+        if (allocation_status != AMIO_OK) return allocation_status;
         if (descriptor->fortran_communicator != 0) return AMIO_ERR_UNSUPPORTED;
         const auto status = amio::detail::ExecutionContext::create(roles, progress, canonical, 0, context);
 #endif
         if (status != AMIO_OK) return status;
-        auto payload = std::make_unique<ContextPayload>();
-        payload->context = std::move(context);
-        payload->canonical_configuration = canonical;
-        const auto token = process_handle_table().insert(HandleKind::Context, payload.get());
-        if (token == 0) return AMIO_ERR_BACKEND_FAILURE;
+        std::unique_ptr<ContextPayload> payload;
+        HandleTable::Token token = 0;
+        amio_status_t payload_status = AMIO_OK;
+        try {
+            payload = std::make_unique<ContextPayload>();
+            payload->context = std::move(context);
+            payload->canonical_configuration = canonical;
+            payload->diagnostics = std::make_unique<amio::detail::DiagnosticStore>(
+                amio::detail::DiagnosticStore::Limits{256, 1024u * 1024u, 1024, 1024});
+            if (roles.mode == amio::detail::ExecutionMode::Aggregated &&
+                progress == amio::detail::ProgressPolicy::Background && payload->context->can_open_storage()) {
+                const auto settings = conf::Config::from_string(canonical);
+                amio::detail::WorkerPoolConfig workers;
+                if (settings.has("worker_pool.threads")) {
+                    const int count = settings.get_int("worker_pool.threads");
+                    if (count <= 0 || count > 256) payload_status = AMIO_ERR_INVALID_POLICY;
+                    else workers.thread_count = static_cast<std::size_t>(count);
+                }
+                amio::detail::ThreadConfig affinity;
+                if (settings.has("worker_pool.cpu_cores")) affinity.cpu_cores = settings.get_int_list("worker_pool.cpu_cores");
+                if (settings.has("worker_pool.numa_domain")) affinity.numa_domain = settings.get_int("worker_pool.numa_domain");
+                workers.thread_configs.assign(workers.thread_count, affinity);
+                if (payload_status == AMIO_OK)
+                    payload_status = amio::detail::bind_writer_worker_config(*payload->context, workers);
+                if (payload_status == AMIO_OK) payload->writer_workers = std::make_unique<amio::detail::WorkerPool>(workers);
+            }
+            if (payload_status != AMIO_OK) throw std::runtime_error("invalid writer worker configuration");
+            token = process_handle_table().insert(HandleKind::Context, payload.get());
+            if (token == 0) payload_status = AMIO_ERR_BACKEND_FAILURE;
+        } catch (...) { if (payload_status == AMIO_OK) payload_status = AMIO_ERR_BACKEND_FAILURE; }
+#ifdef AMIO_HAS_MPI
+        int local_payload = payload_status, agreed_payload = AMIO_OK;
+        if (MPI_Allreduce(&local_payload, &agreed_payload, 1, MPI_INT, MPI_MAX, caller) != MPI_SUCCESS)
+            agreed_payload = AMIO_ERR_COMM_SPLIT_FAILED;
+        payload_status = agreed_payload;
+#endif
+        if (payload_status != AMIO_OK) {
+            if (token != 0) {
+                void *unused = nullptr;
+                (void)process_handle_table().release(token, HandleKind::Context, &unused);
+            }
+            return payload_status;
+        }
         *out_context = reinterpret_cast<amio_context_handle>(HandleTable::to_ptr(token));
         payload.release();
         return AMIO_OK;
@@ -644,6 +972,101 @@ AMIO_API amio_status_t amio_query_capabilities(amio_context_handle context, char
     return AMIO_OK;
 }
 
+/** Return this rank's effective role and role-group rank without entering MPI collectives. */
+AMIO_API amio_status_t amio_query_context_role(amio_context_handle context, uint32_t *out_role,
+                                               uint32_t *out_group_rank) {
+    if (out_role == nullptr || out_group_rank == nullptr) return AMIO_ERR_INVALID_INPUT;
+    *out_role = AMIO_ROLE_INACTIVE;
+    *out_group_rank = 0;
+    void *payload = nullptr;
+    if (!token_payload(context, HandleKind::Context, &payload))
+        return context == nullptr ? AMIO_ERR_NULL_HANDLE : AMIO_ERR_INVALID_HANDLE;
+    const auto &execution = *static_cast<ContextPayload *>(payload)->context;
+    const auto role = execution.role_map().role(execution.rank());
+    switch (role) {
+        case amio::detail::RankRole::Producer: *out_role = AMIO_ROLE_PRODUCER; break;
+        case amio::detail::RankRole::Writer: *out_role = AMIO_ROLE_WRITER; break;
+        case amio::detail::RankRole::Consumer: *out_role = AMIO_ROLE_CONSUMER; break;
+        case amio::detail::RankRole::Inactive: return AMIO_ERR_INVALID_POLICY;
+    }
+#ifdef AMIO_HAS_MPI
+    MPI_Comm group = MPI_COMM_NULL;
+    switch (role) {
+        case amio::detail::RankRole::Producer: group = execution.producer_communicator(); break;
+        case amio::detail::RankRole::Writer: group = execution.writer_communicator(); break;
+        case amio::detail::RankRole::Consumer: group = execution.consumer_communicator(); break;
+        case amio::detail::RankRole::Inactive: break;
+    }
+    if (group != MPI_COMM_NULL) {
+        int group_rank = 0;
+        if (MPI_Comm_rank(group, &group_rank) != MPI_SUCCESS || group_rank < 0) return AMIO_ERR_COMM_SPLIT_FAILED;
+        *out_group_rank = static_cast<uint32_t>(group_rank);
+    }
+#endif
+    return AMIO_OK;
+}
+
+/** Return a bounded local diagnostic snapshot as versioned JSON; no collective is entered. */
+AMIO_API amio_status_t amio_query_diagnostics(amio_context_handle context, char *buffer, size_t buffer_capacity,
+                                              size_t *out_required_bytes) {
+    if (out_required_bytes == nullptr) return AMIO_ERR_INVALID_INPUT;
+    *out_required_bytes = 0;
+    void *payload = nullptr;
+    if (!token_payload(context, HandleKind::Context, &payload))
+        return context == nullptr ? AMIO_ERR_NULL_HANDLE : AMIO_ERR_INVALID_HANDLE;
+    auto *owner = static_cast<ContextPayload *>(payload);
+    if (!owner->diagnostics) return AMIO_ERR_BACKEND_FAILURE;
+    const auto json = diagnostics_json(owner->diagnostics->snapshot(), *owner->context);
+    const auto required = json.size() + 1;
+    *out_required_bytes = required;
+    if (buffer == nullptr && buffer_capacity == 0) return AMIO_OK;
+    if (buffer == nullptr || buffer_capacity < required) return AMIO_ERR_BUFFER_TOO_SMALL;
+    std::memcpy(buffer, json.c_str(), required);
+    return AMIO_OK;
+}
+
+/** Collectively sum cumulative context counters; size discovery remains local. */
+AMIO_API amio_status_t amio_reduce_diagnostics(amio_context_handle context, char *buffer, size_t buffer_capacity,
+                                               size_t *out_required_bytes) {
+    if (out_required_bytes == nullptr) return AMIO_ERR_INVALID_INPUT;
+    *out_required_bytes = 0;
+    void *payload = nullptr;
+    if (!token_payload(context, HandleKind::Context, &payload))
+        return context == nullptr ? AMIO_ERR_NULL_HANDLE : AMIO_ERR_INVALID_HANDLE;
+    auto *owner = static_cast<ContextPayload *>(payload);
+    if (!owner->diagnostics) return AMIO_ERR_BACKEND_FAILURE;
+    constexpr std::size_t required = sizeof("{\"api_version\":1,\"scope\":\"context\",\"cumulative_counters\":{\"accepted\":\"00000000000000000000\",\"rejected\":\"00000000000000000000\",\"completed\":\"00000000000000000000\",\"failed\":\"00000000000000000000\",\"bytes_accepted\":\"00000000000000000000\",\"bytes_written\":\"00000000000000000000\",\"bytes_published\":\"00000000000000000000\",\"source_released_bytes\":\"00000000000000000000\",\"transport_received_bytes\":\"00000000000000000000\",\"transport_published_bytes\":\"00000000000000000000\",\"view_bytes\":\"00000000000000000000\",\"stream_skips\":\"00000000000000000000\"}}");
+    *out_required_bytes = required;
+    if (buffer == nullptr && buffer_capacity == 0) return AMIO_OK;
+    const auto local_status = (buffer == nullptr || buffer_capacity < required) ? AMIO_ERR_BUFFER_TOO_SMALL : AMIO_OK;
+    const auto agreed_status = collective_status(*owner->context, local_status);
+    if (agreed_status != AMIO_OK) return agreed_status;
+
+    const auto local = owner->diagnostics->snapshot().cumulative;
+    auto reduced = local;
+#ifdef AMIO_HAS_MPI
+    std::array<std::uint64_t, amio::detail::kDiagnosticCounterCount> low{}, low_sum{};
+    std::array<std::uint64_t, amio::detail::kDiagnosticCounterCount> high{}, high_sum{};
+    for (std::size_t i = 0; i < local.size(); ++i) {
+        low[i] = static_cast<std::uint32_t>(local[i]);
+        high[i] = local[i] >> 32;
+    }
+    if (MPI_Allreduce(low.data(), low_sum.data(), static_cast<int>(low.size()), MPI_UINT64_T, MPI_SUM,
+                      owner->context->communicator()) != MPI_SUCCESS ||
+        MPI_Allreduce(high.data(), high_sum.data(), static_cast<int>(high.size()), MPI_UINT64_T, MPI_SUM,
+                      owner->context->communicator()) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+    for (std::size_t i = 0; i < reduced.size(); ++i) {
+        const auto upper = high_sum[i] + (static_cast<std::uint64_t>(low_sum[i]) >> 32);
+        reduced[i] = upper > std::numeric_limits<std::uint32_t>::max()
+                         ? std::numeric_limits<std::uint64_t>::max()
+                         : (upper << 32) | static_cast<std::uint32_t>(low_sum[i]);
+    }
+#endif
+    const auto json = reduced_diagnostics_json(reduced);
+    std::memcpy(buffer, json.c_str(), json.size() + 1);
+    return AMIO_OK;
+}
+
 AMIO_API amio_status_t amio_release_context(amio_context_handle context) {
     if (context == nullptr) return AMIO_ERR_NULL_HANDLE;
     void *payload = nullptr;
@@ -668,6 +1091,8 @@ AMIO_API amio_status_t amio_open_dataset_ex(amio_context_handle context, const a
     auto *owner = static_cast<ContextPayload *>(context_payload);
     constexpr std::size_t minimum = offsetof(amio_dataset_descriptor_t, reserved) + 2 * sizeof(std::uint64_t);
     amio_status_t local_status = AMIO_OK;
+    if (!owner->context->can_open_storage())
+        local_status = AMIO_ERR_INVALID_POLICY;
     if (owner->context->roles().mode != amio::detail::ExecutionMode::Direct)
         local_status = AMIO_ERR_UNSUPPORTED;
     if (!valid_descriptor_header(descriptor, minimum)) local_status = AMIO_ERR_INVALID_INPUT;
@@ -749,7 +1174,7 @@ AMIO_API amio_status_t amio_open_dataset_ex(amio_context_handle context, const a
     if (agreed_status != AMIO_OK) return agreed_status;
 
     int root_status = AMIO_OK;
-    if (owner->context->rank() == 0) {
+    if (owner->context->rank() == owner->context->storage_root_rank()) {
         try {
             dataset->uuid = random_identity("dataset-");
         } catch (...) {
@@ -757,15 +1182,16 @@ AMIO_API amio_status_t amio_open_dataset_ex(amio_context_handle context, const a
         }
     }
 #ifdef AMIO_HAS_MPI
-    if (MPI_Bcast(&root_status, 1, MPI_INT, 0, owner->context->communicator()) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+    const int storage_root = static_cast<int>(owner->context->storage_root_rank());
+    if (MPI_Bcast(&root_status, 1, MPI_INT, storage_root, owner->context->communicator()) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
     constexpr std::size_t uuid_capacity = 64;
     char uuid_buffer[uuid_capacity] = {};
-    if (owner->context->rank() == 0 && root_status == AMIO_OK) {
+    if (owner->context->rank() == owner->context->storage_root_rank() && root_status == AMIO_OK) {
         if (dataset->uuid.size() >= uuid_capacity) root_status = AMIO_ERR_BACKEND_FAILURE;
         else std::memcpy(uuid_buffer, dataset->uuid.data(), dataset->uuid.size());
     }
-    if (MPI_Bcast(&root_status, 1, MPI_INT, 0, owner->context->communicator()) != MPI_SUCCESS ||
-        MPI_Bcast(uuid_buffer, static_cast<int>(uuid_capacity), MPI_CHAR, 0, owner->context->communicator()) != MPI_SUCCESS)
+    if (MPI_Bcast(&root_status, 1, MPI_INT, storage_root, owner->context->communicator()) != MPI_SUCCESS ||
+        MPI_Bcast(uuid_buffer, static_cast<int>(uuid_capacity), MPI_CHAR, storage_root, owner->context->communicator()) != MPI_SUCCESS)
         return AMIO_ERR_COMM_SPLIT_FAILED;
     if (root_status != AMIO_OK) return static_cast<amio_status_t>(root_status);
     dataset->uuid.assign(uuid_buffer);
@@ -787,7 +1213,7 @@ AMIO_API amio_status_t amio_open_dataset_ex(amio_context_handle context, const a
     agreed_status = collective_status(*owner->context, local_status);
     if (agreed_status != AMIO_OK) return agreed_status;
 
-    if (owner->context->rank() == 0) {
+    if (owner->context->rank() == owner->context->storage_root_rank()) {
         try {
             const auto owner_token = random_identity("owner-");
             dataset->catalog = std::make_unique<amio::detail::PosixCatalog>(dataset->location, dataset->uuid, owner_token);
@@ -797,7 +1223,7 @@ AMIO_API amio_status_t amio_open_dataset_ex(amio_context_handle context, const a
         }
     }
 #ifdef AMIO_HAS_MPI
-    if (MPI_Bcast(&root_status, 1, MPI_INT, 0, owner->context->communicator()) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+    if (MPI_Bcast(&root_status, 1, MPI_INT, storage_root, owner->context->communicator()) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
 #endif
     if (root_status != AMIO_OK) return static_cast<amio_status_t>(root_status);
 
@@ -867,6 +1293,13 @@ AMIO_API amio_status_t amio_define_schema(amio_dataset_handle dataset, const ami
       try {
         schema = std::make_shared<amio::detail::Schema>();
         std::set<std::string, std::less<>> grib_identities;
+        std::size_t input_bytes = 0;
+        const auto charge_input = [&](std::uint64_t bytes) {
+            const auto limit = owner->budget->limits().control_bytes;
+            if (bytes > limit - input_bytes) return false;
+            input_bytes += static_cast<std::size_t>(bytes);
+            return true;
+        };
         for (std::uint64_t i = 0; i < descriptor->variable_count; ++i) {
             const auto &input = descriptor->variables[i];
             constexpr std::size_t var_minimum = offsetof(amio_variable_descriptor_t, reserved) + 2 * sizeof(std::uint64_t);
@@ -876,6 +1309,7 @@ AMIO_API amio_status_t amio_define_schema(amio_dataset_handle dataset, const ami
                 amio::detail::Schema::kMaxAttributesPerVariable || (input.attribute_count != 0 && input.attributes == nullptr))
                 return AMIO_ERR_INVALID_INPUT;
             amio::detail::Variable variable;
+            if (!charge_input(input.name_bytes)) return AMIO_ERR_BUDGET_EXCEEDED;
             if (!copy_utf8(input.name, input.name_bytes, variable.name)) return AMIO_ERR_INVALID_INPUT;
             if (input.source_dtype > AMIO_DTYPE_U64 || input.stored_dtype > AMIO_DTYPE_U64) return AMIO_ERR_INVALID_INPUT;
             variable.source_dtype = static_cast<amio_dtype_t>(input.source_dtype);
@@ -888,6 +1322,7 @@ AMIO_API amio_status_t amio_define_schema(amio_dataset_handle dataset, const ami
                 if (!valid_descriptor_header(&dim, dim_minimum) || dim.reserved[0] != 0 || dim.reserved[1] != 0)
                     return AMIO_ERR_INVALID_INPUT;
                 amio::detail::Dimension dimension;
+                if (!charge_input(dim.name_bytes) || !charge_input(dim.coordinate_variable_bytes)) return AMIO_ERR_BUDGET_EXCEEDED;
                 if (!copy_utf8(dim.name, dim.name_bytes, dimension.name)) return AMIO_ERR_INVALID_INPUT;
                 dimension.extent = dim.extent;
                 if (dim.coordinate_variable_bytes != 0) {
@@ -901,6 +1336,7 @@ AMIO_API amio_status_t amio_define_schema(amio_dataset_handle dataset, const ami
                 const auto &attr_input = input.attributes[a];
                 amio::detail::Attribute attribute;
                 std::string name;
+                if (!charge_input(attr_input.name_bytes) || !charge_input(attr_input.value_bytes)) return AMIO_ERR_BUDGET_EXCEEDED;
                 if (!copy_utf8(attr_input.name, attr_input.name_bytes, name) || !convert_attribute(attr_input, attribute) ||
                     !variable.attributes.emplace(std::move(name), std::move(attribute)).second) return AMIO_ERR_INVALID_INPUT;
             }
@@ -930,46 +1366,106 @@ AMIO_API amio_status_t amio_define_schema(amio_dataset_handle dataset, const ami
     if (agreed_status != AMIO_OK) return agreed_status;
     agreed_status = compare_schema_collectively(*owner->context->context, schema->canonical());
     if (agreed_status != AMIO_OK) return agreed_status;
-    const bool schema_already_registered = owner->schemas.contains(schema->digest());
-
-    local_status = owner->steps->register_schema(schema);
+    const auto existing_schema = owner->schemas.find(schema->digest());
+    const bool schema_already_registered = existing_schema != owner->schemas.end();
+    if (schema_already_registered && !existing_schema->second->equivalent(*schema)) local_status = AMIO_ERR_SCHEMA_MISMATCH;
     agreed_status = collective_status(*owner->context->context, local_status);
     if (agreed_status != AMIO_OK) return agreed_status;
+    std::shared_ptr<const amio::detail::Schema> registered_schema =
+        schema_already_registered ? existing_schema->second : schema;
+    // Existing handles and the dataset share one charged immutable schema.
+    if (schema_already_registered) schema.reset();
+
+    std::optional<amio::detail::ResourceBudget::Reservation> metadata_reservation;
+    if (!schema_already_registered) {
+        std::size_t retained_bytes = 0;
+        if (!schema_metadata_bytes(*registered_schema, retained_bytes)) {
+            local_status = AMIO_ERR_BUDGET_EXCEEDED;
+        } else {
+            metadata_reservation = owner->budget->reserve(retained_bytes, 1, amio::detail::ResourceBudget::Class::Control);
+            if (!metadata_reservation) local_status = AMIO_ERR_BUDGET_EXCEEDED;
+        }
+    }
+    agreed_status = collective_status(*owner->context->context, local_status);
+    if (agreed_status != AMIO_OK) {
+        if (metadata_reservation) (void)owner->budget->release(*metadata_reservation);
+        return agreed_status;
+    }
 
     int schema_status = AMIO_OK;
-    if (owner->context->context->rank() == 0) {
+    if (owner->context->context->rank() == owner->context->context->storage_root_rank()) {
         try {
             amio::detail::SchemaDocument document;
             document.dataset_uuid = owner->uuid;
-            document.digest = schema->digest();
-            document.canonical_schema = schema->canonical();
-            for (const auto &[name, variable] : schema->variables()) if (variable.required) document.required_fields.push_back(name);
+            document.digest = registered_schema->digest();
+            document.canonical_schema = registered_schema->canonical();
+            for (const auto &[name, variable] : registered_schema->variables()) if (variable.required) document.required_fields.push_back(name);
             std::string encoded;
             schema_status = amio::detail::encode_schema_document(document, encoded);
             if (schema_status == AMIO_OK) {
-                const auto path = std::string("payloads/schemas/") + schema->digest() + ".json";
+                const auto path = std::string("payloads/schemas/") + registered_schema->digest() + ".json";
                 schema_status = schema_already_registered ? AMIO_OK : owner->catalog->write_payload(
                     path, encoded.data(), encoded.size(), owner->requested_sync);
             }
         } catch (...) { schema_status = AMIO_ERR_BACKEND_FAILURE; }
     }
 #ifdef AMIO_HAS_MPI
-    if (MPI_Bcast(&schema_status, 1, MPI_INT, 0, owner->context->context->communicator()) != MPI_SUCCESS)
+    if (MPI_Bcast(&schema_status, 1, MPI_INT, static_cast<int>(owner->context->context->storage_root_rank()),
+                  owner->context->context->communicator()) != MPI_SUCCESS)
         return AMIO_ERR_COMM_SPLIT_FAILED;
 #endif
-    if (schema_status != AMIO_OK) return static_cast<amio_status_t>(schema_status);
+    agreed_status = collective_status(*owner->context->context, static_cast<amio_status_t>(schema_status));
+    if (agreed_status != AMIO_OK) {
+        if (metadata_reservation) (void)owner->budget->release(*metadata_reservation);
+        return agreed_status;
+    }
+
+    local_status = owner->steps->register_schema(registered_schema);
+    agreed_status = collective_status(*owner->context->context, local_status);
+    if (agreed_status != AMIO_OK) {
+        if (metadata_reservation) (void)owner->budget->release(*metadata_reservation);
+        return agreed_status;
+    }
 
     std::unique_ptr<SchemaHandlePayload> handle_payload;
     local_status = AMIO_OK;
     try {
         handle_payload = std::make_unique<SchemaHandlePayload>();
-        handle_payload->schema = schema;
-        owner->schemas[schema->digest()] = schema;
+        handle_payload->schema = registered_schema;
+        owner->schemas[registered_schema->digest()] = registered_schema;
+        if (metadata_reservation) owner->schema_reservations.emplace(registered_schema->digest(), *metadata_reservation);
     } catch (...) {
         local_status = AMIO_ERR_BACKEND_FAILURE;
     }
     agreed_status = collective_status(*owner->context->context, local_status);
-    if (agreed_status != AMIO_OK) return agreed_status;
+    if (agreed_status != AMIO_OK) {
+        if (metadata_reservation) {
+            owner->schemas.erase(registered_schema->digest());
+            owner->schema_reservations.erase(registered_schema->digest());
+            (void)owner->budget->release(*metadata_reservation);
+        }
+        return agreed_status;
+    }
+
+    if (owner->context->diagnostics) {
+        std::size_t metadata_bytes = 0;
+        for (const auto &[digest, reservation] : owner->schema_reservations) {
+            (void)digest;
+            metadata_bytes = reservation.bytes > std::numeric_limits<std::size_t>::max() - metadata_bytes
+                                 ? std::numeric_limits<std::size_t>::max()
+                                 : metadata_bytes + reservation.bytes;
+        }
+        amio::detail::DiagnosticScope scope;
+        scope.context_epoch = 1;
+        scope.dataset_id = std::hash<std::string>{}(owner->uuid);
+        scope.role = owner->context->context->role_map().role(owner->context->context->rank()) ==
+                             amio::detail::RankRole::Writer
+                         ? amio::detail::DiagnosticRole::Writer
+                         : amio::detail::DiagnosticRole::Producer;
+        scope.participant = owner->context->context->rank();
+        owner->context->diagnostics->set_resource(scope, amio::detail::DiagnosticResource::MetadataBytes,
+                                                   metadata_bytes, owner->budget->limits().control_bytes);
+    }
 
     const auto schema_token = process_handle_table().insert(HandleKind::Schema, handle_payload.get());
     local_status = schema_token == 0 ? AMIO_ERR_BACKEND_FAILURE : AMIO_OK;
@@ -1168,7 +1664,59 @@ AMIO_API amio_status_t amio_put_field(amio_step_handle step, const char *field, 
     if (!copy_utf8(field, field_bytes, field_name)) return AMIO_ERR_INVALID_INPUT;
     auto *owner = producer_step->dataset;
     std::lock_guard<std::mutex> lock(owner->mutex);
+    const auto started = std::chrono::steady_clock::now();
+    const auto diagnostic_field_id = static_cast<std::uint32_t>(std::hash<std::string>{}(field_name));
+    if (owner->context->diagnostics) {
+        try {
+            producer_step->diagnostic_field_ids.try_emplace(field_name, diagnostic_field_id);
+        } catch (...) {
+            return AMIO_ERR_BACKEND_FAILURE;
+        }
+    }
     const auto result = owner->steps->put(field_name, data, data_bytes);
+    if (owner->context->diagnostics) {
+        amio::detail::DiagnosticScope scope;
+        scope.context_epoch = 1;
+        scope.dataset_id = std::hash<std::string>{}(owner->uuid);
+        scope.step_id = producer_step->step_id;
+        scope.field_id = diagnostic_field_id;
+        scope.role = amio::detail::DiagnosticRole::Producer;
+        scope.participant = owner->context->context->rank();
+        const auto elapsed = std::chrono::steady_clock::now() - started;
+        const auto elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count();
+        owner->context->diagnostics->observe_duration(scope, amio::detail::DiagnosticHistogram::AdmissionNs,
+                                                       elapsed_ns < 0 ? 0 : static_cast<std::uint64_t>(elapsed_ns));
+        if (result.status == AMIO_OK) {
+            owner->context->diagnostics->add_counter(scope, amio::detail::DiagnosticCounter::Accepted);
+            owner->context->diagnostics->add_counter(scope, amio::detail::DiagnosticCounter::BytesAccepted, data_bytes);
+            owner->context->diagnostics->add_counter(scope, amio::detail::DiagnosticCounter::SourceReleasedBytes, data_bytes);
+            // put() returns only after the caller's bytes have been copied into
+            // AMIO-owned storage, which is the source-release boundary. Keep
+            // this separate from end_step publication latency so diagnostics
+            // report when the model may safely reuse its input buffer.
+            owner->context->diagnostics->observe_duration(scope, amio::detail::DiagnosticHistogram::SnapshotNs,
+                                                           elapsed_ns < 0 ? 0 : static_cast<std::uint64_t>(elapsed_ns));
+            owner->context->diagnostics->observe_duration(scope, amio::detail::DiagnosticHistogram::SourceReleaseNs,
+                                                           elapsed_ns < 0 ? 0 : static_cast<std::uint64_t>(elapsed_ns));
+            std::uint64_t retained_bytes = 0;
+            for (const auto &[name, contribution] : owner->steps->contributions()) {
+                (void)name;
+                const auto bytes = static_cast<std::uint64_t>(contribution.bytes.size());
+                retained_bytes = bytes > std::numeric_limits<std::uint64_t>::max() - retained_bytes
+                                     ? std::numeric_limits<std::uint64_t>::max()
+                                     : retained_bytes + bytes;
+            }
+            owner->context->diagnostics->set_resource(scope, amio::detail::DiagnosticResource::StagingRetainedBytes,
+                                                      retained_bytes, owner->payload_budget_bytes);
+            owner->context->diagnostics->set_resource(
+                scope, amio::detail::DiagnosticResource::ActiveOperations, owner->steps->contributions().size(),
+                                                      owner->budget ? owner->budget->limits().descriptors : 0);
+            owner->context->diagnostics->record_event(scope, amio::detail::DiagnosticEventKind::Admission, "field snapshot admitted");
+        } else {
+            owner->context->diagnostics->add_counter(scope, amio::detail::DiagnosticCounter::Rejected);
+            owner->context->diagnostics->record_error(scope, result.status, "field snapshot admission failed");
+        }
+    }
     if (result.status != AMIO_OK) return result.status;
     auto operation = owner->steps->operation_record(result.handle);
     if (!operation) {
@@ -1222,6 +1770,20 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
     auto *producer_step = static_cast<ProducerStepPayload *>(step_payload);
     auto *owner = producer_step->dataset;
     std::lock_guard<std::mutex> lock(owner->mutex);
+    std::uint64_t contribution_bytes = 0;
+    for (const auto &[name, contribution] : owner->steps->contributions()) {
+        (void)name;
+        const auto amount = static_cast<std::uint64_t>(contribution.bytes.size());
+        contribution_bytes = amount > std::numeric_limits<std::uint64_t>::max() - contribution_bytes
+                                 ? std::numeric_limits<std::uint64_t>::max() : contribution_bytes + amount;
+    }
+    const auto publication_started = std::chrono::steady_clock::now();
+    auto record_publication = [&]() {
+        const auto elapsed = std::chrono::steady_clock::now() - publication_started;
+        const auto elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count();
+        record_step_publication(*owner->context, *owner, *producer_step, contribution_bytes,
+                                elapsed_ns < 0 ? 0 : static_cast<std::uint64_t>(elapsed_ns));
+    };
     auto &coordinator = *owner->steps;
 #ifdef AMIO_HAS_MPI
     if (producer_step->partitioned) {
@@ -1241,7 +1803,7 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
 
     if (coordinator.state() == amio::detail::StepState::Reconciling) {
         amio::detail::PublicationResult reconciled;
-        if (owner->context->context->rank() == 0)
+        if (owner->context->context->rank() == owner->context->context->storage_root_rank())
             reconciled = owner->catalog->reconcile(owner->pending_commit);
         const auto broadcast_status = broadcast_publication(*owner->context->context, reconciled);
         if (broadcast_status != AMIO_OK) return broadcast_status;
@@ -1252,6 +1814,7 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
         owner->previous_commit = owner->pending_commit;
         owner->pending_commit.clear();
         producer_step->ended = true;
+        record_publication();
         return AMIO_OK;
     }
 
@@ -1291,7 +1854,7 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
         if (owner->format == AMIO_FORMAT_NETCDF4) {
             if (producer_step->partitioned) {
                 amio_status_t directory_status = AMIO_OK;
-                if (owner->context->context->rank() == 0) {
+                if (owner->context->context->rank() == owner->context->context->storage_root_rank()) {
                     try { std::filesystem::create_directories(std::filesystem::path(payload_path).parent_path()); }
                     catch (...) { directory_status = AMIO_ERR_BACKEND_FAILURE; }
                 }
@@ -1311,7 +1874,7 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
 #ifdef AMIO_HAS_TENSORSTORE
             std::string error;
             if (producer_step->partitioned) {
-                if (owner->context->context->rank() == 0 &&
+                if (owner->context->context->rank() == owner->context->context->storage_root_rank() &&
                     !amio::detail::create_zarr_step(owner->location, owner->uuid, coordinator.active_step_id(),
                                                     *schema_it->second, owner->zarr_shard_shapes, error))
                     payload_status = AMIO_ERR_BACKEND_FAILURE;
@@ -1402,7 +1965,8 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
     record.previous_commit = owner->previous_commit;
     std::uint64_t file_bytes = 0;
     if (owner->format == AMIO_FORMAT_NETCDF4) {
-        if (!producer_step->partitioned || owner->context->context->rank() == 0) {
+        if (!producer_step->partitioned ||
+            owner->context->context->rank() == owner->context->context->storage_root_rank()) {
             try { file_bytes = std::filesystem::file_size(payload_path); }
             catch (...) { status = AMIO_ERR_BACKEND_FAILURE; }
         }
@@ -1413,7 +1977,9 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
                 return status;
             }
 #ifdef AMIO_HAS_MPI
-            if (MPI_Bcast(&file_bytes, 1, MPI_UINT64_T, 0, owner->context->context->communicator()) != MPI_SUCCESS)
+            if (MPI_Bcast(&file_bytes, 1, MPI_UINT64_T,
+                          static_cast<int>(owner->context->context->storage_root_rank()),
+                          owner->context->context->communicator()) != MPI_SUCCESS)
                 return AMIO_ERR_COMM_SPLIT_FAILED;
 #endif
         }
@@ -1462,7 +2028,7 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
     status = coordinator.mark_publishing();
     if (status != AMIO_OK) return status;
     amio::detail::PublicationResult publication;
-    if (owner->context->context->rank() == 0)
+    if (owner->context->context->rank() == owner->context->context->storage_root_rank())
         publication = owner->catalog->publish(std::move(record), owner->requested_sync);
     status = broadcast_publication(*owner->context->context, publication);
     if (status != AMIO_OK) return status;
@@ -1471,6 +2037,7 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
         if (status != AMIO_OK) return status;
         owner->previous_commit = publication.commit_path;
         producer_step->ended = true;
+        record_publication();
         return AMIO_OK;
     }
     if (publication.state == amio::detail::PublicationState::Reconciling) {
@@ -1709,6 +2276,7 @@ AMIO_API amio_status_t amio_read_step_field(amio_dataset_handle dataset, uint64_
     if (cache_status == AMIO_OK) {
         if (cached.size() != required) return AMIO_ERR_SCHEMA_MISMATCH;
         std::memcpy(data, cached.data(), required);
+        record_step_read_cache_occupancy(*owner, step_id, field_name);
         return AMIO_OK;
     }
     if (cache_status != AMIO_ERR_BACKEND_FAILURE) return cache_status;
@@ -1769,6 +2337,7 @@ AMIO_API amio_status_t amio_read_step_field(amio_dataset_handle dataset, uint64_
     // Cache admission is optional: oversized reads still succeed, while the
     // queue enforces its byte ceiling before allocating a cache copy.
     (void)owner->read_cache.store(cache_key, cache_metadata, data, required);
+    record_step_read_cache_occupancy(*owner, step_id, field_name);
     return AMIO_OK;
 }
 

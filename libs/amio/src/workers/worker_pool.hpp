@@ -58,6 +58,7 @@
 #include "workers/comm_split.hpp"
 #include "workers/exception_bridge.hpp"
 #include "workers/thread_pinning.hpp"
+#include "execution/context.hpp"
 
 namespace amio::detail {
 
@@ -140,6 +141,8 @@ struct BackpressureConfig {
     std::size_t low_watermark = 0;
     std::size_t high_watermark = 0;
     std::size_t queue_capacity = 1024;  // default queue capacity
+    std::chrono::milliseconds admission_timeout{5000}; /**< Maximum time a producer waits for queue capacity. */
+    std::size_t prefetch_capacity = 1024; /**< Maximum queued read-ahead tasks. */
 };
 
 // WorkerPoolConfig -- configuration for constructing a WorkerPool.
@@ -171,6 +174,28 @@ struct WorkerPoolConfig {
     // AMIO_ERR_QUEUE_FULL.
     BackpressureConfig backpressure;
 };
+
+/** Bind a writer worker pool to its context-owned storage communicator.
+ * The context must outlive the pool. Non-writer roles cannot create a pool
+ * with storage access, and no MPI communicator is duplicated here.
+ */
+inline amio_status_t bind_writer_worker_config(const ExecutionContext &context, WorkerPoolConfig &config) {
+    if (!context.can_open_storage()) return AMIO_ERR_INVALID_POLICY;
+    if (config.thread_count > 256) return AMIO_ERR_INVALID_POLICY;
+    for (const auto &thread : config.thread_configs)
+        if (validate_thread_config(thread) != AMIO_OK) return AMIO_ERR_INVALID_BINDING;
+    IOCommunicator io;
+    io.valid = true;
+    io.is_io_rank = true;
+#ifdef AMIO_HAS_MPI
+    const MPI_Comm writer = context.writer_communicator();
+    if (writer == MPI_COMM_NULL || MPI_Comm_rank(writer, &io.rank_value) != MPI_SUCCESS ||
+        MPI_Comm_size(writer, &io.size_value) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+    io.parent_comm = writer;
+#endif
+    config.io_comm = std::move(io);
+    return AMIO_OK;
+}
 
 // WorkerPool -- background thread pool with write and prefetch queues.
 //
@@ -269,18 +294,32 @@ class WorkerPool {
      */
     std::uint64_t submit_write(DatasetVariableKey dv_key, std::uint64_t handle_id, std::function<void()> callback);
 
-    /** @brief submit_prefetch -- enqueue a prefetch task.
+    /** @brief submit_prefetch -- enqueue a prefetch task when bounded capacity is available.
      *
      * The task is prioritized by `distance` from the current read
-     * position (smaller distance = higher priority).
+     * position (smaller distance = higher priority). This compatibility
+     * wrapper silently ignores shutdown/full status; use try_submit_prefetch
+     * when the caller must observe admission failure.
      */
     void submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id, std::function<void()> callback);
+
+    /** @brief Admit a bounded prefetch task with explicit queue-full status.
+     * @return AMIO_OK when queued; AMIO_ERR_QUEUE_FULL when shut down or full.
+     */
+    amio_err_t try_submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id,
+                                   std::function<void()> callback);
 
     /** @brief submit_prefetch with handle_id -- enqueue a prefetch task with
      * an associated opaque handle for exception cordon outcome recording.
      */
     void submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id, std::uint64_t handle_id,
                          std::function<void()> callback);
+
+    /** @brief Handle-tracked bounded prefetch admission.
+     * @return AMIO_OK when queued; AMIO_ERR_QUEUE_FULL when shut down or full.
+     */
+    amio_err_t try_submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id,
+                                   std::uint64_t handle_id, std::function<void()> callback);
 
     // drain -- block until all currently enqueued tasks complete.
     //
@@ -406,6 +445,7 @@ class WorkerPool {
 
     // Prefetch queue: min-heap by distance.
     std::priority_queue<PrefetchTask, std::vector<PrefetchTask>, std::greater<PrefetchTask>> prefetch_queue_;
+    std::size_t prefetch_capacity_ = 1024;
 
     // Per-(dataset, variable) ordering state.
     // Map entries, sequence counters, and running flags are protected by mu_.

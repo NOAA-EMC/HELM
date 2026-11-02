@@ -76,8 +76,13 @@ int main() {
     assert(read_zarr_step_field(root, "dataset-zarr-001", 12, schema, "temperature", readback, error));
     assert(readback.size() == sizeof(expected));
     assert(std::memcmp(readback.data(), expected.data(), sizeof(expected)) == 0);
-    assert(!read_zarr_step_field(root, "dataset-zarr-001", 12, schema, "optional tendency", readback, error));
-    assert(!error.empty());
+    // The raw Zarr array exists and has the format's fill value. Public step
+    // reads use the completion record's presence map to reject absent fields.
+    assert(read_zarr_step_field(root, "dataset-zarr-001", 12, schema, "optional tendency", readback, error));
+    ZarrShardShapes invalid_shards{{"temperature", {0, 3}}};
+    std::map<std::string, ZarrRegionView, std::less<>> regions;
+    regions.emplace("temperature", ZarrRegionView{{0, 0}, {2, 3}, payloads.at("temperature")});
+    assert(!write_zarr_step_regions(root, "dataset-zarr-001", 12, schema, invalid_shards, regions, error));
     assert(!write_zarr_step(root, "dataset-zarr-001", 12, schema, payloads, error)); // immutable step collision
     std::filesystem::remove_all(root);
 #endif

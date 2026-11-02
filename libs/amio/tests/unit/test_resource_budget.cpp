@@ -1,5 +1,7 @@
 #include "staging/resource_budget.hpp"
+#include "schema/schema_wire_buffer.hpp"
 
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <limits>
@@ -61,6 +63,29 @@ void test_invalid_reserve_configuration_is_rejected() {
     assert(threw);
 }
 
+void test_schema_wire_reserves_before_allocation_and_releases() {
+    using namespace amio::detail;
+    ResourceBudget budget({64, 4, 8, 2});
+    {
+        SchemaWireBuffer buffer(budget, 16);
+        assert(buffer.begin(9) == AMIO_ERR_BUDGET_EXCEEDED);
+        assert(budget.snapshot().control_bytes == 0);
+        assert(buffer.begin(4) == AMIO_OK);
+        assert(buffer.begin(4) == AMIO_ERR_INVALID_INPUT);
+        const std::array<std::byte, 2> bytes{std::byte{'a'}, std::byte{'b'}};
+        assert(buffer.append(1, bytes) == AMIO_ERR_INVALID_INPUT);
+        assert(buffer.append(0, bytes) == AMIO_OK);
+        assert(buffer.complete().empty());
+        assert(buffer.append(2, bytes) == AMIO_OK);
+        assert(buffer.complete() == "abab");
+        assert(buffer.append(4, bytes) == AMIO_ERR_INVALID_INPUT);
+        assert(budget.snapshot().control_bytes == 4);
+    }
+    assert(budget.snapshot().control_bytes == 0 && budget.snapshot().control_descriptors == 0);
+    const auto peak = budget.high_water();
+    assert(peak.control_bytes == 4 && peak.control_descriptors == 1 && peak.reservations == 1);
+}
+
 } // namespace
 
 int main() {
@@ -68,5 +93,6 @@ int main() {
     test_descriptor_and_size_overflow_reject_before_accounting();
     test_reservation_release_is_exactly_once();
     test_invalid_reserve_configuration_is_rejected();
+    test_schema_wire_reserves_before_allocation_and_releases();
     return 0;
 }

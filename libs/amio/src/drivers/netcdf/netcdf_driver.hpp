@@ -54,6 +54,7 @@
 #include <string>
 #include <map>
 #include <cstdint>
+#include <set>
 #include <vector>
 
 #include "drivers/common/var_attributes.hpp"
@@ -129,6 +130,10 @@ class NetCDF_Driver : public Backend_Driver {
     void open_step_write(const std::string &path, const Schema &schema, double model_time);
     /** Submit one local region; all ranks in a parallel file call in the same field order. */
     void write_step_region(const std::string &variable, const RegionSelection &region, const void *data);
+    /** Prepare a variable for independent region writes in canonical writer-group field order. */
+    void prepare_step_independent_writes(const std::string &variable);
+    /** Write one bounded region after all writers have prepared the variable. */
+    void write_step_region_independent(const std::string &variable, const RegionSelection &region, const void *data);
     /** Close the step payload before its catalog completion record may be published. */
     void close_step_write();
     /** Independently read a selected region from a closed step payload. */
@@ -173,6 +178,7 @@ class NetCDF_Driver : public Backend_Driver {
     bool is_open_ = false;
     bool is_write_mode_ = false;
     bool use_parallel_ = false;
+    std::set<std::string, std::less<>> independent_step_variables_;
 
     // CF/UGRID convention metadata + per-variable attributes parsed
     // from the dataset manifest (R7.x convention compliance).

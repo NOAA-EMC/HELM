@@ -1,5 +1,6 @@
 #include "staging/resource_budget.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 
@@ -48,6 +49,11 @@ std::optional<ResourceBudget::Reservation> ResourceBudget::reserve(std::size_t b
         usage_.control_descriptors += descriptors;
     }
     ++usage_.reservations;
+    high_water_.data_bytes = std::max(high_water_.data_bytes, usage_.data_bytes);
+    high_water_.control_bytes = std::max(high_water_.control_bytes, usage_.control_bytes);
+    high_water_.data_descriptors = std::max(high_water_.data_descriptors, usage_.data_descriptors);
+    high_water_.control_descriptors = std::max(high_water_.control_descriptors, usage_.control_descriptors);
+    high_water_.reservations = std::max(high_water_.reservations, usage_.reservations);
     return Reservation{id, bytes, descriptors, resource_class};
 }
 
@@ -73,6 +79,11 @@ bool ResourceBudget::release(const Reservation &reservation) noexcept {
 ResourceBudget::Snapshot ResourceBudget::snapshot() const noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     return usage_;
+}
+
+ResourceBudget::Snapshot ResourceBudget::high_water() const noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return high_water_;
 }
 
 } // namespace amio::detail

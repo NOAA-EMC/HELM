@@ -24,8 +24,11 @@
 // This test exercises the serial driver variant without MPI initialization.
 
 #include <conf/config.hpp>
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -81,7 +84,9 @@ const std::string kVarName = "d0_c3_n5_s100_l50000";
 
 int main() {
     const char *OUTPUT_PATH = "/tmp/amio_test_grib2_multistep.grib2";
+    const char *STREAM_PATH = "/tmp/amio_test_grib2_multistep_streamed.grib2";
     std::remove(OUTPUT_PATH);
+    std::remove(STREAM_PATH);
 
     // Build source data: 4 timesteps, each [181, 360].
     std::vector<std::vector<float>> source(NTIMES, std::vector<float>(POINTS_PER_STEP));
@@ -133,11 +138,47 @@ int main() {
         functional = false;
     }
 
+    // Stream the actual g2c-encoded messages in small bounded chunks before
+    // asking the native decoder to recover the original scientific values.
+    if (functional) {
+        try {
+            std::ifstream input(OUTPUT_PATH, std::ios::binary);
+            if (!input) throw std::runtime_error("cannot open encoded GRIB input");
+            amio::detail::Grib2StreamWriter streamed(STREAM_PATH, 1024, NTIMES, 16 * 1024 * 1024);
+            std::array<unsigned char, 1024> buffer{};
+            std::string error;
+            for (int t = 0; t < NTIMES; ++t) {
+                input.read(reinterpret_cast<char *>(buffer.data()), 16);
+                if (!input) throw std::runtime_error("cannot read GRIB indicator section");
+                std::uint64_t length = 0;
+                for (std::size_t i = 8; i < 16; ++i) length = (length << 8) | buffer[i];
+                if (!streamed.begin_message(0, 0, length, error) ||
+                    !streamed.append_chunk(0, std::as_bytes(std::span(buffer.data(), 16)), error))
+                    throw std::runtime_error(error);
+                std::uint64_t offset = 16;
+                while (offset < length) {
+                    const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), length - offset));
+                    input.read(reinterpret_cast<char *>(buffer.data()), static_cast<std::streamsize>(count));
+                    if (!input || !streamed.append_chunk(offset, std::as_bytes(std::span(buffer.data(), count)), error))
+                        throw std::runtime_error(error.empty() ? "cannot read encoded GRIB chunk" : error);
+                    offset += count;
+                }
+            }
+            if (!streamed.finish(error) || streamed.index().size() != NTIMES) throw std::runtime_error(error);
+        } catch (const std::exception &e) {
+            report_failure("stream phase", __FILE__, __LINE__, e.what());
+            functional = false;
+        }
+    }
+
     // ---- Read phase: describe_variable + per-timestep full reads ----
     if (functional) {
         try {
             GRIB2_Driver reader;
-            reader.open_read(cfg);
+            auto streamed_yaml = yaml;
+            streamed_yaml.replace(streamed_yaml.find(OUTPUT_PATH), std::strlen(OUTPUT_PATH), STREAM_PATH);
+            const auto streamed_cfg = conf::Config::from_string(streamed_yaml);
+            reader.open_read(streamed_cfg);
 
             // Verify describe_variable reports shape and 4 timesteps.
             VariableInfo info = reader.describe_variable(kVarName);
@@ -179,6 +220,7 @@ int main() {
     }
 
     std::remove(OUTPUT_PATH);
+    std::remove(STREAM_PATH);
 
     std::fprintf(stdout, "test_grib2_multistep: passed=%d failed=%d\n", g_passed, g_failed);
     std::fprintf(stdout, "  grid: [%d timesteps, %d lat, %d lon] = %zu floats/step (%.1f KiB/step)\n", NTIMES, NLAT, NLON, POINTS_PER_STEP,

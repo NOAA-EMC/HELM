@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -25,6 +26,26 @@ void expect(bool condition, const char *message) {
         std::fprintf(stderr, "FAIL: %s\n", message);
         ++failures;
     }
+}
+
+bool read_json_uint64_array_item(const char *json, const char *key, std::size_t item_index, std::uint64_t &out) {
+    if (json == nullptr || key == nullptr) return false;
+    const std::string marker = std::string("\"") + key + "\":[";
+    const char *value = std::strstr(json, marker.c_str());
+    if (value == nullptr) return false;
+    value += marker.size();
+    for (std::size_t item = 0; item <= item_index; ++item) {
+        char *end = nullptr;
+        const auto parsed = std::strtoull(value, &end, 10);
+        if (end == value) return false;
+        if (item == item_index) {
+            out = parsed;
+            return true;
+        }
+        if (*end != ',') return false;
+        value = end + 1;
+    }
+    return false;
 }
 
 void test_additive_status_values() {
@@ -93,7 +114,9 @@ void test_context_initialization_outputs_and_capability_query() {
     descriptor.progress_mode = AMIO_PROGRESS_CALLER;
 #ifdef AMIO_TEST_HAS_MPI
     int rank_count = 0;
+    int rank = 0;
     MPI_Comm_size(MPI_COMM_WORLD, &rank_count);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     descriptor.rank_count = static_cast<uint32_t>(rank_count);
     descriptor.fortran_communicator = static_cast<int64_t>(MPI_Comm_c2f(MPI_COMM_WORLD));
 #else
@@ -105,6 +128,16 @@ void test_context_initialization_outputs_and_capability_query() {
     expect(amio_init_ex(&descriptor, &context) == AMIO_OK, "valid direct context initializes");
     expect(context != nullptr, "successful initialization returns a context handle");
     if (context != nullptr) {
+        uint32_t local_role = AMIO_ROLE_INACTIVE;
+        uint32_t local_group_rank = UINT32_MAX;
+        expect(amio_query_context_role(context, &local_role, &local_group_rank) == AMIO_OK &&
+                   local_role == AMIO_ROLE_PRODUCER && local_group_rank == static_cast<uint32_t>(
+#ifdef AMIO_TEST_HAS_MPI
+                       rank
+#else
+                       0
+#endif
+                   ), "role query reports the local producer role and producer-group rank");
         required = 0;
         expect(amio_query_capabilities(context, nullptr, 0, &required) == AMIO_OK && required > 1,
                "capability query supports size discovery");
@@ -113,6 +146,33 @@ void test_context_initialization_outputs_and_capability_query() {
                "capability query fills a caller buffer");
         expect(std::strstr(report.data(), "borrowed_buffer\":\"unsupported") != nullptr,
                "capability report rejects unimplemented borrowed buffers explicitly");
+        size_t diagnostic_bytes = 0;
+        expect(amio_query_diagnostics(context, nullptr, 0, &diagnostic_bytes) == AMIO_OK && diagnostic_bytes > 1,
+               "local diagnostics support a bounded size query");
+        std::vector<char> diagnostic_report(diagnostic_bytes);
+        expect(amio_query_diagnostics(context, diagnostic_report.data(), diagnostic_report.size(), &diagnostic_bytes) == AMIO_OK,
+               "local diagnostics fill a caller-owned buffer");
+        expect(std::strstr(diagnostic_report.data(), "\"api_version\":2") != nullptr &&
+                   std::strstr(diagnostic_report.data(),
+                               "\"topology\":{\"execution_mode\":\"persistent_direct\",\"progress_mode\":\"caller\"") != nullptr &&
+                   std::strstr(diagnostic_report.data(), "\"rank_count\":") != nullptr &&
+                   std::strstr(diagnostic_report.data(), "\"dropped_sample_count\":0") != nullptr,
+               "diagnostics expose a versioned snapshot with effective topology");
+        char too_small[1]{};
+        expect(amio_query_diagnostics(context, too_small, sizeof(too_small), &diagnostic_bytes) == AMIO_ERR_BUFFER_TOO_SMALL,
+               "diagnostics reject undersized output buffers and report the required size");
+        size_t reduced_bytes = 0;
+        expect(amio_reduce_diagnostics(context, nullptr, 0, &reduced_bytes) == AMIO_OK && reduced_bytes > 1,
+               "collective diagnostic reduction has a local size query");
+        expect(amio_reduce_diagnostics(context, too_small, sizeof(too_small), &reduced_bytes) == AMIO_ERR_BUFFER_TOO_SMALL,
+               "diagnostic reduction agrees on undersized buffers before entering counter reductions");
+        std::vector<char> reduced_report(reduced_bytes);
+        expect(amio_reduce_diagnostics(context, reduced_report.data(), reduced_report.size(), &reduced_bytes) == AMIO_OK,
+               "all context members can collectively reduce cumulative counters");
+        expect(std::strstr(reduced_report.data(), "\"api_version\":2") != nullptr &&
+                   std::strstr(reduced_report.data(), "\"scope\":\"context\"") != nullptr &&
+                   std::strstr(reduced_report.data(), "\"accepted\":\"00000000000000000000\"") != nullptr,
+               "reduction returns a fixed-width versioned context snapshot");
         const auto root = std::filesystem::temp_directory_path() / "amio-evolution-contract-collection";
         std::error_code ec;
         std::filesystem::remove_all(root, ec);
@@ -223,6 +283,50 @@ void test_context_initialization_outputs_and_capability_query() {
         expect(amio_define_schema(dataset, &schema_descriptor, &schema) == AMIO_OK,
                "typed schema is copied, sealed, and registered before the first step");
         expect(schema != nullptr, "successful schema registration returns a typed schema handle");
+        // Repeated definitions must share the dataset's retained immutable
+        // schema even while callers keep older observation handles alive.
+        amio_schema_handle repeated_schemas[8]{};
+        for (auto &repeated : repeated_schemas) {
+            expect(amio_define_schema(dataset, &schema_descriptor, &repeated) == AMIO_OK && repeated != nullptr,
+                   "equivalent schema definitions remain usable with existing handles");
+        }
+        for (auto repeated : repeated_schemas)
+            expect(amio_release_schema(repeated) == AMIO_OK, "release repeated schema observation");
+        {
+            std::string oversized_value(8192, 'x');
+            auto oversized_attribute = attribute;
+            oversized_attribute.value = oversized_value.data();
+            oversized_attribute.value_bytes = oversized_value.size();
+            auto oversized_variable = variable;
+            oversized_variable.attributes = &oversized_attribute;
+            auto oversized_schema = schema_descriptor;
+            oversized_schema.variable_count = 1;
+            oversized_schema.variables = &oversized_variable;
+            amio_schema_handle rejected = reinterpret_cast<amio_schema_handle>(static_cast<uintptr_t>(1));
+            expect(amio_define_schema(dataset, &oversized_schema, &rejected) == AMIO_ERR_BUDGET_EXCEEDED && rejected == nullptr,
+                   "schema input exceeding the control budget is rejected before copying its value");
+        }
+        {
+            const auto tiny_location_path = root / "tiny-metadata-budget";
+            const auto tiny_location = tiny_location_path.string();
+            auto tiny_budget_descriptor = dataset_descriptor;
+            tiny_budget_descriptor.location = tiny_location.data();
+            tiny_budget_descriptor.location_bytes = tiny_location.size();
+            tiny_budget_descriptor.control_budget_bytes = 1;
+            tiny_budget_descriptor.control_budget_descriptors = 1;
+            amio_dataset_handle tiny_dataset = nullptr;
+            expect(amio_open_dataset_ex(context, &tiny_budget_descriptor, &tiny_dataset) == AMIO_OK &&
+                       tiny_dataset != nullptr,
+                   "dataset accepts a finite control budget before schema metadata is admitted");
+            if (tiny_dataset != nullptr) {
+                amio_schema_handle rejected_schema = reinterpret_cast<amio_schema_handle>(static_cast<uintptr_t>(0x1234));
+                expect(amio_define_schema(tiny_dataset, &schema_descriptor, &rejected_schema) == AMIO_ERR_BUDGET_EXCEEDED &&
+                           rejected_schema == nullptr,
+                       "schema retention is rejected when its metadata exceeds the configured control budget");
+                expect(amio_close_dataset_ex(tiny_dataset) == AMIO_OK,
+                       "dataset with rejected schema metadata closes without a retained handle");
+            }
+        }
         if (schema != nullptr) {
             amio_step_descriptor_t step_descriptor{};
             step_descriptor.struct_size = sizeof(step_descriptor);
@@ -259,6 +363,25 @@ void test_context_initialization_outputs_and_capability_query() {
                 const auto end_status = amio_end_step(step);
                 if (end_status != AMIO_OK) std::fprintf(stderr, "end step status=%d\n", end_status);
                 expect(end_status == AMIO_OK, "end publishes the closed native payload and completion record");
+                diagnostic_bytes = 0;
+                expect(amio_query_diagnostics(context, nullptr, 0, &diagnostic_bytes) == AMIO_OK && diagnostic_bytes > 1,
+                       "diagnostics remain locally queryable after step publication");
+                diagnostic_report.assign(diagnostic_bytes, '\0');
+                expect(amio_query_diagnostics(context, diagnostic_report.data(), diagnostic_report.size(), &diagnostic_bytes) == AMIO_OK,
+                       "published-step diagnostics fill the caller buffer");
+                expect(std::strstr(diagnostic_report.data(), "\"bytes_accepted\":16") != nullptr &&
+                           std::strstr(diagnostic_report.data(), "\"bytes_published\":16") != nullptr &&
+                           std::strstr(diagnostic_report.data(), "\"step_id\":0") != nullptr &&
+                           std::strstr(diagnostic_report.data(), "\"cumulative_histograms\":[") != nullptr &&
+                           std::strstr(diagnostic_report.data(), "\"histogram_names\":[") != nullptr &&
+                           std::strstr(diagnostic_report.data(), "\"resource_names\":[") != nullptr &&
+                           std::strstr(diagnostic_report.data(), "\"cumulative_resource_high_water\":[0,16,") != nullptr &&
+                           std::strstr(diagnostic_report.data(), "\"resource_high_water\":[0,16,") != nullptr,
+                       "diagnostics report step counters and lifetime timing/resource aggregates after scope eviction");
+                std::uint64_t event_history_high_water = 0;
+                expect(read_json_uint64_array_item(diagnostic_report.data(), "cumulative_resource_high_water", 10,
+                                                   event_history_high_water) && event_history_high_water > 0,
+                       "public diagnostics JSON reports bounded event-history occupancy");
                 expect(amio_cancel_step(step) == AMIO_ERR_INVALID_POLICY,
                        "a completed step cannot be rolled back by cancellation");
                 expect(amio_query_operation(operation, &operation_status) == AMIO_OK &&
@@ -313,6 +436,19 @@ void test_context_initialization_outputs_and_capability_query() {
                                             cached_selected, sizeof(cached_selected), &read_bytes) == AMIO_OK &&
                            cached_selected[0] == selected[0] && cached_selected[1] == selected[1],
                        "repeated selected reads reuse the selection-specific cache entry");
+                diagnostic_bytes = 0;
+                expect(amio_query_diagnostics(context, nullptr, 0, &diagnostic_bytes) == AMIO_OK && diagnostic_bytes > 1,
+                       "diagnostics remain queryable after cached reads");
+                diagnostic_report.assign(diagnostic_bytes, '\0');
+                expect(amio_query_diagnostics(context, diagnostic_report.data(), diagnostic_report.size(),
+                                              &diagnostic_bytes) == AMIO_OK,
+                       "cached-read diagnostics fill the caller buffer");
+                std::uint64_t cache_high_water = 0;
+                expect(std::strstr(diagnostic_report.data(), "\"prefetch_bytes\"") != nullptr &&
+                           read_json_uint64_array_item(diagnostic_report.data(), "cumulative_resource_high_water", 6,
+                                                       cache_high_water) &&
+                           cache_high_water == sizeof(readback) + sizeof(selected),
+                       "diagnostics report bounded step-read cache occupancy in the prefetch high-water dimension");
                 expect(amio_read_step_field(dataset, 0, optional_variable_name, sizeof(optional_variable_name) - 1,
                                             nullptr, nullptr, 0, &read_bytes) == AMIO_ERR_FIELD_NOT_PRESENT,
                        "an absent optional field is reported explicitly");

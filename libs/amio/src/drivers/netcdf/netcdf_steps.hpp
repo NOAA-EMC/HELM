@@ -35,10 +35,13 @@ struct NetCDFStepLayout {
 /** Define a complete native schema in an already-created NetCDF file. */
 [[nodiscard]] bool define_netcdf_step_schema(int ncid, const Schema &schema, double model_time,
                                              std::string &error);
-/** Collective hyperslab write. A zero-count participant still calls this function. */
+/** Write a hyperslab collectively, or independently after explicit preparation. */
 [[nodiscard]] bool write_netcdf_step_region(int ncid, const std::string &variable,
                                             const RegionSelection &region,
-                                            const void *data, std::string &error);
+                                            const void *data, std::string &error, bool independent = false);
+/** Configure a parallel variable for independent writes; every writer follows the same field order. */
+[[nodiscard]] bool prepare_netcdf_independent_region_writes(int ncid, const std::string &variable,
+                                                             std::string &error, bool parallel);
 /** Open a closed step file independently, read one variable, and close it. */
 [[nodiscard]] bool read_netcdf_step_region(const std::string &payload_path, const std::string &variable,
                                            const RegionSelection &region, void *data, std::string &error);

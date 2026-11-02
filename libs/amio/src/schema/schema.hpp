@@ -57,6 +57,12 @@ class Schema {
     SchemaStatus add_variable(Variable variable);
     SchemaStatus seal();
 
+    /** Decode a canonical schema from a bounded wire representation.
+     * The destination remains unchanged on failure. The caller must account for
+     * both the wire representation and the resulting schema in its metadata budget.
+     */
+    static SchemaStatus from_canonical(std::string_view wire, std::size_t max_wire_bytes, Schema &out);
+
     [[nodiscard]] bool sealed() const noexcept { return sealed_; }
     [[nodiscard]] const std::map<std::string, Variable, std::less<>> &variables() const noexcept { return variables_; }
     [[nodiscard]] const std::string &canonical() const noexcept { return canonical_; }

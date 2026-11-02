@@ -102,6 +102,8 @@ struct BackpressureCfg {
     std::size_t low_watermark = 0;
     std::size_t high_watermark = 0;
     std::size_t queue_capacity = 1024;
+    std::size_t prefetch_capacity = 1024; /**< Maximum background read-ahead tasks retained by the worker pool. */
+    std::size_t timeout_ms = 5000; /**< Maximum admission wait in milliseconds before rejecting a write. */
 };
 
 // CodecConfig -- lossless codec settings.
@@ -271,7 +273,9 @@ inline bool operator==(const PrefetchConfig &a, const PrefetchConfig &b) {
 }
 
 inline bool operator==(const BackpressureCfg &a, const BackpressureCfg &b) {
-    return a.low_watermark == b.low_watermark && a.high_watermark == b.high_watermark && a.queue_capacity == b.queue_capacity;
+    return a.low_watermark == b.low_watermark && a.high_watermark == b.high_watermark && a.queue_capacity == b.queue_capacity &&
+           a.prefetch_capacity == b.prefetch_capacity &&
+           a.timeout_ms == b.timeout_ms;
 }
 
 inline bool operator==(const CodecConfig &a, const CodecConfig &b) {

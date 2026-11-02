@@ -12,6 +12,103 @@
 
 namespace amio::detail {
 
+Grib2StreamWriter::Grib2StreamWriter(const std::string &path, std::size_t max_chunk_bytes,
+                                     std::size_t max_index_entries, std::uint64_t max_message_bytes)
+    : path_(path), max_chunk_bytes_(max_chunk_bytes), max_index_entries_(max_index_entries),
+      max_message_bytes_(max_message_bytes) {
+    if (path.empty() || max_chunk_bytes == 0 || max_index_entries == 0 || max_message_bytes < 20 ||
+        max_chunk_bytes > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()) ||
+        max_index_entries > index_.max_size()) throw std::invalid_argument("invalid GRIB2 stream writer limits");
+    index_.reserve(max_index_entries);
+    static std::atomic<std::uint64_t> sequence{0};
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count() ^ sequence.fetch_add(1);
+    temporary_ = path + ".amio-stream-" + std::to_string(nonce);
+    stream_ = std::fopen(temporary_.c_str(), "wbx");
+    if (stream_ == nullptr) throw std::runtime_error("unable to create exclusive temporary GRIB2 stream payload");
+    if (std::setvbuf(stream_, nullptr, _IONBF, 0) != 0) {
+        std::fclose(stream_);
+        stream_ = nullptr;
+        std::error_code ignored;
+        std::filesystem::remove(temporary_, ignored);
+        throw std::runtime_error("unable to configure bounded GRIB2 stream buffering");
+    }
+}
+
+Grib2StreamWriter::~Grib2StreamWriter() {
+    if (stream_ != nullptr) std::fclose(stream_);
+    std::error_code ignored;
+    if (!temporary_.empty()) std::filesystem::remove(temporary_, ignored);
+}
+
+bool Grib2StreamWriter::begin_message(std::uint32_t field_id, std::uint32_t producer,
+                                      std::uint64_t message_bytes, std::string &error) {
+    if (failed_ || finished_ || active_ || index_.size() >= max_index_entries_ || message_bytes < 20 ||
+        message_bytes > max_message_bytes_ || message_bytes > std::numeric_limits<std::uint64_t>::max() - payload_bytes_) {
+        error = "GRIB2 stream message is invalid or exceeds a configured limit";
+        return false;
+    }
+    field_id_ = field_id;
+    producer_ = producer;
+    expected_ = message_bytes;
+    received_ = 0;
+    header_.fill(0);
+    trailer_.fill(0);
+    active_ = true;
+    return true;
+}
+
+bool Grib2StreamWriter::append_chunk(std::uint64_t offset, std::span<const std::byte> bytes, std::string &error) {
+    if (failed_ || finished_ || !active_ || bytes.empty() || bytes.size() > max_chunk_bytes_ || offset != received_ ||
+        bytes.size() > expected_ - received_) {
+        error = "GRIB2 stream chunk is out of order or exceeds a configured limit";
+        return false;
+    }
+    for (std::size_t i = 0; i < bytes.size(); ++i) {
+        const auto position = received_ + i;
+        const auto value = std::to_integer<unsigned char>(bytes[i]);
+        if (position < header_.size()) header_[static_cast<std::size_t>(position)] = value;
+        if (position >= expected_ - trailer_.size())
+            trailer_[static_cast<std::size_t>(position - (expected_ - trailer_.size()))] = value;
+    }
+    if (std::fwrite(bytes.data(), 1, bytes.size(), stream_) != bytes.size()) {
+        failed_ = true;
+        error = "unable to write GRIB2 stream chunk";
+        return false;
+    }
+    received_ += bytes.size();
+    if (received_ == expected_) {
+        std::uint64_t declared = 0;
+        for (std::size_t i = 8; i < header_.size(); ++i) declared = (declared << 8) | header_[i];
+        if (header_[0] != 'G' || header_[1] != 'R' || header_[2] != 'I' || header_[3] != 'B' || header_[7] != 2 ||
+            declared != expected_ || trailer_ != std::array<unsigned char, 4>{'7', '7', '7', '7'}) {
+            failed_ = true;
+            error = "GRIB2 streamed message has an invalid indicator, length, or end marker";
+            return false;
+        }
+        index_.push_back({field_id_, producer_, {payload_bytes_, expected_}});
+        payload_bytes_ += expected_;
+        active_ = false;
+    }
+    return true;
+}
+
+bool Grib2StreamWriter::finish(std::string &error) {
+    if (failed_ || finished_ || active_ || index_.empty()) {
+        error = "GRIB2 stream payload is incomplete or already closed";
+        return false;
+    }
+    if (std::fflush(stream_) != 0) { failed_ = true; error = "unable to flush GRIB2 stream payload"; return false; }
+    const auto close_status = std::fclose(stream_);
+    stream_ = nullptr;
+    if (close_status != 0) { failed_ = true; error = "unable to close GRIB2 stream payload"; return false; }
+    std::error_code ec;
+    std::filesystem::create_hard_link(temporary_, path_, ec);
+    if (ec) { failed_ = true; error = "unable to publish immutable GRIB2 stream payload: " + ec.message(); return false; }
+    finished_ = true;
+    std::filesystem::remove(temporary_, ec);
+    return true;
+}
+
 Grib2MessageRange append_grib2_message_range(std::uint64_t &payload_bytes, std::uint64_t message_bytes) {
     if (message_bytes == 0) throw std::invalid_argument("GRIB2 step payload cannot index an empty message");
     if (message_bytes > std::numeric_limits<std::uint64_t>::max() - payload_bytes)

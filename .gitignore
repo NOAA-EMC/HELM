@@ -25,6 +25,7 @@
 
 # ---------- CMake ----------
 build/
+.build-*/
 _build/
 cmake-build-*/
 build-ci/

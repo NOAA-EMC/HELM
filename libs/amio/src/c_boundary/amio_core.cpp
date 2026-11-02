@@ -33,6 +33,7 @@
 #include "staging/staging_pool.hpp"
 #include "workers/comm_split.hpp"
 #include "workers/mpi_threading.hpp"
+#include "workers/thread_pinning.hpp"
 #include "workers/worker_pool.hpp"
 #ifdef AMIO_HAS_MPI
 #include <halo/environment.hpp>
@@ -102,20 +103,56 @@ amio_status_t init(const char *manifest_path, amio_core_handle *out_core) {
 // Validates: R1.1, R1.2, R1.3, R1.4
 // ---------------------------------------------------------------
 amio_status_t init_from_config(const Config &cfg, amio_core_handle *out_core) {
+    // Legacy initialization has no collective participation contract.  In
+    // particular, a parse failure on one rank must not strand a peer in an
+    // evolution role collective.  Aggregation uses the collective context API.
+    if (cfg.evolution.enabled && cfg.evolution.execution_mode == "persistent_aggregated")
+        return AMIO_ERR_UNSUPPORTED;
     // ---- Step 2: Construct the runtime pools (Req 1.1, 1.2) ----
     auto core = std::make_unique<AMIO_Core>();
     try {
-        core->staging_pool = std::make_unique<StagingPool>(cfg.staging_pool.buffer_count, cfg.staging_pool.buffer_capacity_bytes,
+        CommConfig comm_config;
+        comm_config.io_ranks = cfg.io_ranks;
+        int local_rank = 0;
+#ifdef AMIO_HAS_MPI
+        int mpi_initialized = 0;
+        int mpi_finalized = 0;
+        if (MPI_Initialized(&mpi_initialized) != MPI_SUCCESS || MPI_Finalized(&mpi_finalized) != MPI_SUCCESS || mpi_finalized)
+            return AMIO_ERR_COMM_SPLIT_FAILED;
+        if (mpi_initialized) {
+            if (MPI_Comm_size(g_amio_parent_comm, &comm_config.world_size) != MPI_SUCCESS ||
+                MPI_Comm_rank(g_amio_parent_comm, &local_rank) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+        } else if (!comm_config.io_ranks.empty()) {
+            return AMIO_ERR_COMM_SPLIT_FAILED;
+        }
+#endif
+        const auto split_status = split_communicator(comm_config, local_rank, core->io_communicator);
+        if (split_status != AMIO_OK) return split_status;
+
+        ThreadConfig thread_config;
+        thread_config.cpu_cores = cfg.worker_pool.cpu_cores;
+        thread_config.numa_domain = cfg.worker_pool.numa_domain.value_or(-1);
+        if (validate_thread_config(thread_config) != AMIO_OK) return AMIO_ERR_INVALID_BINDING;
+
+        const auto staging_budget = cfg.evolution.enabled ? cfg.evolution.budgets.staging_bytes
+                                                           : static_cast<std::size_t>(-1);
+        const auto staging_capacity = std::min(cfg.staging_pool.buffer_capacity_bytes, staging_budget);
+        core->staging_pool = std::make_unique<StagingPool>(cfg.staging_pool.buffer_count, staging_capacity,
                                                            static_cast<std::int64_t>(cfg.staging_timeout_ms), cfg.staging_pool.max_buffer_count,
-                                                           StagingPool::GrowMode::Grow);
+                                                           StagingPool::GrowMode::Grow,
+                                                           staging_budget);
 
         if (cfg.worker_pool.threads > 0) {
             WorkerPoolConfig wp{};
             wp.thread_count = cfg.worker_pool.threads;
+            wp.io_comm = core->io_communicator;
+            wp.thread_configs.assign(wp.thread_count, thread_config);
             wp.backpressure.enabled = cfg.backpressure.high_watermark > 0;
             wp.backpressure.low_watermark = cfg.backpressure.low_watermark;
             wp.backpressure.high_watermark = cfg.backpressure.high_watermark;
             wp.backpressure.queue_capacity = cfg.backpressure.queue_capacity;
+            wp.backpressure.admission_timeout = std::chrono::milliseconds(cfg.backpressure.timeout_ms);
+            wp.backpressure.prefetch_capacity = cfg.backpressure.prefetch_capacity;
             core->worker_pool = std::make_unique<WorkerPool>(wp);
         } else {
             core->worker_pool = nullptr;
@@ -140,11 +177,7 @@ amio_status_t init_from_config(const Config &cfg, amio_core_handle *out_core) {
     // (configure_communicator, set_threshold) are visible to other
     // threads that load logs_initialized with memory_order_acquire.
 #ifdef AMIO_HAS_MPI
-    if (core->worker_pool) {
-        core->logger.configure_communicator(core->worker_pool->io_communicator().handle());
-    } else {
-        core->logger.configure_communicator(g_amio_parent_comm);
-    }
+    core->logger.configure_communicator(core->io_communicator.handle());
 #else
     // Without MPI the Logger receives MPI_COMM_NULL (a no-op
     // configuration that leaves the rank as the sentinel -1).
@@ -333,6 +366,12 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
                                        amio_dataset_handle *out_dataset) {
     auto *core = static_cast<AMIO_Core *>(core_payload);
 
+    // A configured I/O split assigns storage ownership to its I/O group.
+    // Reject model-only ranks before driver construction or communicator use;
+    // they must not accidentally open independent output files.
+    if (mode == AMIO_MODE_WRITE && core != nullptr && core->io_communicator.valid &&
+        !core->io_communicator.is_io_rank) return AMIO_ERR_INVALID_POLICY;
+
     // Extract backend key from configuration.
     const std::string &backend_key = config.backend;
 
@@ -349,11 +388,7 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
         // GRIB2 and Zarr reads are rank-local. Their write communicators
         // are duplicated collectively, so only configure those on write opens.
         if (core != nullptr && (mode == AMIO_MODE_WRITE || (backend_key != "grib2" && backend_key != "zarr3"))) {
-            if (core->worker_pool) {
-                driver->set_communicator(core->worker_pool->io_communicator().handle());
-            } else {
-                driver->set_communicator(g_amio_parent_comm);
-            }
+            driver->set_communicator(core->io_communicator.handle());
         }
     } catch (const std::exception &e) {
         core->logger.log(logs::Severity_Level::ERROR, std::string("open_dataset failed while setting communicator: ") + e.what());

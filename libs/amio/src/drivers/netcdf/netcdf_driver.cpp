@@ -863,6 +863,7 @@ void NetCDF_Driver::close() {
     is_open_ = false;
     is_write_mode_ = false;
     file_path_.clear();
+    independent_step_variables_.clear();
 }
 
 void NetCDF_Driver::open_step_write(const std::string &path, const Schema &schema, double model_time) {
@@ -917,6 +918,8 @@ void NetCDF_Driver::open_step_write(const std::string &path, const Schema &schem
 void NetCDF_Driver::write_step_region(const std::string &variable, const RegionSelection &region, const void *data) {
 #ifdef AMIO_HAS_NETCDF
     if (!is_open_ || !is_write_mode_) throw std::runtime_error("NetCDF_Driver::write_step_region: no step payload is open for writing");
+    if (independent_step_variables_.contains(variable))
+        throw std::runtime_error("NetCDF_Driver::write_step_region: variable is configured for independent writes");
     std::string error;
     if (!write_netcdf_step_region(ncid_, variable, region, data, error)) throw std::runtime_error(error);
 #else
@@ -924,6 +927,31 @@ void NetCDF_Driver::write_step_region(const std::string &variable, const RegionS
     (void)region;
     (void)data;
     throw std::runtime_error("NetCDF_Driver::write_step_region: AMIO built without netCDF support");
+#endif
+}
+
+void NetCDF_Driver::prepare_step_independent_writes(const std::string &variable) {
+#ifdef AMIO_HAS_NETCDF
+    if (!is_open_ || !is_write_mode_) throw std::runtime_error("NetCDF_Driver::prepare_step_independent_writes: no step payload is open");
+    if (independent_step_variables_.contains(variable)) return;
+    std::string error;
+    if (!prepare_netcdf_independent_region_writes(ncid_, variable, error, use_parallel_)) throw std::runtime_error(error);
+    independent_step_variables_.insert(variable);
+#else
+    (void)variable;
+    throw std::runtime_error("NetCDF_Driver::prepare_step_independent_writes: AMIO built without netCDF support");
+#endif
+}
+
+void NetCDF_Driver::write_step_region_independent(const std::string &variable, const RegionSelection &region, const void *data) {
+#ifdef AMIO_HAS_NETCDF
+    if (!is_open_ || !is_write_mode_ || !independent_step_variables_.contains(variable))
+        throw std::runtime_error("NetCDF_Driver::write_step_region_independent: variable is not prepared");
+    std::string error;
+    if (!write_netcdf_step_region(ncid_, variable, region, data, error, true)) throw std::runtime_error(error);
+#else
+    (void)variable; (void)region; (void)data;
+    throw std::runtime_error("NetCDF_Driver::write_step_region_independent: AMIO built without netCDF support");
 #endif
 }
 

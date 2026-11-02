@@ -86,6 +86,44 @@ int main(int argc, char **argv) {
         std::filesystem::remove(path, ec);
     }
 
+    MPI_Barrier(MPI_COMM_WORLD);
+    const auto chunk_path = std::filesystem::temp_directory_path() / "amio-mpi-netcdf-independent-chunks.nc";
+    if (rank == 0) {
+        std::error_code ec;
+        std::filesystem::remove(chunk_path, ec);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    {
+        NetCDF_Driver driver;
+        driver.set_communicator(MPI_COMM_WORLD);
+        driver.open_step_write(chunk_path.string(), schema, 43.5);
+        driver.prepare_step_independent_writes("required");
+        if (rank < 3) {
+            RegionSelection region;
+            region.offsets = {static_cast<std::uint64_t>(rank * 2)};
+            region.extents = {rank == 1 ? 2U : 1U};
+            driver.write_step_region_independent("required", region, required_values.data());
+            if (rank != 1) {
+                ++region.offsets[0];
+                driver.write_step_region_independent("required", region, required_values.data() + 1);
+            }
+        }
+        driver.close_step_write();
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    if (rank == 0) {
+        int ncid = -1;
+        int varid = -1;
+        std::array<float, 6> readback{};
+        assert(nc_open(chunk_path.c_str(), NC_NOWRITE, &ncid) == NC_NOERR);
+        assert(nc_inq_varid(ncid, "required", &varid) == NC_NOERR);
+        assert(nc_get_var_float(ncid, varid, readback.data()) == NC_NOERR);
+        assert((readback == std::array<float, 6>{1, 2, 3, 4, 5, 6}));
+        assert(nc_close(ncid) == NC_NOERR);
+        std::error_code ec;
+        std::filesystem::remove(chunk_path, ec);
+    }
+
     MPI_Finalize();
     return 0;
 }
