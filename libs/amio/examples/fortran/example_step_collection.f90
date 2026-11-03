@@ -42,7 +42,8 @@ program example_step_collection
     call check_status(status, 'amio_init_ex')
 
     dataset_desc = amio_dataset_descriptor_t( &
-                   int(c_sizeof(dataset_desc), c_int32_t), 1_c_int32_t, c_loc(location(1)), int(len_trim(location_text), c_int64_t), &
+                   int(c_sizeof(dataset_desc), c_int32_t), 1_c_int32_t, c_loc(location(1)), &
+                   int(len_trim(location_text), c_int64_t), &
                    AMIO_FORMAT_NETCDF4, 0_c_int32_t, 1048576_c_int64_t, 64_c_int64_t, 4096_c_int64_t, 8_c_int64_t, &
                    [0_c_int64_t, 0_c_int64_t])
     dataset = c_null_ptr
@@ -52,7 +53,8 @@ program example_step_collection
     dimension = amio_dimension_descriptor_t(int(c_sizeof(dimension), c_int32_t), 1_c_int32_t, c_loc(dimension_name(1)), &
                                             1_c_int64_t, 4_c_int64_t, c_null_ptr, 0_c_int64_t, [0_c_int64_t, 0_c_int64_t])
     variable = amio_variable_descriptor_t(int(c_sizeof(variable), c_int32_t), 1_c_int32_t, c_loc(field_name(1)), &
-                                          11_c_int64_t, AMIO_DTYPE_F32, AMIO_DTYPE_F32, 1_c_int32_t, 1_c_int32_t, c_loc(dimension), &
+                                          11_c_int64_t, AMIO_DTYPE_F32, AMIO_DTYPE_F32, 1_c_int32_t, 1_c_int32_t, &
+                                          c_loc(dimension), &
                                           0_c_int32_t, 0_c_int32_t, c_null_ptr, [0_c_int64_t, 0_c_int64_t])
     schema_desc = amio_schema_descriptor_t(int(c_sizeof(schema_desc), c_int32_t), 1_c_int32_t, 1_c_int64_t, c_loc(variable), &
                                            [0_c_int64_t, 0_c_int64_t])

@@ -1030,9 +1030,10 @@ endif()
 # Validates: Req 13.2, 13.3, 13.4, 13.5 (GRIB2 decode + bbox + lossless round trip).
 # ####################################################################################################################################################
 if(g2c_FOUND)
-    add_executable(test_read_grib2 test_read_grib2.cpp ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
-                                   ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp
-                                   ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/staging/staging_pool.cpp)
+    add_executable(
+        test_read_grib2
+        test_read_grib2.cpp ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp
+        ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/staging/staging_pool.cpp)
 
     target_include_directories(test_read_grib2 PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_compile_definitions(test_read_grib2 PRIVATE AMIO_HAS_G2C=1)
