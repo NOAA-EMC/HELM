@@ -1,10 +1,10 @@
-#include "execution/context.hpp"
-
 #include <mpi.h>
 
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+
+#include "execution/context.hpp"
 
 using namespace amio::detail;
 
@@ -20,7 +20,8 @@ int main(int argc, char **argv) {
     RoleConfiguration roles;
     roles.mode = ExecutionMode::Direct;
     roles.rank_count = static_cast<std::uint32_t>(size);
-    if (rank == 0) roles.producers = {0};
+    if (rank == 0)
+        roles.producers = {0};
     else {
         for (int producer = 0; producer < size; ++producer) roles.producers.push_back(producer);
     }

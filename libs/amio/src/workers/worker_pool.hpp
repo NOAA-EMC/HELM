@@ -55,10 +55,10 @@
 #include <utility>
 #include <vector>
 
+#include "execution/context.hpp"
 #include "workers/comm_split.hpp"
 #include "workers/exception_bridge.hpp"
 #include "workers/thread_pinning.hpp"
-#include "execution/context.hpp"
 
 namespace amio::detail {
 
@@ -140,9 +140,9 @@ struct BackpressureConfig {
     bool enabled = false;
     std::size_t low_watermark = 0;
     std::size_t high_watermark = 0;
-    std::size_t queue_capacity = 1024;  // default queue capacity
+    std::size_t queue_capacity = 1024;                 // default queue capacity
     std::chrono::milliseconds admission_timeout{5000}; /**< Maximum time a producer waits for queue capacity. */
-    std::size_t prefetch_capacity = 1024; /**< Maximum queued read-ahead tasks. */
+    std::size_t prefetch_capacity = 1024;              /**< Maximum queued read-ahead tasks. */
 };
 
 // WorkerPoolConfig -- configuration for constructing a WorkerPool.
@@ -189,8 +189,8 @@ inline amio_status_t bind_writer_worker_config(const ExecutionContext &context, 
     io.is_io_rank = true;
 #ifdef AMIO_HAS_MPI
     const MPI_Comm writer = context.writer_communicator();
-    if (writer == MPI_COMM_NULL || MPI_Comm_rank(writer, &io.rank_value) != MPI_SUCCESS ||
-        MPI_Comm_size(writer, &io.size_value) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+    if (writer == MPI_COMM_NULL || MPI_Comm_rank(writer, &io.rank_value) != MPI_SUCCESS || MPI_Comm_size(writer, &io.size_value) != MPI_SUCCESS)
+        return AMIO_ERR_COMM_SPLIT_FAILED;
     io.parent_comm = writer;
 #endif
     config.io_comm = std::move(io);
@@ -306,8 +306,7 @@ class WorkerPool {
     /** @brief Admit a bounded prefetch task with explicit queue-full status.
      * @return AMIO_OK when queued; AMIO_ERR_QUEUE_FULL when shut down or full.
      */
-    amio_err_t try_submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id,
-                                   std::function<void()> callback);
+    amio_err_t try_submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id, std::function<void()> callback);
 
     /** @brief submit_prefetch with handle_id -- enqueue a prefetch task with
      * an associated opaque handle for exception cordon outcome recording.
@@ -318,8 +317,8 @@ class WorkerPool {
     /** @brief Handle-tracked bounded prefetch admission.
      * @return AMIO_OK when queued; AMIO_ERR_QUEUE_FULL when shut down or full.
      */
-    amio_err_t try_submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id,
-                                   std::uint64_t handle_id, std::function<void()> callback);
+    amio_err_t try_submit_prefetch(std::int64_t timestep, std::int64_t distance, std::uint64_t dataset_id, std::uint64_t handle_id,
+                                   std::function<void()> callback);
 
     // drain -- block until all currently enqueued tasks complete.
     //

@@ -231,7 +231,9 @@ struct BackendCapabilities {
 class Backend_Driver {
    public:
     /** Conservative default: drivers make no new-engine claims until certified. */
-    virtual BackendCapabilities capabilities() const { return {}; }
+    virtual BackendCapabilities capabilities() const {
+        return {};
+    }
 
     /** @brief Whether this driver accepts VarMeta::write_region destinations.
      * @return True for implemented region writes; false rejects before admission.

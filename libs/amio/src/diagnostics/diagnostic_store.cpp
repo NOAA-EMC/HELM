@@ -16,7 +16,7 @@ template <typename Enum, std::size_t N>
 bool valid_index(Enum value) noexcept {
     return static_cast<std::size_t>(value) < N;
 }
-} // namespace
+}  // namespace
 
 bool DiagnosticScope::operator<(const DiagnosticScope &other) const noexcept {
     return std::tie(context_epoch, dataset_id, step_id, field_id, role, participant) <
@@ -41,14 +41,15 @@ DiagnosticScopeSnapshot &DiagnosticStore::touch_scope(const DiagnosticScope &sco
 
 void DiagnosticStore::evict_oldest() {
     if (scopes_.empty()) return;
-    auto oldest = std::min_element(scopes_.begin(), scopes_.end(), [](const auto &left, const auto &right) {
-        return left.second.last_touch < right.second.last_touch;
-    });
+    auto oldest = std::min_element(scopes_.begin(), scopes_.end(),
+                                   [](const auto &left, const auto &right) { return left.second.last_touch < right.second.last_touch; });
     scopes_.erase(oldest);
     saturating_add(evicted_scope_count_, 1);
 }
 
-std::size_t DiagnosticStore::event_cost(std::size_t message_bytes) noexcept { return sizeof(DiagnosticEvent) + message_bytes; }
+std::size_t DiagnosticStore::event_cost(std::size_t message_bytes) noexcept {
+    return sizeof(DiagnosticEvent) + message_bytes;
+}
 
 void DiagnosticStore::update_event_resource(const DiagnosticScope &scope) {
     const auto index = static_cast<std::size_t>(DiagnosticResource::EventHistoryBytes);
@@ -160,4 +161,4 @@ std::optional<DiagnosticScopeSnapshot> DiagnosticStore::scope_snapshot(const Dia
     return found->second.value;
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

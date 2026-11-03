@@ -1,11 +1,11 @@
-#include "execution/stream_retention.hpp"
-
 #include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#include "execution/stream_retention.hpp"
 
 using namespace amio::detail;
 
@@ -18,7 +18,7 @@ RetainedStreamStep step(std::uint64_t id, std::byte value) {
     result.payload_bytes = 4;
     return result;
 }
-}
+}  // namespace
 
 int main() {
     {
@@ -54,7 +54,7 @@ int main() {
         auto c0 = retained.acquire_next(0, std::chrono::milliseconds(0));
         assert(c0.state == StreamAcquireState::Available && c0.lease->step->step_id == 0);
         const auto c0_step0_lease = c0.lease->lease_id;
-        assert(retained.publish(step(2, std::byte{3})) == AMIO_OK); // evicts unleased step 1
+        assert(retained.publish(step(2, std::byte{3})) == AMIO_OK);  // evicts unleased step 1
         assert(retained.snapshot().bytes == 8 && retained.snapshot().steps == 2);
         auto c1_first = retained.acquire_next(1, std::chrono::milliseconds(0));
         assert(c1_first.state == StreamAcquireState::Available && c1_first.lease->step->step_id == 0);
@@ -82,7 +82,7 @@ int main() {
         assert(retained.publish(step(0, std::byte{1})) == AMIO_OK);
         const auto lease = retained.acquire_next(0, std::chrono::milliseconds(0)).lease;
         assert(lease);
-        assert(retained.publish(step(1, std::byte{2})) == AMIO_ERR_QUEUE_FULL); // leased bytes cannot be evicted
+        assert(retained.publish(step(1, std::byte{2})) == AMIO_ERR_QUEUE_FULL);  // leased bytes cannot be evicted
         retained.finish(AMIO_ERR_BACKEND_FAILURE);
         assert(retained.release(lease->lease_id) == AMIO_OK);
         assert(retained.close(true) == AMIO_OK);

@@ -1,16 +1,16 @@
 #ifndef AMIO_SRC_EXECUTION_AGGREGATED_EXECUTION_HPP
 #define AMIO_SRC_EXECUTION_AGGREGATED_EXECUTION_HPP
 
-#include "execution/context.hpp"
-#include "execution/mpi_transport.hpp"
-#include "execution/transport_protocol.hpp"
-
 #include <array>
 #include <cstddef>
 #include <functional>
 #include <mutex>
 #include <span>
 #include <vector>
+
+#include "execution/context.hpp"
+#include "execution/mpi_transport.hpp"
+#include "execution/transport_protocol.hpp"
 
 namespace amio::detail {
 
@@ -34,7 +34,7 @@ struct DestinationRegionChunk {
 
 /** Bounded deterministic forwarding for one statically configured writer group. */
 class AggregatedExecution {
-public:
+   public:
     /** Consume one validated chunk; the sink must finish using bytes before it returns. */
     using ChunkSink = std::function<amio_status_t(const TransportEnvelope &, std::span<const std::byte>)>;
     /** Consume one contiguous destination row while its receiver credit remains held. */
@@ -46,8 +46,7 @@ public:
     AggregatedExecution(const ExecutionContext &context, MpiTransport &transport);
 
     /** Forward a contribution in bounded, element-aligned fragments; use one-byte elements for encoded messages. */
-    [[nodiscard]] amio_status_t forward(const TransportEnvelope &contribution, std::span<const std::byte> bytes,
-                                        std::size_t element_bytes = 1) const;
+    [[nodiscard]] amio_status_t forward(const TransportEnvelope &contribution, std::span<const std::byte> bytes, std::size_t element_bytes = 1) const;
 
     /** Receive all fragments of one producer contribution and pass each bounded chunk to the writer sink.
      *
@@ -56,13 +55,12 @@ public:
      * after the sink has consumed the chunk. The sink can write native backend
      * slabs without materializing a complete global field.
      */
-    [[nodiscard]] amio_status_t receive(std::uint32_t producer_rank, const TransportValidationContext &validation,
-                                         const ChunkSink &sink, ProtocolError *protocol_error = nullptr) const;
+    [[nodiscard]] amio_status_t receive(std::uint32_t producer_rank, const TransportValidationContext &validation, const ChunkSink &sink,
+                                        ProtocolError *protocol_error = nullptr) const;
 
     /** Receive one producer's typed contribution as bounded native destination regions. */
-    [[nodiscard]] amio_status_t receive_regions(std::uint32_t producer_rank, const TransportValidationContext &validation,
-                                                 std::size_t element_bytes, const RegionSink &sink,
-                                                 ProtocolError *protocol_error = nullptr) const;
+    [[nodiscard]] amio_status_t receive_regions(std::uint32_t producer_rank, const TransportValidationContext &validation, std::size_t element_bytes,
+                                                const RegionSink &sink, ProtocolError *protocol_error = nullptr) const;
 
     /** Receive one canonical producer round for this writer.
      *
@@ -72,12 +70,11 @@ public:
      * while the remaining assigned peers are drained, so a bad contribution
      * cannot strand later senders waiting for acknowledgments.
      */
-    [[nodiscard]] amio_status_t receive_round(const TransportValidationContext &validation,
-                                               const ChunkSink &sink) const;
+    [[nodiscard]] amio_status_t receive_round(const TransportValidationContext &validation, const ChunkSink &sink) const;
 
     /** Receive one canonical writer round as bounded typed destination regions. */
-    [[nodiscard]] amio_status_t receive_round_regions(const TransportValidationContext &validation,
-                                                       std::size_t element_bytes, const RegionSink &sink) const;
+    [[nodiscard]] amio_status_t receive_round_regions(const TransportValidationContext &validation, std::size_t element_bytes,
+                                                      const RegionSink &sink) const;
 
     /** Run a dedicated writer's ordered control loop until close or end-of-stream.
      *
@@ -90,15 +87,15 @@ public:
      * Blocking MPI calls cannot be forcibly interrupted.
      */
     [[nodiscard]] amio_status_t serve_control(std::uint32_t producer_rank, const TransportValidationContext &validation,
-                                               const ServiceHandler &handler, const ServiceHandler &after_ack = {}) const;
+                                              const ServiceHandler &handler, const ServiceHandler &after_ack = {}) const;
 
-private:
+   private:
     const ExecutionContext *context_;
     MpiTransport *transport_;
     mutable SequenceLedger received_sequences_;
     mutable std::mutex sequence_mutex_;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

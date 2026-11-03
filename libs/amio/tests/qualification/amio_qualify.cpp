@@ -1,5 +1,5 @@
-#include "reference_fields.hpp"
 #include "backpressure.hpp"
+#include "reference_fields.hpp"
 #ifdef AMIO_QUALIFY_HAS_MPI
 #include "aggregation.hpp"
 #include "stream.hpp"
@@ -51,7 +51,7 @@ void usage(std::ostream &out) {
            "  amio_qualify stream --policy reliable|latest [--slow-consumer-ms N] (MPI builds)\n";
 }
 
-} // namespace
+}  // namespace
 
 int main(int argc, char **argv) {
     if (argc == 2 && std::string_view(argv[1]) == "--self-test") {

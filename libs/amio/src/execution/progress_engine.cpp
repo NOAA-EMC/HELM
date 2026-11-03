@@ -5,8 +5,7 @@
 
 namespace amio::detail {
 
-ProgressEngine::ProgressEngine(ProgressPolicy policy, std::size_t queue_capacity, int thread_level)
-    : policy_(policy), capacity_(queue_capacity) {
+ProgressEngine::ProgressEngine(ProgressPolicy policy, std::size_t queue_capacity, int thread_level) : policy_(policy), capacity_(queue_capacity) {
     if (capacity_ == 0) throw std::invalid_argument("progress queue capacity must be positive");
     if (policy_ == ProgressPolicy::Background) {
         // MPI_THREAD_MULTIPLE is the standard value 3. Keep this small engine
@@ -39,7 +38,11 @@ amio_status_t ProgressEngine::submit(Callback callback) {
 
 amio_status_t ProgressEngine::run_one(Callback callback) noexcept {
     amio_status_t status = AMIO_OK;
-    try { status = callback(); } catch (...) { status = AMIO_ERR_BACKEND_FAILURE; }
+    try {
+        status = callback();
+    } catch (...) {
+        status = AMIO_ERR_BACKEND_FAILURE;
+    }
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (status != AMIO_OK && first_error_ == AMIO_OK) first_error_ = status;
@@ -78,8 +81,7 @@ amio_status_t ProgressEngine::close(std::chrono::milliseconds timeout) {
     std::unique_lock<std::mutex> lock(mutex_);
     closing_ = true;
     ready_.notify_all();
-    if (!idle_.wait_for(lock, timeout, [this] { return queue_.empty() && active_ == 0; }))
-        return AMIO_ERR_OPERATION_PENDING;
+    if (!idle_.wait_for(lock, timeout, [this] { return queue_.empty() && active_ == 0; })) return AMIO_ERR_OPERATION_PENDING;
     closed_ = true;
     return first_error_;
 }
@@ -108,4 +110,4 @@ void ProgressEngine::background_loop() noexcept {
     }
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

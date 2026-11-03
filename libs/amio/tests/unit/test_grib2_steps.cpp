@@ -1,6 +1,3 @@
-#include "drivers/grib2/grib2_driver.hpp"
-#include "drivers/grib2/grib2_steps.hpp"
-
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -11,12 +8,20 @@
 #include <string>
 #include <vector>
 
+#include "drivers/grib2/grib2_driver.hpp"
+#include "drivers/grib2/grib2_steps.hpp"
+
 using namespace amio::detail;
 
 namespace {
 
-template <class F> bool throws(F &&function) {
-    try { function(); } catch (const std::exception &) { return true; }
+template <class F>
+bool throws(F &&function) {
+    try {
+        function();
+    } catch (const std::exception &) {
+        return true;
+    }
     return false;
 }
 
@@ -43,10 +48,16 @@ void test_encoded_and_scratch_budgets_preflight_before_encoding() {
 
 void test_grib2_complete_message_validation() {
     std::vector<unsigned char> message(20, 0);
-    message[0] = 'G'; message[1] = 'R'; message[2] = 'I'; message[3] = 'B';
+    message[0] = 'G';
+    message[1] = 'R';
+    message[2] = 'I';
+    message[3] = 'B';
     message[7] = 2;
     message[15] = static_cast<unsigned char>(message.size());
-    message[16] = '7'; message[17] = '7'; message[18] = '7'; message[19] = '7';
+    message[16] = '7';
+    message[17] = '7';
+    message[18] = '7';
+    message[19] = '7';
     validate_complete_grib2_message(message);
     message[15] = 19;
     assert(throws([&] { validate_complete_grib2_message(message); }));
@@ -58,11 +69,17 @@ void test_grib2_complete_message_validation() {
 
 std::vector<unsigned char> valid_message(unsigned char marker) {
     std::vector<unsigned char> message(21, 0);
-    message[0] = 'G'; message[1] = 'R'; message[2] = 'I'; message[3] = 'B';
+    message[0] = 'G';
+    message[1] = 'R';
+    message[2] = 'I';
+    message[3] = 'B';
     message[7] = 2;
     message[15] = static_cast<unsigned char>(message.size());
     message[16] = marker;
-    message[17] = '7'; message[18] = '7'; message[19] = '7'; message[20] = '7';
+    message[17] = '7';
+    message[18] = '7';
+    message[19] = '7';
+    message[20] = '7';
     return message;
 }
 
@@ -98,8 +115,7 @@ void test_streamed_messages_are_bounded_validated_and_create_only() {
     }
     Grib2FieldRanges first_field{"temperature", 4, {{0, first.size()}}};
     std::vector<std::vector<unsigned char>> readback;
-    assert(read_grib2_field_messages(path.string(), first_field, 64, readback, error) && readback.size() == 1 &&
-           readback[0] == first);
+    assert(read_grib2_field_messages(path.string(), first_field, 64, readback, error) && readback.size() == 1 && readback[0] == first);
     {
         Grib2StreamWriter collision(path.string(), 3, 1, 64);
         assert(collision.begin_message(10, 4, first.size(), error));
@@ -134,7 +150,7 @@ void test_step_payload_appends_complete_messages_and_indexes_ranges() {
     assert(payload.fields[0].messages.size() == 2);
     assert(payload.fields[0].messages[0].offset == 0 && payload.fields[0].messages[0].length == 21);
     assert(payload.fields[0].messages[1].offset == 21 && payload.fields[0].messages[1].length == 21);
-    assert(payload.bytes[16] == 1 && payload.bytes[37] == 2); // producer order is retained
+    assert(payload.bytes[16] == 1 && payload.bytes[37] == 2);  // producer order is retained
 
     const std::array<std::vector<unsigned char>, 1> pressure = {valid_message(3)};
     append_grib2_field_messages(payload, "pressure", 1, pressure, 1000);
@@ -162,7 +178,7 @@ void test_immutable_step_payload_file_and_indexed_field_reads() {
     std::filesystem::remove(path, ec);
     std::string error;
     assert(write_grib2_step_payload(path.string(), payload, error));
-    assert(!write_grib2_step_payload(path.string(), payload, error)); // immutable step IDs are create-only
+    assert(!write_grib2_step_payload(path.string(), payload, error));  // immutable step IDs are create-only
 
     std::vector<std::vector<unsigned char>> messages;
     assert(read_grib2_field_messages(path.string(), payload.fields[0], 100, messages, error));
@@ -215,7 +231,7 @@ void test_grid_and_product_settings_are_representable() {
     assert(throws([&] { validate_grib2_representability(settings, 360, 181); }));
 }
 
-} // namespace
+}  // namespace
 
 int main() {
     test_complete_message_ranges_are_ordered_and_checked();

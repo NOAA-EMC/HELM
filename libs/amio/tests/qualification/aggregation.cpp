@@ -1,12 +1,5 @@
 #include "aggregation.hpp"
 
-#include "execution/aggregated_execution.hpp"
-#include "execution/context.hpp"
-#include "execution/credit_window.hpp"
-#include "execution/mpi_transport.hpp"
-#include "execution/role_map.hpp"
-#include "reference_fields.hpp"
-
 #include <mpi.h>
 
 #include <algorithm>
@@ -24,6 +17,13 @@
 #include <string_view>
 #include <vector>
 
+#include "execution/aggregated_execution.hpp"
+#include "execution/context.hpp"
+#include "execution/credit_window.hpp"
+#include "execution/mpi_transport.hpp"
+#include "execution/role_map.hpp"
+#include "reference_fields.hpp"
+
 namespace {
 using namespace amio::detail;
 
@@ -39,7 +39,7 @@ std::uint64_t parse_positive(const char *text) {
 void require(bool condition, const char *message) {
     if (!condition) throw std::runtime_error(message);
 }
-} // namespace
+}  // namespace
 
 int run_aggregation_fixture(int argc, char **argv) {
     std::uint64_t writer_count_arg = 0;
@@ -63,8 +63,7 @@ int run_aggregation_fixture(int argc, char **argv) {
     MPI_Initialized(&initialized);
     if (!initialized) {
         int provided = MPI_THREAD_SINGLE;
-        if (MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided) != MPI_SUCCESS || provided < MPI_THREAD_FUNNELED)
-            return 1;
+        if (MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided) != MPI_SUCCESS || provided < MPI_THREAD_FUNNELED) return 1;
     }
     int rank = 0, size = 0;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -84,8 +83,7 @@ int run_aggregation_fixture(int argc, char **argv) {
         std::unique_ptr<ExecutionContext> context;
         require(ExecutionContext::create(roles, ProgressPolicy::Caller, "amio-qualify-aggregate", MPI_COMM_WORLD, context) == AMIO_OK,
                 "create the isolated aggregation context");
-        CreditWindow credits({static_cast<std::size_t>(size), 4 * 1024 * 1024, 32,
-                              static_cast<std::size_t>(producer_count) * 4 * 1024 * 1024,
+        CreditWindow credits({static_cast<std::size_t>(size), 4 * 1024 * 1024, 32, static_cast<std::size_t>(producer_count) * 4 * 1024 * 1024,
                               static_cast<std::size_t>(producer_count) * 32,
                               static_cast<std::size_t>(producer_count) * 4 * kTransportEnvelopeWireBytes, 32});
         MpiTransport transport(*context, credits, 1024 * 1024);
@@ -145,8 +143,8 @@ int run_aggregation_fixture(int argc, char **argv) {
                                                  std::to_string(forward_status));
                 } else {
                     const auto local_writer = context->rank();
-                    const auto status = aggregation.receive_round_regions(validation, sizeof(float),
-                        [&](const DestinationRegionChunk &region, std::span<const std::byte> bytes) {
+                    const auto status = aggregation.receive_round_regions(
+                        validation, sizeof(float), [&](const DestinationRegionChunk &region, std::span<const std::byte> bytes) {
                             require(region.dimension_count == 1 && bytes.size() == region.extents[0] * sizeof(float),
                                     "writer receives bounded contiguous destination rows");
                             const auto *values = reinterpret_cast<const float *>(bytes.data());
@@ -160,8 +158,7 @@ int run_aggregation_fixture(int argc, char **argv) {
                                 require(producer < static_cast<std::uint32_t>(producer_count),
                                         "every global cell belongs to exactly one producer partition");
                                 const auto mapped_writer = context->role_map().writer_for(producer);
-                                require(mapped_writer && *mapped_writer == local_writer,
-                                        "each global cell is delivered only to its assigned writer");
+                                require(mapped_writer && *mapped_writer == local_writer, "each global cell is delivered only to its assigned writer");
                                 require(values[cell] == amio::qualification::reference_value(step, field, global_cell),
                                         "aggregated destination value matches deterministic scientific reference");
                             }
@@ -184,10 +181,12 @@ int run_aggregation_fixture(int argc, char **argv) {
             if (output_status == AMIO_OK) {
                 const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
                 std::ofstream report(output / ("aggregate-" + std::to_string(stamp) + ".json"), std::ios::out | std::ios::binary);
-                if (!report) output_status = AMIO_ERR_BACKEND_FAILURE;
-                else report << "{\"schema_version\":1,\"status\":\"PASS\",\"backend_requested\":\"netcdf4\","
-                               "\"steps\":4,\"fields\":3,\"global_cells\":257,\"writers\":" << writer_count
-                            << ",\"persistent_storage_exercised\":false}\n";
+                if (!report)
+                    output_status = AMIO_ERR_BACKEND_FAILURE;
+                else
+                    report << "{\"schema_version\":1,\"status\":\"PASS\",\"backend_requested\":\"netcdf4\","
+                              "\"steps\":4,\"fields\":3,\"global_cells\":257,\"writers\":"
+                           << writer_count << ",\"persistent_storage_exercised\":false}\n";
                 if (!report) output_status = AMIO_ERR_BACKEND_FAILURE;
             }
         }

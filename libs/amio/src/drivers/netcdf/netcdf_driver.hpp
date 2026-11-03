@@ -51,10 +51,10 @@
 #include <netcdf_par.h>
 #endif
 
-#include <string>
-#include <map>
 #include <cstdint>
+#include <map>
 #include <set>
+#include <string>
 #include <vector>
 
 #include "drivers/common/var_attributes.hpp"
@@ -137,8 +137,7 @@ class NetCDF_Driver : public Backend_Driver {
     /** Close the step payload before its catalog completion record may be published. */
     void close_step_write();
     /** Independently read a selected region from a closed step payload. */
-    static void read_step_region(const std::string &path, const std::string &variable,
-                                 const RegionSelection &region, void *data);
+    static void read_step_region(const std::string &path, const std::string &variable, const RegionSelection &region, void *data);
     /** Read the required scalar model-time attribute from a closed step payload. */
     static bool read_step_model_time(const std::string &path, double &model_time) noexcept;
 
@@ -194,8 +193,7 @@ struct NetCDFStepFieldView {
     const void *data = nullptr;
 };
 void write_netcdf_step_payload(const std::string &path, const Schema &schema, double model_time,
-                               const std::map<std::string, NetCDFStepFieldView, std::less<>> &fields,
-                               std::int64_t fortran_communicator);
+                               const std::map<std::string, NetCDFStepFieldView, std::less<>> &fields, std::int64_t fortran_communicator);
 
 }  // namespace amio::detail
 

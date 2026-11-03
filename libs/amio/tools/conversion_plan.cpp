@@ -7,4 +7,4 @@ CliResult run_conversion_plan(const Options &options) {
     // the bounded writer must reject (or report obsolete unsupported claims).
     return run_copy(options);
 }
-} // namespace amio::tools
+}  // namespace amio::tools

@@ -1,10 +1,10 @@
-#include "catalog/collection_catalog.hpp"
-
 #include <cassert>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "catalog/collection_catalog.hpp"
 
 using namespace amio::detail;
 
@@ -101,7 +101,7 @@ void test_catalog_persists_grib2_message_ranges_and_rejects_invalid_ranges() {
     assert(encode_commit_document(value, encoded) == AMIO_ERR_INVALID_INPUT);
 }
 
-} // namespace
+}  // namespace
 
 int main() {
     test_payloads_commit_head_and_discovery_publish_in_order();

@@ -57,8 +57,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "factory/backend_driver.hpp"
 #include "drivers/grib2/grib2_steps.hpp"
+#include "factory/backend_driver.hpp"
 #ifdef AMIO_HAS_MPI
 #include <halo/communicator.hpp>
 #endif
@@ -255,17 +255,12 @@ class GRIB2_Driver : public Backend_Driver {
     void open_step_encoder(const conf::Config &config);
     void open_read(const conf::Config &config) override;
     /** Encode one complete local field for a step collection after producer memory preflight. */
-    [[nodiscard]] std::vector<unsigned char> encode_step_message(const StagingBuffer &src, const VarMeta &meta,
-                                                                  std::size_t encoded_buffer_budget,
-                                                                  std::size_t codec_scratch_budget);
-    [[nodiscard]] std::vector<unsigned char> encode_step_message(const StagingBuffer &src, const VarMeta &meta,
-                                                                  std::size_t encoded_buffer_budget,
-                                                                  std::size_t codec_scratch_budget,
-                                                                  const Grib2Settings &settings);
-    [[nodiscard]] std::vector<unsigned char> encode_step_message(const StagingBuffer &src, const VarMeta &meta,
-                                                                  std::size_t encoded_buffer_budget,
-                                                                  std::size_t codec_scratch_budget,
-                                                                  const Grib2Settings &settings, GRIB2_DRT drt);
+    [[nodiscard]] std::vector<unsigned char> encode_step_message(const StagingBuffer &src, const VarMeta &meta, std::size_t encoded_buffer_budget,
+                                                                 std::size_t codec_scratch_budget);
+    [[nodiscard]] std::vector<unsigned char> encode_step_message(const StagingBuffer &src, const VarMeta &meta, std::size_t encoded_buffer_budget,
+                                                                 std::size_t codec_scratch_budget, const Grib2Settings &settings);
+    [[nodiscard]] std::vector<unsigned char> encode_step_message(const StagingBuffer &src, const VarMeta &meta, std::size_t encoded_buffer_budget,
+                                                                 std::size_t codec_scratch_budget, const Grib2Settings &settings, GRIB2_DRT drt);
     /** @brief Encode a complete field and commit one GRIB2 message.
      * @param src Immutable staged F32 field, retained through write completion.
      * @param meta Complete-field shape and type; no partial-region destination.
@@ -503,7 +498,6 @@ class GRIB2_Driver : public Backend_Driver {
     static Grib2Settings read_settings(const conf::Config &config);
 
    private:
-
 #ifdef AMIO_HAS_MPI
     std::optional<halo::Communicator> io_comm_;  ///< HALO-owned duplicate of the host communicator.
     MPI_File message_file_ = MPI_FILE_NULL;      ///< Shared MPI-IO file, never used with stdio.

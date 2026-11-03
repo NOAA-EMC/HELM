@@ -1,5 +1,4 @@
 #include <amio/amio_evolution.h>
-
 #include <mpi.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,7 +11,10 @@ int main(int argc, char **argv) {
     int rank = 0, size = 0;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-    if (size != 6) { MPI_Finalize(); return 2; }
+    if (size != 6) {
+        MPI_Finalize();
+        return 2;
+    }
 
     int32_t producers[4] = {0, 1, 2, 3};
     int32_t consumers[2] = {4, 5};
@@ -85,8 +87,7 @@ int main(int argc, char **argv) {
             float value = 0;
             size_t bytes = 0;
             status = amio_stream_read(acquired.lease, &selection, &value, sizeof(value), &bytes);
-            if (status == AMIO_OK && (bytes != sizeof(value) || value != (float)(5000 + producer)))
-                status = AMIO_ERR_SCHEMA_MISMATCH;
+            if (status == AMIO_OK && (bytes != sizeof(value) || value != (float)(5000 + producer))) status = AMIO_ERR_SCHEMA_MISMATCH;
         }
         if (status == AMIO_OK) status = amio_stream_release(acquired.lease);
         if (status == AMIO_OK) status = amio_stream_finish(context, 1);

@@ -1,6 +1,6 @@
-#include "execution/credit_window.hpp"
-
 #include <cassert>
+
+#include "execution/credit_window.hpp"
 
 using namespace amio::detail;
 
@@ -10,13 +10,13 @@ int main() {
     assert(send.has_value());
     assert(!window.acquire(0, CreditOwner::Sender, 1, 1).has_value());
     auto receive = window.acquire(0, CreditOwner::Receiver, 1024, 2);
-    assert(receive.has_value()); // sender and receiver copies coexist in total accounting
-    assert(!window.acquire(1, CreditOwner::Receiver, 1, 1).has_value()); // global data budget exhausted
+    assert(receive.has_value());                                          // sender and receiver copies coexist in total accounting
+    assert(!window.acquire(1, CreditOwner::Receiver, 1, 1).has_value());  // global data budget exhausted
     auto control = window.acquire_control(128, 1);
-    assert(control.has_value()); // control plane stays live under data-credit exhaustion
+    assert(control.has_value());  // control plane stays live under data-credit exhaustion
     auto altered = *control;
     ++altered.bytes;
-    assert(!window.release(altered)); // a forged or corrupted ticket cannot release another reservation
+    assert(!window.release(altered));  // a forged or corrupted ticket cannot release another reservation
     auto snapshot = window.snapshot();
     assert(snapshot.sender_bytes == 1024 && snapshot.receiver_bytes == 1024);
     assert(snapshot.control_bytes == 128);

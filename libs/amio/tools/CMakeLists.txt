@@ -1,6 +1,17 @@
-add_executable(amio
-    amio.cpp result_writer.cpp result_helpers.cpp selection_parse.cpp inspect.cpp validate.cpp conversion_plan.cpp copy.cpp diagnostics.cpp
-    ../src/catalog/catalog_format.cpp ../src/catalog/collection_reader.cpp ../src/schema/schema.cpp)
+add_executable(
+    amio
+    amio.cpp
+    result_writer.cpp
+    result_helpers.cpp
+    selection_parse.cpp
+    inspect.cpp
+    validate.cpp
+    conversion_plan.cpp
+    copy.cpp
+    diagnostics.cpp
+    ../src/catalog/catalog_format.cpp
+    ../src/catalog/collection_reader.cpp
+    ../src/schema/schema.cpp)
 target_compile_features(amio PRIVATE cxx_std_20)
 target_include_directories(amio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 target_link_libraries(amio PRIVATE AMIO::amio_core)

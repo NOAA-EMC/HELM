@@ -1,12 +1,12 @@
-#include "catalog/collection_reader.hpp"
-#include "catalog/posix_catalog.hpp"
-
-#include <cassert>
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <filesystem>
 #include <string>
 #include <thread>
+
+#include "catalog/collection_reader.hpp"
+#include "catalog/posix_catalog.hpp"
 
 using namespace amio::detail;
 
@@ -14,12 +14,10 @@ namespace {
 
 std::filesystem::path make_root(const char *name) {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    return std::filesystem::temp_directory_path() /
-           (std::string("amio-catalog-guarantees-") + name + "-" + std::to_string(stamp));
+    return std::filesystem::temp_directory_path() / (std::string("amio-catalog-guarantees-") + name + "-" + std::to_string(stamp));
 }
 
-CompletionRecord step(std::uint64_t id, std::string previous, const std::string &payload_path,
-                      std::string guarantee) {
+CompletionRecord step(std::uint64_t id, std::string previous, const std::string &payload_path, std::string guarantee) {
     CompletionRecord record;
     record.dataset_uuid = "catalog-guarantees-test";
     record.step_id = id;
@@ -41,8 +39,7 @@ void test_visibility_and_requested_sync_levels() {
         const std::string schema_bytes = "schema";
         assert(catalog.write_payload(schema_path, schema_bytes.data(), schema_bytes.size()) == AMIO_OK);
         std::string previous;
-        const PosixSyncLevel levels[] = {PosixSyncLevel::Visibility, PosixSyncLevel::FileSync,
-                                         PosixSyncLevel::DirectorySync};
+        const PosixSyncLevel levels[] = {PosixSyncLevel::Visibility, PosixSyncLevel::FileSync, PosixSyncLevel::DirectorySync};
         const char *names[] = {"visibility", "file_sync", "directory_sync"};
         for (std::uint64_t id = 1; id <= 3; ++id) {
             const auto relative = "payloads/" + std::to_string(id) + "/temperature.bin";
@@ -116,8 +113,7 @@ void test_concurrent_readers_only_traverse_complete_head_generations() {
                 observations.fetch_add(1, std::memory_order_relaxed);
             }
         });
-        while (observations.load(std::memory_order_relaxed) == 0 && readers_ok.load(std::memory_order_acquire))
-            std::this_thread::yield();
+        while (observations.load(std::memory_order_relaxed) == 0 && readers_ok.load(std::memory_order_acquire)) std::this_thread::yield();
         for (std::uint64_t id = 1; id <= 12; ++id) publish_step(id);
         stop.store(true, std::memory_order_release);
         reader.join();
@@ -129,7 +125,7 @@ void test_concurrent_readers_only_traverse_complete_head_generations() {
     assert(!ec);
 }
 
-} // namespace
+}  // namespace
 
 int main() {
     test_visibility_and_requested_sync_levels();

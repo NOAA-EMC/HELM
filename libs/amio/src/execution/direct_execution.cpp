@@ -5,11 +5,9 @@
 
 namespace amio::detail {
 
-PublicationResult DirectExecution::publish(StepCoordinator &step, CompletionRecord record,
-                                           const PayloadWriter &write_payloads,
+PublicationResult DirectExecution::publish(StepCoordinator &step, CompletionRecord record, const PayloadWriter &write_payloads,
                                            const WriterSuccessVote &writer_success_vote) {
-    if (!catalog_ || !write_payloads || !writer_success_vote || step.state() != StepState::Sealed ||
-        !pending_commit_.empty()) {
+    if (!catalog_ || !write_payloads || !writer_success_vote || step.state() != StepState::Sealed || !pending_commit_.empty()) {
         return {AMIO_ERR_INVALID_POLICY, PublicationState::Failed, {}};
     }
 
@@ -95,4 +93,4 @@ PublicationResult DirectExecution::fail(StepCoordinator &step, amio_status_t sta
     return {status, PublicationState::Failed, pending_commit_};
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

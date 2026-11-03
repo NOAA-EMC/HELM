@@ -6,11 +6,22 @@ namespace amio::detail {
 namespace {
 std::size_t element_size(amio_dtype_t dtype) noexcept {
     switch (dtype) {
-        case AMIO_DTYPE_F32: case AMIO_DTYPE_I32: case AMIO_DTYPE_U32: return 4;
-        case AMIO_DTYPE_F64: case AMIO_DTYPE_I64: case AMIO_DTYPE_U64: return 8;
-        case AMIO_DTYPE_I16: case AMIO_DTYPE_U16: return 2;
-        case AMIO_DTYPE_I8: case AMIO_DTYPE_U8: return 1;
-        default: return 0;
+        case AMIO_DTYPE_F32:
+        case AMIO_DTYPE_I32:
+        case AMIO_DTYPE_U32:
+            return 4;
+        case AMIO_DTYPE_F64:
+        case AMIO_DTYPE_I64:
+        case AMIO_DTYPE_U64:
+            return 8;
+        case AMIO_DTYPE_I16:
+        case AMIO_DTYPE_U16:
+            return 2;
+        case AMIO_DTYPE_I8:
+        case AMIO_DTYPE_U8:
+            return 1;
+        default:
+            return 0;
     }
 }
 
@@ -29,11 +40,10 @@ bool region_size(const Variable &variable, const RegionSelection &region, std::s
     bytes = elements * size;
     return true;
 }
-} // namespace
+}  // namespace
 
-amio_status_t ContributionPlan::configure(const Schema &schema, const std::vector<ContributionDeclaration> &declarations,
-                                           std::size_t reserved_bytes, bool empty_contributor,
-                                           bool defer_required_field_validation) {
+amio_status_t ContributionPlan::configure(const Schema &schema, const std::vector<ContributionDeclaration> &declarations, std::size_t reserved_bytes,
+                                          bool empty_contributor, bool defer_required_field_validation) {
     entries_.clear();
     empty_contributor_ = empty_contributor;
     defer_required_field_validation_ = defer_required_field_validation;
@@ -42,7 +52,8 @@ amio_status_t ContributionPlan::configure(const Schema &schema, const std::vecto
         const auto variable = schema.variables().find(declaration.variable);
         if (variable == schema.variables().end() || entries_.find(declaration.variable) != entries_.end()) return AMIO_ERR_INVALID_POLICY;
         if (declaration.absent) {
-            if ((variable->second.required && !empty_contributor && !defer_required_field_validation) || declaration.snapshot_bytes != 0) return AMIO_ERR_INVALID_POLICY;
+            if ((variable->second.required && !empty_contributor && !defer_required_field_validation) || declaration.snapshot_bytes != 0)
+                return AMIO_ERR_INVALID_POLICY;
         } else {
             if (empty_contributor) return AMIO_ERR_INVALID_POLICY;
             std::size_t declared_region_size = 0;
@@ -53,7 +64,8 @@ amio_status_t ContributionPlan::configure(const Schema &schema, const std::vecto
             }
             required_bytes += declaration.snapshot_bytes;
         }
-        entries_.emplace(declaration.variable, Entry{declaration.snapshot_bytes, declaration.absent, false, variable->second.required, declaration.region});
+        entries_.emplace(declaration.variable,
+                         Entry{declaration.snapshot_bytes, declaration.absent, false, variable->second.required, declaration.region});
     }
     if (entries_.size() != schema.variables().size()) return AMIO_ERR_INVALID_POLICY;
     return AMIO_OK;
@@ -97,4 +109,4 @@ void ContributionPlan::reset() noexcept {
     defer_required_field_validation_ = false;
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

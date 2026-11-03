@@ -1,14 +1,14 @@
 #ifndef AMIO_SRC_OPERATORS_INTEGRITY_READER_HPP
 #define AMIO_SRC_OPERATORS_INTEGRITY_READER_HPP
 
-#include "amio/amio_errors.h"
-
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <span>
 #include <string>
 #include <vector>
+
+#include "amio/amio_errors.h"
 
 namespace amio::detail {
 
@@ -25,14 +25,11 @@ using IntegrityRegionReader = std::function<amio_status_t(const IntegrityRegion 
 /** Verify each checksum region intersecting a selection. The reader must
  * return the complete recorded region, never merely the clipped overlap.
  */
-[[nodiscard]] amio_status_t verify_intersecting_integrity_regions(
-    std::span<const IntegrityRegion> regions,
-    std::span<const std::uint64_t> selection_offsets,
-    std::span<const std::uint64_t> selection_extents,
-    std::size_t max_region_bytes,
-    const IntegrityRegionReader &reader,
-    std::size_t &out_verified_regions);
+[[nodiscard]] amio_status_t verify_intersecting_integrity_regions(std::span<const IntegrityRegion> regions,
+                                                                  std::span<const std::uint64_t> selection_offsets,
+                                                                  std::span<const std::uint64_t> selection_extents, std::size_t max_region_bytes,
+                                                                  const IntegrityRegionReader &reader, std::size_t &out_verified_regions);
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

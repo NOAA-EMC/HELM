@@ -1,15 +1,9 @@
-#include "execution/context.hpp"
-#include "execution/credit_window.hpp"
-#include "execution/mpi_transport.hpp"
-#include "execution/role_map.hpp"
-#include "execution/stream_execution.hpp"
-#include "amio/amio_evolution.h"
-
 #include <mpi.h>
 
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -17,8 +11,14 @@
 #include <span>
 #include <string>
 #include <thread>
-#include <chrono>
 #include <vector>
+
+#include "amio/amio_evolution.h"
+#include "execution/context.hpp"
+#include "execution/credit_window.hpp"
+#include "execution/mpi_transport.hpp"
+#include "execution/role_map.hpp"
+#include "execution/stream_execution.hpp"
 
 using namespace amio::detail;
 
@@ -27,7 +27,8 @@ int main(int argc, char **argv) {
     assert(MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided) == MPI_SUCCESS);
     assert(provided >= MPI_THREAD_FUNNELED);
     int rank = 0, size = 0;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank); MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
     assert(size == 6);
 
     RoleConfiguration roles;
@@ -39,16 +40,16 @@ int main(int argc, char **argv) {
     assert(ExecutionContext::create(roles, ProgressPolicy::Caller, "mpi-stream-contract-v1", MPI_COMM_WORLD, context) == AMIO_OK);
     assert(validate_roles(roles) == AMIO_OK);
     auto invalid_dynamic = roles;
-    invalid_dynamic.consumers.push_back(0); // Dynamic attachment cannot overlap static roles.
+    invalid_dynamic.consumers.push_back(0);  // Dynamic attachment cannot overlap static roles.
     assert(validate_roles(invalid_dynamic) == AMIO_ERR_INVALID_POLICY);
     const auto mapped = context->role_map().writer_for(static_cast<std::uint32_t>(rank));
     if (rank < 4) assert(mapped && *mapped == static_cast<std::uint32_t>(4 + rank % 2));
 
-    CreditWindow credits({6, 1024 * 1024, 4, 4 * 1024 * 1024, 24,
-                          8 * kTransportEnvelopeWireBytes, 8});
+    CreditWindow credits({6, 1024 * 1024, 4, 4 * 1024 * 1024, 24, 8 * kTransportEnvelopeWireBytes, 8});
     MpiTransport transport(*context, credits, 256);
     StreamRetention retention(StreamRetentionPolicy::Reliable, 1, 4, 4096);
-    std::array<std::uint8_t, kDatasetUuidBytes> uuid{}; uuid.fill(0x52);
+    std::array<std::uint8_t, kDatasetUuidBytes> uuid{};
+    uuid.fill(0x52);
     StreamExecution stream(*context, transport, retention, 9, uuid, 4096);
 
     if (rank >= 4) assert(retention.acquire_next(0, std::chrono::milliseconds(0)).state == StreamAcquireState::Timeout);
@@ -60,10 +61,16 @@ int main(int argc, char **argv) {
         if (rank < 4) {
             std::array<float, 1> value{static_cast<float>(step * 100 + static_cast<std::uint64_t>(rank))};
             TransportEnvelope frame;
-            frame.context_epoch = 9; frame.dataset_uuid = uuid; frame.step_id = step;
-            frame.schema_digest = schema; frame.field_id = 7; frame.kind = MessageKind::Chunk;
-            frame.producer_rank = static_cast<std::uint32_t>(rank); frame.sequence = step * 2 + 1;
-            frame.dimension_count = 1; frame.offsets[0] = static_cast<std::uint64_t>(rank);
+            frame.context_epoch = 9;
+            frame.dataset_uuid = uuid;
+            frame.step_id = step;
+            frame.schema_digest = schema;
+            frame.field_id = 7;
+            frame.kind = MessageKind::Chunk;
+            frame.producer_rank = static_cast<std::uint32_t>(rank);
+            frame.sequence = step * 2 + 1;
+            frame.dimension_count = 1;
+            frame.offsets[0] = static_cast<std::uint64_t>(rank);
             frame.extents[0] = 1;
             if (rank == 0 && step == 0) {
                 auto stale = frame;
@@ -86,10 +93,14 @@ int main(int argc, char **argv) {
         } else {
             if (rank == 4 && step == 0) {
                 TransportValidationContext expected;
-                expected.expected_epoch = 9; expected.expected_dataset_uuid = uuid;
-                expected.expected_schema_digest = schema; expected.expected_step_id = step;
-                expected.producer_ranks = {0, 1, 2, 3}; expected.writer_ranks = {4, 5};
-                expected.max_payload_bytes = 4096; expected.max_fragment_bytes = transport.max_fragment_bytes();
+                expected.expected_epoch = 9;
+                expected.expected_dataset_uuid = uuid;
+                expected.expected_schema_digest = schema;
+                expected.expected_step_id = step;
+                expected.producer_ranks = {0, 1, 2, 3};
+                expected.writer_ranks = {4, 5};
+                expected.max_payload_bytes = 4096;
+                expected.max_fragment_bytes = transport.max_fragment_bytes();
                 TransportEnvelope rejected;
                 CreditWindow::Ticket no_ticket{};
                 std::vector<std::byte> no_payload;
@@ -121,7 +132,8 @@ int main(int argc, char **argv) {
             assert(stream.release_lease(available.lease->lease_id) == AMIO_OK);
         }
     }
-    if (rank < 4) assert(stream.finish_producer(!(rank == 3)) == AMIO_OK);
+    if (rank < 4)
+        assert(stream.finish_producer(!(rank == 3)) == AMIO_OK);
     else {
         const auto status = stream.finish_consumer();
         assert(status == (rank == 5 ? AMIO_ERR_STREAM_DISCONNECTED : AMIO_OK));
@@ -207,16 +219,14 @@ int main(int argc, char **argv) {
             selection.field_id = 99;
             selection.logical_field_name = "precipitation";
             selection.logical_field_name_bytes = sizeof("precipitation") - 1;
-            assert(amio_stream_read(acquired_public.lease, &selection, &actual, sizeof(actual), &read_bytes) ==
-                   AMIO_ERR_FIELD_NOT_PRESENT);
+            assert(amio_stream_read(acquired_public.lease, &selection, &actual, sizeof(actual), &read_bytes) == AMIO_ERR_FIELD_NOT_PRESENT);
         }
         assert(amio_stream_release(acquired_public.lease) == AMIO_OK);
         assert(amio_stream_finish(public_context, 1) == AMIO_OK);
         size_t required_diagnostics = 0;
         assert(amio_query_diagnostics(public_context, nullptr, 0, &required_diagnostics) == AMIO_OK);
         std::vector<char> diagnostic_json(required_diagnostics);
-        assert(amio_query_diagnostics(public_context, diagnostic_json.data(), diagnostic_json.size(),
-                                      &required_diagnostics) == AMIO_OK);
+        assert(amio_query_diagnostics(public_context, diagnostic_json.data(), diagnostic_json.size(), &required_diagnostics) == AMIO_OK);
         const std::string diagnostic_text(diagnostic_json.data());
         assert(diagnostic_text.find("transport_received_bytes") != std::string::npos);
         assert(diagnostic_text.find("stream_delivered_bytes") != std::string::npos);
@@ -227,8 +237,10 @@ int main(int argc, char **argv) {
 
     amio_context_handle cancellation_context = nullptr;
     assert(amio_init_ex(&context_descriptor, &cancellation_context) == AMIO_OK);
-    if (rank < 4) assert(amio_stream_cancel(cancellation_context) == AMIO_OK);
-    else assert(amio_stream_finish(cancellation_context, 1) == AMIO_ERR_STEP_FAILED);
+    if (rank < 4)
+        assert(amio_stream_cancel(cancellation_context) == AMIO_OK);
+    else
+        assert(amio_stream_finish(cancellation_context, 1) == AMIO_ERR_STEP_FAILED);
     MPI_Barrier(MPI_COMM_WORLD);
     assert(amio_release_context(cancellation_context) == AMIO_OK);
     MPI_Finalize();

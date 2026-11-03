@@ -1,7 +1,7 @@
+#include <cassert>
+
 #include "execution/context.hpp"
 #include "execution/role_map.hpp"
-
-#include <cassert>
 
 namespace {
 
@@ -87,7 +87,7 @@ void test_role_map_assigns_only_writers_to_storage_and_maps_deterministically() 
     assert(!map.writer_for(3).has_value());
 }
 
-} // namespace
+}  // namespace
 
 int main() {
     test_valid_role_partitions();

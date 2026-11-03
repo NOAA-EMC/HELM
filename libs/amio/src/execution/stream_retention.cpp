@@ -5,9 +5,13 @@
 
 namespace amio::detail {
 
-StreamRetention::StreamRetention(StreamRetentionPolicy policy, std::uint32_t consumers,
-                                 std::size_t max_steps, std::size_t max_bytes, std::size_t max_descriptors)
-    : policy_(policy), consumer_count_(consumers), max_steps_(max_steps), max_bytes_(max_bytes), max_descriptors_(max_descriptors),
+StreamRetention::StreamRetention(StreamRetentionPolicy policy, std::uint32_t consumers, std::size_t max_steps, std::size_t max_bytes,
+                                 std::size_t max_descriptors)
+    : policy_(policy),
+      consumer_count_(consumers),
+      max_steps_(max_steps),
+      max_bytes_(max_bytes),
+      max_descriptors_(max_descriptors),
       cursors_(consumers) {}
 
 void StreamRetention::reclaim_released_front() noexcept {
@@ -22,8 +26,8 @@ void StreamRetention::reclaim_released_front() noexcept {
 
 amio_status_t StreamRetention::publish(RetainedStreamStep step) {
     std::lock_guard lock(mutex_);
-    if (closed_ || finished_ || consumer_count_ == 0 || max_steps_ == 0 || max_bytes_ == 0 || max_descriptors_ == 0 ||
-        step.schema_digest.empty() || step.payload_bytes > max_bytes_ || steps_.contains(step.step_id))
+    if (closed_ || finished_ || consumer_count_ == 0 || max_steps_ == 0 || max_bytes_ == 0 || max_descriptors_ == 0 || step.schema_digest.empty() ||
+        step.payload_bytes > max_bytes_ || steps_.contains(step.step_id))
         return step.payload_bytes > max_bytes_ ? AMIO_ERR_BUDGET_EXCEEDED : AMIO_ERR_INVALID_INPUT;
     if (final_step_id_ && step.step_id <= *final_step_id_) return AMIO_ERR_INVALID_INPUT;
     std::size_t actual_bytes = 0;
@@ -36,15 +40,11 @@ amio_status_t StreamRetention::publish(RetainedStreamStep step) {
     if (step.payload_bytes > max_bytes_) return AMIO_ERR_BUDGET_EXCEEDED;
     const auto step_descriptors = 1 + step.fields.size() + step.absent_optional_fields.size();
     if (step_descriptors > max_descriptors_) return AMIO_ERR_BUDGET_EXCEEDED;
-    while (steps_.size() >= max_steps_ || bytes_ > max_bytes_ - step.payload_bytes ||
-           descriptors_ > max_descriptors_ - step_descriptors) {
+    while (steps_.size() >= max_steps_ || bytes_ > max_bytes_ - step.payload_bytes || descriptors_ > max_descriptors_ - step_descriptors) {
         reclaim_released_front();
-        if (steps_.size() < max_steps_ && bytes_ <= max_bytes_ - step.payload_bytes &&
-            descriptors_ <= max_descriptors_ - step_descriptors) break;
+        if (steps_.size() < max_steps_ && bytes_ <= max_bytes_ - step.payload_bytes && descriptors_ <= max_descriptors_ - step_descriptors) break;
         if (policy_ != StreamRetentionPolicy::Latest || steps_.empty()) return AMIO_ERR_QUEUE_FULL;
-        const auto evictable = std::find_if(steps_.begin(), steps_.end(), [](const auto &entry) {
-            return entry.second.active_leases == 0;
-        });
+        const auto evictable = std::find_if(steps_.begin(), steps_.end(), [](const auto &entry) { return entry.second.active_leases == 0; });
         if (evictable == steps_.end()) return AMIO_ERR_QUEUE_FULL;
         bytes_ -= evictable->second.step->payload_bytes;
         descriptors_ -= 1 + evictable->second.step->fields.size() + evictable->second.step->absent_optional_fields.size();
@@ -62,19 +62,15 @@ amio_status_t StreamRetention::publish(RetainedStreamStep step) {
     return AMIO_OK;
 }
 
-amio_status_t StreamRetention::append_field(std::uint64_t step_id, std::string field, std::string schema_digest,
-                                             std::vector<std::byte> bytes,
-                                             std::vector<std::uint64_t> shape,
-                                             std::vector<std::uint64_t> origin) {
+amio_status_t StreamRetention::append_field(std::uint64_t step_id, std::string field, std::string schema_digest, std::vector<std::byte> bytes,
+                                            std::vector<std::uint64_t> shape, std::vector<std::uint64_t> origin) {
     std::lock_guard lock(mutex_);
     if (closed_ || finished_) return AMIO_ERR_INVALID_POLICY;
     const auto found = steps_.find(step_id);
     if (found == steps_.end() || found->second.active_leases != 0) return AMIO_ERR_INVALID_HANDLE;
     if (found->second.step->schema_digest != schema_digest) return AMIO_ERR_SCHEMA_MISMATCH;
-    if (found->second.step->fields.contains(field) || shape.empty() || shape.size() != origin.size())
-        return AMIO_ERR_INVALID_INPUT;
-    if (bytes.size() > max_bytes_ - std::min(bytes_, max_bytes_) || descriptors_ >= max_descriptors_)
-        return AMIO_ERR_QUEUE_FULL;
+    if (found->second.step->fields.contains(field) || shape.empty() || shape.size() != origin.size()) return AMIO_ERR_INVALID_INPUT;
+    if (bytes.size() > max_bytes_ - std::min(bytes_, max_bytes_) || descriptors_ >= max_descriptors_) return AMIO_ERR_QUEUE_FULL;
     auto updated = std::make_shared<RetainedStreamStep>(*found->second.step);
     updated->payload_bytes += bytes.size();
     updated->fields.emplace(field, std::move(bytes));
@@ -96,8 +92,7 @@ StreamAcquireResult StreamRetention::acquire_next(std::uint32_t consumer, std::c
         if (begin != steps_.end()) {
             const auto next_id = begin->first;
             std::optional<StreamSkipRange> skipped;
-            if (cursors_[consumer] && *cursors_[consumer] != std::numeric_limits<std::uint64_t>::max() &&
-                next_id > *cursors_[consumer] + 1) {
+            if (cursors_[consumer] && *cursors_[consumer] != std::numeric_limits<std::uint64_t>::max() && next_id > *cursors_[consumer] + 1) {
                 skipped = StreamSkipRange{*cursors_[consumer] + 1, next_id - 1};
             } else if (!cursors_[consumer] && first_step_id_ && next_id > *first_step_id_) {
                 skipped = StreamSkipRange{*first_step_id_, next_id - 1};
@@ -125,8 +120,7 @@ StreamAcquireResult StreamRetention::acquire_next(std::uint32_t consumer, std::c
             if (terminal_status_ != AMIO_OK) return {StreamAcquireState::Failed, {}, {}, terminal_status_};
             return {StreamAcquireState::EndOfStream, {}, {}, AMIO_ERR_STREAM_END};
         }
-        if (changed_.wait_until(lock, deadline) == std::cv_status::timeout)
-            return {StreamAcquireState::Timeout, {}, {}, AMIO_ERR_TIMEOUT};
+        if (changed_.wait_until(lock, deadline) == std::cv_status::timeout) return {StreamAcquireState::Timeout, {}, {}, AMIO_ERR_TIMEOUT};
     }
 }
 
@@ -188,4 +182,4 @@ StreamRetention::Snapshot StreamRetention::snapshot() const noexcept {
     return {bytes_, steps_.size(), leases_.size(), descriptors_, skipped_steps_};
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

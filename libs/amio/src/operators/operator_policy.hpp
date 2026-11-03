@@ -29,11 +29,9 @@ struct CompiledFieldPipeline {
     std::string identity;
 };
 
-[[nodiscard]] amio_status_t compile_field_pipeline(const FieldOperatorRequest &request,
-                                                    CompiledFieldPipeline &out,
-                                                    std::string *reason = nullptr);
+[[nodiscard]] amio_status_t compile_field_pipeline(const FieldOperatorRequest &request, CompiledFieldPipeline &out, std::string *reason = nullptr);
 [[nodiscard]] bool native_codec_supported(OperatorDestination destination, NativeCodec codec) noexcept;
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

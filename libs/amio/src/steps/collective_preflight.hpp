@@ -1,13 +1,13 @@
 #ifndef AMIO_SRC_STEPS_COLLECTIVE_PREFLIGHT_HPP
 #define AMIO_SRC_STEPS_COLLECTIVE_PREFLIGHT_HPP
 
-#include "amio/amio_errors.h"
-
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "amio/amio_errors.h"
 
 #ifdef AMIO_HAS_MPI
 #include <mpi.h>
@@ -55,6 +55,6 @@ class CollectivePreflight {
 #endif
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
-#endif // AMIO_SRC_STEPS_COLLECTIVE_PREFLIGHT_HPP
+#endif  // AMIO_SRC_STEPS_COLLECTIVE_PREFLIGHT_HPP

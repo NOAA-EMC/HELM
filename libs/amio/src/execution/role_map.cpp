@@ -17,8 +17,7 @@ amio_status_t RoleMap::create(const RoleConfiguration &configuration, RoleMap &o
         candidate.writers_ = configuration.writers;
         if (candidate.mode_ == ExecutionMode::Direct && candidate.producers_.empty()) {
             candidate.producers_.reserve(candidate.rank_count_);
-            for (std::uint32_t rank = 0; rank < candidate.rank_count_; ++rank)
-                candidate.producers_.push_back(static_cast<int>(rank));
+            for (std::uint32_t rank = 0; rank < candidate.rank_count_; ++rank) candidate.producers_.push_back(static_cast<int>(rank));
             candidate.writers_ = candidate.producers_;
         }
         if (candidate.mode_ == ExecutionMode::Direct) candidate.writers_ = candidate.producers_;
@@ -68,4 +67,4 @@ std::optional<std::uint32_t> RoleMap::writer_for(std::uint32_t producer_rank) co
     return static_cast<std::uint32_t>(writer_by_rank_[producer_rank]);
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

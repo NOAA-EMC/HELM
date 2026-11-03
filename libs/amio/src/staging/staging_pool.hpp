@@ -217,7 +217,9 @@ class StagingPool {
     std::size_t committed_bytes() const noexcept;
 
     /** Return the hard ceiling for all retained staging capacities, including free buffers. */
-    std::size_t max_retained_bytes() const noexcept { return max_retained_bytes_; }
+    std::size_t max_retained_bytes() const noexcept {
+        return max_retained_bytes_;
+    }
 
     // allocated_buffer_count -- number of buffers whose storage has been
     // committed (data != nullptr).  Diagnostics / tests only.

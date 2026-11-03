@@ -112,7 +112,7 @@ jobs:
             rm -rf /tmp/amio_consumer && mkdir -p /tmp/amio_consumer
             cat > /tmp/amio_consumer/CMakeLists.txt <<EOF
           cmake_minimum_required(VERSION 3.21)
-project(amio_consumer LANGUAGES C CXX)
+          project(amio_consumer LANGUAGES C CXX)
           find_package(AMIO REQUIRED)
           add_executable(consumer main.c)
           target_link_libraries(consumer PRIVATE AMIO::public_headers)

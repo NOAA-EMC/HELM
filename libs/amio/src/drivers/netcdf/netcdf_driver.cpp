@@ -31,8 +31,8 @@ extern MPI_Comm g_amio_parent_comm;
 #endif
 
 #include <algorithm>
-#include <cmath>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <mutex>
@@ -951,7 +951,9 @@ void NetCDF_Driver::write_step_region_independent(const std::string &variable, c
     std::string error;
     if (!write_netcdf_step_region(ncid_, variable, region, data, error, true)) throw std::runtime_error(error);
 #else
-    (void)variable; (void)region; (void)data;
+    (void)variable;
+    (void)region;
+    (void)data;
     throw std::runtime_error("NetCDF_Driver::write_step_region_independent: AMIO built without netCDF support");
 #endif
 }
@@ -971,8 +973,7 @@ void NetCDF_Driver::close_step_write() {
 #endif
 }
 
-void NetCDF_Driver::read_step_region(const std::string &path, const std::string &variable,
-                                     const RegionSelection &region, void *data) {
+void NetCDF_Driver::read_step_region(const std::string &path, const std::string &variable, const RegionSelection &region, void *data) {
 #ifdef AMIO_HAS_NETCDF
     std::string error;
     if (!read_netcdf_step_region(path, variable, region, data, error)) throw std::runtime_error(error);
@@ -987,25 +988,26 @@ void NetCDF_Driver::read_step_region(const std::string &path, const std::string 
 
 bool NetCDF_Driver::read_step_model_time(const std::string &path, double &model_time) noexcept {
 #ifdef AMIO_HAS_NETCDF
-    int ncid=-1;
-    if(nc_open(path.c_str(),NC_NOWRITE,&ncid)!=NC_NOERR)return false;
-    double value=0.0;
-    const int read_status=nc_get_att_double(ncid,NC_GLOBAL,"amio_model_time",&value);
-    const int close_status=nc_close(ncid);
-    if(read_status!=NC_NOERR||close_status!=NC_NOERR||!std::isfinite(value))return false;
-    model_time=value;return true;
+    int ncid = -1;
+    if (nc_open(path.c_str(), NC_NOWRITE, &ncid) != NC_NOERR) return false;
+    double value = 0.0;
+    const int read_status = nc_get_att_double(ncid, NC_GLOBAL, "amio_model_time", &value);
+    const int close_status = nc_close(ncid);
+    if (read_status != NC_NOERR || close_status != NC_NOERR || !std::isfinite(value)) return false;
+    model_time = value;
+    return true;
 #else
-    (void)path;(void)model_time;return false;
+    (void)path;
+    (void)model_time;
+    return false;
 #endif
 }
 
 void write_netcdf_step_payload(const std::string &path, const Schema &schema, double model_time,
-                               const std::map<std::string, NetCDFStepFieldView, std::less<>> &fields,
-                               std::int64_t fortran_communicator) {
+                               const std::map<std::string, NetCDFStepFieldView, std::less<>> &fields, std::int64_t fortran_communicator) {
     NetCDF_Driver driver;
 #if defined(AMIO_HAS_MPI) && defined(AMIO_HAS_NETCDF)
-    if (fortran_communicator < std::numeric_limits<MPI_Fint>::min() ||
-        fortran_communicator > std::numeric_limits<MPI_Fint>::max())
+    if (fortran_communicator < std::numeric_limits<MPI_Fint>::min() || fortran_communicator > std::numeric_limits<MPI_Fint>::max())
         throw std::runtime_error("NetCDF step communicator handle is out of range");
     // MPI_COMM_WORLD is commonly represented by Fortran handle zero. Do not
     // use zero as an absence sentinel in MPI-enabled builds: callers pass a
@@ -1034,12 +1036,14 @@ void write_netcdf_step_payload(const std::string &path, const Schema &schema, do
         }
         for (const auto &[name, field] : fields) {
             (void)field;
-            if (!schema.variables().contains(name))
-                throw std::runtime_error("NetCDF step contribution is absent from the sealed schema: " + name);
+            if (!schema.variables().contains(name)) throw std::runtime_error("NetCDF step contribution is absent from the sealed schema: " + name);
         }
         driver.close_step_write();
     } catch (...) {
-        try { driver.close_step_write(); } catch (...) {}
+        try {
+            driver.close_step_write();
+        } catch (...) {
+        }
         throw;
     }
 }

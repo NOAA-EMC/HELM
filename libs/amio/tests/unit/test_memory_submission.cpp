@@ -1,8 +1,8 @@
-#include "memory/memory_descriptor.hpp"
-
-#include <cassert>
 #include <array>
+#include <cassert>
 #include <cstdint>
+
+#include "memory/memory_descriptor.hpp"
 #ifdef AMIO_TEST_HAS_KOKKOS_RUNTIME
 #include <Kokkos_Core.hpp>
 #endif

@@ -1,12 +1,12 @@
 #ifndef AMIO_SRC_MEMORY_MEMORY_DESCRIPTOR_HPP
 #define AMIO_SRC_MEMORY_MEMORY_DESCRIPTOR_HPP
 
-#include "amio/amio_errors.h"
-#include "amio/amio_evolution.h"
-
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+
+#include "amio/amio_errors.h"
+#include "amio/amio_evolution.h"
 
 namespace amio::detail {
 
@@ -24,12 +24,10 @@ struct MemoryDescriptor {
     std::uint64_t element_bytes = 0;
 };
 
-[[nodiscard]] amio_status_t validate_memory_descriptor(const MemoryDescriptor &descriptor,
-                                                        std::size_t data_bytes) noexcept;
-[[nodiscard]] amio_status_t snapshot_memory_buffer(const MemoryDescriptor &descriptor, const void *source,
-                                                   std::size_t data_bytes, std::vector<std::byte> &snapshot,
-                                                   bool &used_fallback);
+[[nodiscard]] amio_status_t validate_memory_descriptor(const MemoryDescriptor &descriptor, std::size_t data_bytes) noexcept;
+[[nodiscard]] amio_status_t snapshot_memory_buffer(const MemoryDescriptor &descriptor, const void *source, std::size_t data_bytes,
+                                                   std::vector<std::byte> &snapshot, bool &used_fallback);
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

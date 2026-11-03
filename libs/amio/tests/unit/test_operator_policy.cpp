@@ -1,6 +1,6 @@
-#include "operators/operator_policy.hpp"
-
 #include <cassert>
+
+#include "operators/operator_policy.hpp"
 
 using namespace amio::detail;
 

@@ -15,17 +15,19 @@ bool checked_product(const std::vector<std::uint64_t> &values, std::uint64_t &pr
     return true;
 }
 
-PartitionResult invalid(amio_status_t status) noexcept { return {status, false, false, 0}; }
+PartitionResult invalid(amio_status_t status) noexcept {
+    return {status, false, false, 0};
+}
 
-} // namespace
+}  // namespace
 
-PartitionResult PartitionValidator::validate(const std::vector<std::uint64_t> &global_extents,
-                                             const std::vector<PartitionBox> &boxes, bool strict,
+PartitionResult PartitionValidator::validate(const std::vector<std::uint64_t> &global_extents, const std::vector<PartitionBox> &boxes, bool strict,
                                              std::size_t work_limit, std::size_t descriptor_limit) {
     if (global_extents.empty() || global_extents.size() > 7 || descriptor_limit == 0 || (strict && work_limit == 0)) {
         return invalid(AMIO_ERR_INVALID_INPUT);
     }
-    for (const auto extent : global_extents) if (extent == 0) return invalid(AMIO_ERR_INVALID_INPUT);
+    for (const auto extent : global_extents)
+        if (extent == 0) return invalid(AMIO_ERR_INVALID_INPUT);
     if (boxes.size() > descriptor_limit) return invalid(AMIO_ERR_BUDGET_EXCEEDED);
 
     for (const auto &box : boxes) {
@@ -47,7 +49,8 @@ PartitionResult PartitionValidator::validate(const std::vector<std::uint64_t> &g
     std::size_t comparisons = 0;
     std::vector<const PartitionBox *> nonempty;
     nonempty.reserve(boxes.size());
-    for (const auto &box : boxes) if (!box.empty) nonempty.push_back(&box);
+    for (const auto &box : boxes)
+        if (!box.empty) nonempty.push_back(&box);
     for (std::size_t left = 0; left < nonempty.size(); ++left) {
         for (std::size_t right = left + 1; right < nonempty.size(); ++right) {
             if (comparisons == work_limit) return invalid(AMIO_ERR_BUDGET_EXCEEDED);
@@ -81,9 +84,8 @@ PartitionResult PartitionValidator::validate(const std::vector<std::uint64_t> &g
 
 #ifdef AMIO_HAS_MPI
 PartitionResult PartitionValidator::validate_distributed(MPI_Comm communicator, const std::vector<std::uint64_t> &global_extents,
-                                                          const std::vector<PartitionBox> &local_boxes, bool strict,
-                                                          std::size_t work_limit, std::size_t descriptor_limit,
-                                                          std::size_t metadata_byte_limit) {
+                                                         const std::vector<PartitionBox> &local_boxes, bool strict, std::size_t work_limit,
+                                                         std::size_t descriptor_limit, std::size_t metadata_byte_limit) {
     int rank = 0;
     int size = 0;
     if (MPI_Comm_rank(communicator, &rank) != MPI_SUCCESS || MPI_Comm_size(communicator, &size) != MPI_SUCCESS || size <= 0) {
@@ -91,7 +93,8 @@ PartitionResult PartitionValidator::validate_distributed(MPI_Comm communicator, 
     }
     int local_status = AMIO_OK;
     if (global_extents.empty() || global_extents.size() > 7 || local_boxes.size() > descriptor_limit || descriptor_limit == 0 ||
-        metadata_byte_limit == 0 || (strict && work_limit == 0)) local_status = AMIO_ERR_INVALID_INPUT;
+        metadata_byte_limit == 0 || (strict && work_limit == 0))
+        local_status = AMIO_ERR_INVALID_INPUT;
     if (global_extents.size() > 7) local_status = AMIO_ERR_INVALID_INPUT;
     for (const auto &box : local_boxes) {
         if (box.producer_rank != rank) local_status = AMIO_ERR_PARTITION_INVALID;
@@ -138,17 +141,20 @@ PartitionResult PartitionValidator::validate_distributed(MPI_Comm communicator, 
     std::size_t total_words = 0;
     for (int member = 0; member < size; ++member) {
         if (word_counts[member] < 0 || static_cast<std::size_t>(word_counts[member]) % words_per_box != 0 ||
-            total_words > static_cast<std::size_t>(std::numeric_limits<int>::max())) return invalid(AMIO_ERR_INVALID_INPUT);
+            total_words > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+            return invalid(AMIO_ERR_INVALID_INPUT);
         displacements[member] = static_cast<int>(total_words);
         total_words += static_cast<std::size_t>(word_counts[member]);
     }
     const auto global_descriptors = total_words / words_per_box;
     if (global_descriptors > common_limits[1] || total_words > common_limits[2] / sizeof(unsigned long long) ||
-        total_words > static_cast<std::size_t>(std::numeric_limits<int>::max())) return invalid(AMIO_ERR_BUDGET_EXCEEDED);
+        total_words > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        return invalid(AMIO_ERR_BUDGET_EXCEEDED);
 
     std::vector<unsigned long long> gathered(total_words);
     if (MPI_Allgatherv(local_data.data(), local_word_count, MPI_UNSIGNED_LONG_LONG, gathered.data(), word_counts.data(), displacements.data(),
-                       MPI_UNSIGNED_LONG_LONG, communicator) != MPI_SUCCESS) return invalid(AMIO_ERR_COMM_SPLIT_FAILED);
+                       MPI_UNSIGNED_LONG_LONG, communicator) != MPI_SUCCESS)
+        return invalid(AMIO_ERR_COMM_SPLIT_FAILED);
 
     std::vector<std::uint64_t> shape(min_shape.begin(), min_shape.end());
     std::vector<PartitionBox> boxes;
@@ -175,4 +181,4 @@ PartitionResult PartitionValidator::validate_distributed(MPI_Comm communicator, 
 }
 #endif
 
-} // namespace amio::detail
+}  // namespace amio::detail

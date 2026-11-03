@@ -1,8 +1,6 @@
 #ifndef AMIO_SRC_EXECUTION_STREAM_RETENTION_HPP
 #define AMIO_SRC_EXECUTION_STREAM_RETENTION_HPP
 
-#include "amio/amio_errors.h"
-
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -14,6 +12,8 @@
 #include <set>
 #include <string>
 #include <vector>
+
+#include "amio/amio_errors.h"
 
 namespace amio::detail {
 
@@ -51,19 +51,22 @@ struct StreamAcquireResult {
 
 /** Finite step retention with per-consumer leases and cursor-derived skip ranges. */
 class StreamRetention {
-public:
-    struct Snapshot { std::size_t bytes = 0; std::size_t steps = 0; std::size_t leases = 0; std::size_t descriptors = 0; std::uint64_t skipped_steps = 0; };
-    StreamRetention(StreamRetentionPolicy policy, std::uint32_t consumers,
-                    std::size_t max_steps, std::size_t max_bytes, std::size_t max_descriptors = 4096);
+   public:
+    struct Snapshot {
+        std::size_t bytes = 0;
+        std::size_t steps = 0;
+        std::size_t leases = 0;
+        std::size_t descriptors = 0;
+        std::uint64_t skipped_steps = 0;
+    };
+    StreamRetention(StreamRetentionPolicy policy, std::uint32_t consumers, std::size_t max_steps, std::size_t max_bytes,
+                    std::size_t max_descriptors = 4096);
 
     /** Publish an immutable completed step. Queue/budget exhaustion is explicit. */
     [[nodiscard]] amio_status_t publish(RetainedStreamStep step);
     /** Append one non-overlapping field contribution to an unpublished step. */
-    [[nodiscard]] amio_status_t append_field(std::uint64_t step_id, std::string field,
-                                              std::string schema_digest,
-                                              std::vector<std::byte> bytes,
-                                              std::vector<std::uint64_t> shape,
-                                              std::vector<std::uint64_t> origin);
+    [[nodiscard]] amio_status_t append_field(std::uint64_t step_id, std::string field, std::string schema_digest, std::vector<std::byte> bytes,
+                                             std::vector<std::uint64_t> shape, std::vector<std::uint64_t> origin);
     /** Return the next available step, a cursor gap, timeout, EOS, or failure. */
     [[nodiscard]] StreamAcquireResult acquire_next(std::uint32_t consumer, std::chrono::milliseconds timeout);
     /** Release this consumer's lease; bytes remain pinned until all consumers release. */
@@ -76,15 +79,20 @@ public:
     /** Close refuses to discard live views. */
     [[nodiscard]] amio_status_t close(bool drain = false) noexcept;
     [[nodiscard]] Snapshot snapshot() const noexcept;
-    [[nodiscard]] StreamRetentionPolicy policy() const noexcept { return policy_; }
+    [[nodiscard]] StreamRetentionPolicy policy() const noexcept {
+        return policy_;
+    }
 
-private:
+   private:
     struct Entry {
         std::shared_ptr<const RetainedStreamStep> step;
         std::vector<bool> released;
         std::size_t active_leases = 0;
     };
-    struct LeaseRecord { std::uint64_t step_id; std::uint32_t consumer; };
+    struct LeaseRecord {
+        std::uint64_t step_id;
+        std::uint32_t consumer;
+    };
     void reclaim_released_front() noexcept;
 
     const StreamRetentionPolicy policy_;
@@ -108,6 +116,6 @@ private:
     bool closed_ = false;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

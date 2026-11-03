@@ -1,14 +1,14 @@
-#include "execution/context.hpp"
-#include "steps/collective_preflight.hpp"
-#include "schema/partition_validator.hpp"
-#include "staging/resource_budget.hpp"
-
 #include <mpi.h>
 
 #include <cassert>
 #include <cstdint>
 #include <iostream>
 #include <vector>
+
+#include "execution/context.hpp"
+#include "schema/partition_validator.hpp"
+#include "staging/resource_budget.hpp"
+#include "steps/collective_preflight.hpp"
 
 using namespace amio::detail;
 
@@ -49,9 +49,12 @@ int main(int argc, char **argv) {
     preflight.schema_digest = "schema-v1";
     preflight.schema_variables = {"temperature"};
     preflight.required_variables = {"temperature"};
-    if (rank == 0) preflight.contributions.push_back({"temperature", {4, 4}, {0, 0}, {2, 4}, false});
-    else if (rank == 1) preflight.contributions.push_back({"temperature", {4, 4}, {2, 0}, {2, 4}, false});
-    else preflight.contributions.push_back({"temperature", {4, 4}, {0, 0}, {0, 0}, true});
+    if (rank == 0)
+        preflight.contributions.push_back({"temperature", {4, 4}, {0, 0}, {2, 4}, false});
+    else if (rank == 1)
+        preflight.contributions.push_back({"temperature", {4, 4}, {2, 0}, {2, 4}, false});
+    else
+        preflight.contributions.push_back({"temperature", {4, 4}, {0, 0}, {0, 0}, true});
     auto rounds = CollectivePreflight::run(MPI_COMM_WORLD, preflight);
     assert(rounds.status == AMIO_OK && rounds.rounds.size() == 1);
     assert(rounds.rounds[0].participants.size() == static_cast<std::size_t>(size));
@@ -77,9 +80,12 @@ int main(int argc, char **argv) {
 
     PartitionValidator validator;
     std::vector<PartitionBox> boxes;
-    if (rank == 0) boxes.push_back({0, {0, 0}, {2, 4}, false});
-    else if (rank == 1) boxes.push_back({1, {2, 0}, {2, 4}, false});
-    else boxes.push_back({rank, {0, 0}, {0, 0}, true});
+    if (rank == 0)
+        boxes.push_back({0, {0, 0}, {2, 4}, false});
+    else if (rank == 1)
+        boxes.push_back({1, {2, 0}, {2, 4}, false});
+    else
+        boxes.push_back({rank, {0, 0}, {0, 0}, true});
     auto partition = validator.validate_distributed(MPI_COMM_WORLD, {4, 4}, boxes, true, 128, 32, 4096);
     assert(partition.status == AMIO_OK && partition.complete);
     if (rank == 1) boxes[0].offsets[0] = 1;
@@ -92,8 +98,10 @@ int main(int argc, char **argv) {
     if (rank == 0) {
         boxes.push_back({0, {0, 0}, {1, 4}, false});
         boxes.push_back({0, {1, 0}, {1, 4}, false});
-    } else if (rank == 1) boxes.push_back({1, {2, 0}, {2, 4}, false});
-    else boxes.push_back({rank, {0, 0}, {0, 0}, true});
+    } else if (rank == 1)
+        boxes.push_back({1, {2, 0}, {2, 4}, false});
+    else
+        boxes.push_back({rank, {0, 0}, {0, 0}, true});
     partition = validator.validate_distributed(MPI_COMM_WORLD, {4, 4}, boxes, true, 1, 32, 4096);
     assert(partition.status == AMIO_ERR_BUDGET_EXCEEDED);
 

@@ -1,13 +1,13 @@
 #ifndef AMIO_SRC_CATALOG_CATALOG_FORMAT_HPP
 #define AMIO_SRC_CATALOG_CATALOG_FORMAT_HPP
 
-#include "amio/amio_errors.h"
-
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include "amio/amio_errors.h"
 
 namespace amio::detail {
 
@@ -65,21 +65,19 @@ struct CompletionRecord {
     std::string achieved_guarantee = "visibility";
     std::string previous_commit;
 
-    [[nodiscard]] bool empty() const noexcept { return dataset_uuid.empty(); }
+    [[nodiscard]] bool empty() const noexcept {
+        return dataset_uuid.empty();
+    }
 };
 
 [[nodiscard]] std::string encode_field_path(std::string_view field);
 [[nodiscard]] bool decode_field_path(std::string_view component, std::string &field, std::size_t max_bytes = 1024 * 1024);
 [[nodiscard]] std::string encode_typed_double(double value);
-[[nodiscard]] amio_status_t encode_schema_document(const SchemaDocument &schema, std::string &json,
-                                                   const CatalogLimits &limits = {});
-[[nodiscard]] amio_status_t parse_schema_document(std::string_view json, SchemaDocument &schema,
-                                                  const CatalogLimits &limits = {});
-[[nodiscard]] amio_status_t encode_commit_document(const CompletionRecord &record, std::string &json,
-                                                   const CatalogLimits &limits = {});
-[[nodiscard]] amio_status_t parse_commit_document(std::string_view json, CompletionRecord &record,
-                                                  const CatalogLimits &limits = {});
+[[nodiscard]] amio_status_t encode_schema_document(const SchemaDocument &schema, std::string &json, const CatalogLimits &limits = {});
+[[nodiscard]] amio_status_t parse_schema_document(std::string_view json, SchemaDocument &schema, const CatalogLimits &limits = {});
+[[nodiscard]] amio_status_t encode_commit_document(const CompletionRecord &record, std::string &json, const CatalogLimits &limits = {});
+[[nodiscard]] amio_status_t parse_commit_document(std::string_view json, CompletionRecord &record, const CatalogLimits &limits = {});
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
-#endif // AMIO_SRC_CATALOG_CATALOG_FORMAT_HPP
+#endif  // AMIO_SRC_CATALOG_CATALOG_FORMAT_HPP

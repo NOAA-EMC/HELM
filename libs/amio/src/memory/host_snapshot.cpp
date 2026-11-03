@@ -19,4 +19,4 @@ HostSnapshotResult snapshot_host_buffer(const void *source, std::size_t bytes) {
     }
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

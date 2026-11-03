@@ -21,7 +21,8 @@ bool validate_local(const PreflightRequest &request) {
         request.descriptor_limit == 0 || request.metadata_byte_limit == 0 || request.contributions.size() > request.descriptor_limit ||
         request.schema_variables.size() > std::numeric_limits<std::uint32_t>::max() ||
         request.required_variables.size() > std::numeric_limits<std::uint32_t>::max() ||
-        request.contributions.size() > std::numeric_limits<std::uint32_t>::max()) return false;
+        request.contributions.size() > std::numeric_limits<std::uint32_t>::max())
+        return false;
     std::set<std::string> variables;
     for (const auto &name : request.schema_variables) {
         if (name.empty() || !variables.insert(name).second) return false;
@@ -33,7 +34,8 @@ bool validate_local(const PreflightRequest &request) {
     for (const auto &contribution : request.contributions) {
         if (variables.find(contribution.variable) == variables.end() || contribution.global_extents.empty() ||
             contribution.global_extents.size() > 7 || contribution.offsets.size() != contribution.global_extents.size() ||
-            contribution.extents.size() != contribution.global_extents.size()) return false;
+            contribution.extents.size() != contribution.global_extents.size())
+            return false;
         bool has_zero = false;
         for (std::size_t dimension = 0; dimension < contribution.global_extents.size(); ++dimension) {
             const auto global = contribution.global_extents[dimension];
@@ -101,7 +103,9 @@ class Reader {
         cursor_ += size;
         return true;
     }
-    bool done() const noexcept { return cursor_ == bytes_.size(); }
+    bool done() const noexcept {
+        return cursor_ == bytes_.size();
+    }
 
    private:
     const std::vector<std::uint8_t> &bytes_;
@@ -113,10 +117,12 @@ bool deserialize(const std::vector<std::uint8_t> &bytes, RankMetadata &out) {
     std::uint32_t count = 0;
     if (!reader.string(out.digest) || !reader.u32(count) || count > 100000) return false;
     out.variables.resize(count);
-    for (auto &name : out.variables) if (!reader.string(name)) return false;
+    for (auto &name : out.variables)
+        if (!reader.string(name)) return false;
     if (!reader.u32(count) || count > out.variables.size()) return false;
     out.required.resize(count);
-    for (auto &name : out.required) if (!reader.string(name)) return false;
+    for (auto &name : out.required)
+        if (!reader.string(name)) return false;
     if (!reader.u32(count) || count > 100000) return false;
     out.contributions.resize(count);
     for (auto &contribution : out.contributions) {
@@ -127,9 +133,12 @@ bool deserialize(const std::vector<std::uint8_t> &bytes, RankMetadata &out) {
         contribution.global_extents.resize(rank);
         contribution.offsets.resize(rank);
         contribution.extents.resize(rank);
-        for (auto &value : contribution.global_extents) if (!reader.u64(value)) return false;
-        for (auto &value : contribution.offsets) if (!reader.u64(value)) return false;
-        for (auto &value : contribution.extents) if (!reader.u64(value)) return false;
+        for (auto &value : contribution.global_extents)
+            if (!reader.u64(value)) return false;
+        for (auto &value : contribution.offsets)
+            if (!reader.u64(value)) return false;
+        for (auto &value : contribution.extents)
+            if (!reader.u64(value)) return false;
     }
     return reader.done();
 }
@@ -204,7 +213,7 @@ PreflightResult build_rounds(const std::vector<RankMetadata> &ranks, int local_r
     return result;
 }
 
-} // namespace
+}  // namespace
 
 #ifdef AMIO_HAS_MPI
 PreflightResult CollectivePreflight::run(MPI_Comm communicator, const PreflightRequest &request) {
@@ -292,4 +301,4 @@ PreflightResult CollectivePreflight::run(int communicator, const PreflightReques
 }
 #endif
 
-} // namespace amio::detail
+}  // namespace amio::detail

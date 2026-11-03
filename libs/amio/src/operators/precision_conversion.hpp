@@ -24,10 +24,9 @@ struct PrecisionConversionResult {
     double maximum_absolute_error = 0.0;
 };
 
-[[nodiscard]] amio_status_t convert_f64_to_f32(std::span<const double> input,
-                                               const PrecisionConversionPolicy &policy,
+[[nodiscard]] amio_status_t convert_f64_to_f32(std::span<const double> input, const PrecisionConversionPolicy &policy,
                                                PrecisionConversionResult &result);
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

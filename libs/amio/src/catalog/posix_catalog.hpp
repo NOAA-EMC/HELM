@@ -1,13 +1,13 @@
 #ifndef AMIO_SRC_CATALOG_POSIX_CATALOG_HPP
 #define AMIO_SRC_CATALOG_POSIX_CATALOG_HPP
 
-#include "catalog/catalog_format.hpp"
-
 #include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
+
+#include "catalog/catalog_format.hpp"
 
 namespace amio::detail {
 
@@ -22,8 +22,7 @@ struct PublicationResult {
 
 class PosixCatalog {
    public:
-    PosixCatalog(std::filesystem::path root, std::string dataset_uuid, std::string owner_token,
-                 CatalogLimits limits = {});
+    PosixCatalog(std::filesystem::path root, std::string dataset_uuid, std::string owner_token, CatalogLimits limits = {});
     ~PosixCatalog();
     PosixCatalog(const PosixCatalog &) = delete;
     PosixCatalog &operator=(const PosixCatalog &) = delete;
@@ -42,6 +41,6 @@ class PosixCatalog {
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
-#endif // AMIO_SRC_CATALOG_POSIX_CATALOG_HPP
+#endif  // AMIO_SRC_CATALOG_POSIX_CATALOG_HPP

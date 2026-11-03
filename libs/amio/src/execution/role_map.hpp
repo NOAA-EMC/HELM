@@ -1,11 +1,11 @@
 #ifndef AMIO_SRC_EXECUTION_ROLE_MAP_HPP
 #define AMIO_SRC_EXECUTION_ROLE_MAP_HPP
 
-#include "execution/context.hpp"
-
 #include <cstdint>
 #include <optional>
 #include <vector>
+
+#include "execution/context.hpp"
 
 namespace amio::detail {
 
@@ -14,7 +14,7 @@ enum class RankRole : std::uint8_t { Inactive, Producer, Writer, Consumer };
 
 /** Immutable, deterministic mapping for a statically configured MPI context. */
 class RoleMap {
-public:
+   public:
     /** Validate and build a deterministic mapping, leaving p out unchanged on failure. */
     [[nodiscard]] static amio_status_t create(const RoleConfiguration &configuration, RoleMap &out);
     /** Return the configured role for this rank, or Inactive when it is out of range. */
@@ -26,10 +26,15 @@ public:
     /** Return the statically assigned writer rank for a producer, if configured. */
     [[nodiscard]] std::optional<std::uint32_t> writer_for(std::uint32_t producer_rank) const noexcept;
     /** Return producer ranks in the ordering used for deterministic assignment. */
-    [[nodiscard]] const std::vector<int> &producers() const noexcept { return producers_; }
+    [[nodiscard]] const std::vector<int> &producers() const noexcept {
+        return producers_;
+    }
     /** Return writer ranks in the ordering used for deterministic assignment. */
-    [[nodiscard]] const std::vector<int> &writers() const noexcept { return writers_; }
-private:
+    [[nodiscard]] const std::vector<int> &writers() const noexcept {
+        return writers_;
+    }
+
+   private:
     std::uint32_t rank_count_ = 0;
     ExecutionMode mode_ = ExecutionMode::Direct;
     std::vector<int> producers_;
@@ -39,6 +44,6 @@ private:
     std::vector<int> writer_by_rank_;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

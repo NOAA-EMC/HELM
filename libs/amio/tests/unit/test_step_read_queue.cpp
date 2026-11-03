@@ -1,9 +1,9 @@
-#include "prefetch/step_read_queue.hpp"
-
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <vector>
+
+#include "prefetch/step_read_queue.hpp"
 
 using namespace amio::detail;
 

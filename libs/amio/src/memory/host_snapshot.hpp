@@ -1,10 +1,10 @@
 #ifndef AMIO_SRC_MEMORY_HOST_SNAPSHOT_HPP
 #define AMIO_SRC_MEMORY_HOST_SNAPSHOT_HPP
 
-#include "amio/amio_errors.h"
-
 #include <cstddef>
 #include <vector>
+
+#include "amio/amio_errors.h"
 
 namespace amio::detail {
 
@@ -17,6 +17,6 @@ struct HostSnapshotResult {
 /** Copy a validated host buffer into AMIO-owned storage before admission returns. */
 [[nodiscard]] HostSnapshotResult snapshot_host_buffer(const void *source, std::size_t bytes);
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
-#endif // AMIO_SRC_MEMORY_HOST_SNAPSHOT_HPP
+#endif  // AMIO_SRC_MEMORY_HOST_SNAPSHOT_HPP

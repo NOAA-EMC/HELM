@@ -38,23 +38,20 @@ if(TARGET MPI::MPI_C)
     add_executable(example_stream_c c/example_stream.c)
     target_link_libraries(example_stream_c PRIVATE AMIO::amio_core MPI::MPI_C)
     if(AMIO_BUILD_TESTING AND MPIEXEC_EXECUTABLE)
-        add_test(NAME example.stream_c
-            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 6 ${MPIEXEC_PREFLAGS}
-                    $<TARGET_FILE:example_stream_c> ${MPIEXEC_POSTFLAGS})
-        set_tests_properties(example.stream_c PROPERTIES
-            LABELS "examples;amio_stream" TIMEOUT 60
-            ENVIRONMENT "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
+        add_test(NAME example.stream_c COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 6 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:example_stream_c>
+                                               ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(
+            example.stream_c PROPERTIES LABELS "examples;amio_stream" TIMEOUT 60 ENVIRONMENT
+                                        "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
     endif()
 
     add_executable(example_aggregated_steps_c c/example_aggregated_steps.c)
     target_link_libraries(example_aggregated_steps_c PRIVATE AMIO::amio_core MPI::MPI_C)
     if(AMIO_BUILD_TESTING AND MPIEXEC_EXECUTABLE)
-        add_test(NAME example.aggregated_steps_c
-            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
-                    $<TARGET_FILE:example_aggregated_steps_c> ${MPIEXEC_POSTFLAGS})
-        set_tests_properties(example.aggregated_steps_c PROPERTIES
-            LABELS "examples;amio_aggregate" TIMEOUT 60
-            ENVIRONMENT "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
+        add_test(NAME example.aggregated_steps_c COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                         $<TARGET_FILE:example_aggregated_steps_c> ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(example.aggregated_steps_c PROPERTIES LABELS "examples;amio_aggregate" TIMEOUT 60 ENVIRONMENT
+                                                                   "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
     endif()
 endif()
 
@@ -69,12 +66,11 @@ if(MPI_Fortran_FOUND)
     add_executable(example_stream_fortran fortran/example_stream.f90)
     target_link_libraries(example_stream_fortran PRIVATE AMIO::amio_fortran MPI::MPI_Fortran)
     if(AMIO_BUILD_TESTING AND MPIEXEC_EXECUTABLE)
-        add_test(NAME example.stream_fortran
-            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 6 ${MPIEXEC_PREFLAGS}
-                    $<TARGET_FILE:example_stream_fortran> ${MPIEXEC_POSTFLAGS})
-        set_tests_properties(example.stream_fortran PROPERTIES
-            LABELS "examples;amio_stream;amio_fortran" TIMEOUT 60
-            ENVIRONMENT "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
+        add_test(NAME example.stream_fortran COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 6 ${MPIEXEC_PREFLAGS}
+                                                     $<TARGET_FILE:example_stream_fortran> ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(
+            example.stream_fortran PROPERTIES LABELS "examples;amio_stream;amio_fortran" TIMEOUT 60 ENVIRONMENT
+                                              "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
     endif()
 
     add_executable(example_netcdf4_write_f90 fortran/example_netcdf4_write.f90)
@@ -86,12 +82,10 @@ if(MPI_Fortran_FOUND)
     add_executable(example_aggregated_steps_f90 fortran/example_aggregated_steps.f90)
     target_link_libraries(example_aggregated_steps_f90 PRIVATE AMIO::amio_fortran MPI::MPI_Fortran)
     if(AMIO_BUILD_TESTING AND MPIEXEC_EXECUTABLE)
-        add_test(NAME example.aggregated_steps_fortran
-            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
-                    $<TARGET_FILE:example_aggregated_steps_f90> ${MPIEXEC_POSTFLAGS})
-        set_tests_properties(example.aggregated_steps_fortran PROPERTIES
-            LABELS "examples;amio_aggregate;amio_fortran" TIMEOUT 60
-            ENVIRONMENT "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
+        add_test(NAME example.aggregated_steps_fortran COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                               $<TARGET_FILE:example_aggregated_steps_f90> ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(example.aggregated_steps_fortran PROPERTIES LABELS "examples;amio_aggregate;amio_fortran" TIMEOUT 60 ENVIRONMENT
+                                                                         "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
     endif()
 
     if(AMIO_BUILD_TESTING)
@@ -101,8 +95,8 @@ if(MPI_Fortran_FOUND)
         add_test(NAME example.netcdf4_write_fortran COMMAND example_netcdf4_write_f90)
         set_tests_properties(example.netcdf4_write_fortran PROPERTIES LABELS "examples" WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
         add_test(NAME example.step_collection_fortran COMMAND example_step_collection_f90)
-        set_tests_properties(example.step_collection_fortran PROPERTIES
-            LABELS "examples;amio_step;amio_fortran" WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 60)
+        set_tests_properties(example.step_collection_fortran PROPERTIES LABELS "examples;amio_step;amio_fortran" WORKING_DIRECTORY
+                                                                        "${CMAKE_BINARY_DIR}" TIMEOUT 60)
     endif()
 else()
     message(STATUS "AMIO NetCDF-4 Fortran example requires MPI Fortran; skipping")

@@ -1,13 +1,13 @@
 #include "native_readers.hpp"
 
-#include "reference_fields.hpp"
-
 #include <netcdf.h>
 
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
+
+#include "reference_fields.hpp"
 
 namespace amio::qualification {
 
@@ -23,28 +23,23 @@ std::string step_payload_path(const std::filesystem::path &root, std::uint64_t s
     return (root / text.str()).string();
 }
 
-void verify_native_netcdf_field(const std::filesystem::path &root, std::uint64_t step, std::uint64_t cells,
-                                std::uint64_t field, double expected_model_time,
-                                const std::string &expected_schema_digest) {
+void verify_native_netcdf_field(const std::filesystem::path &root, std::uint64_t step, std::uint64_t cells, std::uint64_t field,
+                                double expected_model_time, const std::string &expected_schema_digest) {
     const auto path = step_payload_path(root, step);
     int ncid = -1;
-    if (nc_open(path.c_str(), NC_NOWRITE, &ncid) != NC_NOERR)
-        throw std::runtime_error("native NetCDF reader cannot open step payload");
+    if (nc_open(path.c_str(), NC_NOWRITE, &ncid) != NC_NOERR) throw std::runtime_error("native NetCDF reader cannot open step payload");
     double model_time = 0.0;
-    if (nc_get_att_double(ncid, NC_GLOBAL, "amio_model_time", &model_time) != NC_NOERR ||
-        model_time != expected_model_time) {
+    if (nc_get_att_double(ncid, NC_GLOBAL, "amio_model_time", &model_time) != NC_NOERR || model_time != expected_model_time) {
         nc_close(ncid);
         throw std::runtime_error("native NetCDF model-time metadata mismatch");
     }
     std::size_t digest_bytes = 0;
-    if (nc_inq_attlen(ncid, NC_GLOBAL, "amio_schema_digest", &digest_bytes) != NC_NOERR ||
-        digest_bytes != expected_schema_digest.size()) {
+    if (nc_inq_attlen(ncid, NC_GLOBAL, "amio_schema_digest", &digest_bytes) != NC_NOERR || digest_bytes != expected_schema_digest.size()) {
         nc_close(ncid);
         throw std::runtime_error("native NetCDF schema-digest metadata size mismatch");
     }
     std::string schema_digest(digest_bytes, '\0');
-    if (nc_get_att_text(ncid, NC_GLOBAL, "amio_schema_digest", schema_digest.data()) != NC_NOERR ||
-        schema_digest != expected_schema_digest) {
+    if (nc_get_att_text(ncid, NC_GLOBAL, "amio_schema_digest", schema_digest.data()) != NC_NOERR || schema_digest != expected_schema_digest) {
         nc_close(ncid);
         throw std::runtime_error("native NetCDF schema-digest metadata mismatch");
     }
@@ -85,4 +80,4 @@ void verify_native_netcdf_field(const std::filesystem::path &root, std::uint64_t
     if (nc_close(ncid) != NC_NOERR) throw std::runtime_error("native NetCDF close failed");
 }
 
-} // namespace amio::qualification
+}  // namespace amio::qualification

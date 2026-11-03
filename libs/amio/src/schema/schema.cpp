@@ -56,8 +56,8 @@ bool valid_utf8(std::string_view text) {
             }
             codepoint = (codepoint << 6) | (continuation & 0x3f);
         }
-        if ((length == 2 && codepoint < 0x80) || (length == 3 && codepoint < 0x800) || (length == 4 && codepoint < 0x10000) ||
-            codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
+        if ((length == 2 && codepoint < 0x80) || (length == 3 && codepoint < 0x800) || (length == 4 && codepoint < 0x10000) || codepoint > 0x10ffff ||
+            (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
             return false;
         }
         i += length;
@@ -199,7 +199,7 @@ std::size_t estimate_attribute_bytes(const Attribute &attribute) {
         attribute.value);
 }
 
-} // namespace
+}  // namespace
 
 std::size_t Attribute::count() const noexcept {
     return std::visit(
@@ -301,8 +301,7 @@ bool Schema::equivalent(const Schema &other) const noexcept {
 }
 
 SchemaStatus Schema::from_canonical(std::string_view wire, std::size_t max_wire_bytes, Schema &out) {
-    if (wire.size() > max_wire_bytes || wire.size() > kMaxCanonicalBytes)
-        return SchemaStatus::failure("canonical schema exceeds wire limit");
+    if (wire.size() > max_wire_bytes || wire.size() > kMaxCanonicalBytes) return SchemaStatus::failure("canonical schema exceeds wire limit");
     try {
         struct Reader {
             std::string_view text;
@@ -340,9 +339,18 @@ SchemaStatus Schema::from_canonical(std::string_view wire, std::size_t max_wire_
             bool real(double &value) {
                 std::string_view item;
                 if (!token(';', item)) return false;
-                if (item == "nan") { value = std::numeric_limits<double>::quiet_NaN(); return true; }
-                if (item == "inf") { value = std::numeric_limits<double>::infinity(); return true; }
-                if (item == "-inf") { value = -std::numeric_limits<double>::infinity(); return true; }
+                if (item == "nan") {
+                    value = std::numeric_limits<double>::quiet_NaN();
+                    return true;
+                }
+                if (item == "inf") {
+                    value = std::numeric_limits<double>::infinity();
+                    return true;
+                }
+                if (item == "-inf") {
+                    value = -std::numeric_limits<double>::infinity();
+                    return true;
+                }
                 bool negative = item.starts_with('-');
                 if (negative) item.remove_prefix(1);
                 if (!item.starts_with("0x")) return false;
@@ -362,18 +370,19 @@ SchemaStatus Schema::from_canonical(std::string_view wire, std::size_t max_wire_
         for (std::uint64_t i = 0; i < variables; ++i) {
             Variable variable;
             std::uint64_t source = 0, stored = 0, required = 0, dimensions = 0;
-            if (!reader.string(variable.name) || !reader.unsigned_number(';', source) ||
-                !reader.unsigned_number(';', stored) || !reader.unsigned_number(';', required) ||
-                !reader.unsigned_number(';', dimensions) || source > AMIO_DTYPE_U64 || stored > AMIO_DTYPE_U64 ||
-                required > 1 || dimensions == 0 || dimensions > AMIO_MAX_RANK) return invalid();
+            if (!reader.string(variable.name) || !reader.unsigned_number(';', source) || !reader.unsigned_number(';', stored) ||
+                !reader.unsigned_number(';', required) || !reader.unsigned_number(';', dimensions) || source > AMIO_DTYPE_U64 ||
+                stored > AMIO_DTYPE_U64 || required > 1 || dimensions == 0 || dimensions > AMIO_MAX_RANK)
+                return invalid();
             variable.source_dtype = static_cast<amio_dtype_t>(source);
             variable.stored_dtype = static_cast<amio_dtype_t>(stored);
             variable.required = required != 0;
             for (std::uint64_t d = 0; d < dimensions; ++d) {
                 Dimension dimension;
                 std::uint64_t coordinate = 0;
-                if (!reader.string(dimension.name) || !reader.unsigned_number(';', dimension.extent) ||
-                    !reader.unsigned_number(';', coordinate) || coordinate > 1) return invalid();
+                if (!reader.string(dimension.name) || !reader.unsigned_number(';', dimension.extent) || !reader.unsigned_number(';', coordinate) ||
+                    coordinate > 1)
+                    return invalid();
                 if (coordinate) {
                     std::string name;
                     if (!reader.string(name)) return invalid();
@@ -386,37 +395,66 @@ SchemaStatus Schema::from_canonical(std::string_view wire, std::size_t max_wire_
             for (std::uint64_t a = 0; a < attributes; ++a) {
                 std::string name;
                 std::uint64_t type = 0, count = 0;
-                if (!reader.string(name) || !reader.unsigned_number(':', type) ||
-                    !reader.unsigned_number(':', count) || type > 8 || (type < 5 && count != 1) ||
-                    count > reader.text.size()) return invalid();
-                if ((type >= 5 && type <= 7 && count > kMaxCanonicalBytes / 32) ||
-                    (type == 8 && count > kMaxCanonicalBytes / sizeof(std::uint64_t))) return invalid();
+                if (!reader.string(name) || !reader.unsigned_number(':', type) || !reader.unsigned_number(':', count) || type > 8 ||
+                    (type < 5 && count != 1) || count > reader.text.size())
+                    return invalid();
+                if ((type >= 5 && type <= 7 && count > kMaxCanonicalBytes / 32) || (type == 8 && count > kMaxCanonicalBytes / sizeof(std::uint64_t)))
+                    return invalid();
                 Attribute attribute;
                 if (type == 0 || type == 2) {
                     std::uint64_t v = 0;
                     if (!reader.unsigned_number(';', v) || (type == 0 && v > 1)) return invalid();
-                    if (type == 0) attribute.value = v != 0; else attribute.value = v;
+                    if (type == 0)
+                        attribute.value = v != 0;
+                    else
+                        attribute.value = v;
                 } else if (type == 1) {
-                    std::int64_t v = 0; if (!reader.signed_number(v)) return invalid(); attribute.value = v;
+                    std::int64_t v = 0;
+                    if (!reader.signed_number(v)) return invalid();
+                    attribute.value = v;
                 } else if (type == 3) {
-                    double v = 0; if (!reader.real(v)) return invalid(); attribute.value = v;
+                    double v = 0;
+                    if (!reader.real(v)) return invalid();
+                    attribute.value = v;
                 } else if (type == 4) {
-                    std::string v; if (!reader.string(v)) return invalid(); attribute.value = std::move(v);
+                    std::string v;
+                    if (!reader.string(v)) return invalid();
+                    attribute.value = std::move(v);
                 } else if (type == 5) {
-                    std::vector<std::int64_t> v; v.reserve(static_cast<std::size_t>(count));
-                    for (std::uint64_t n = 0; n < count; ++n) { std::int64_t x = 0; if (!reader.signed_number(x)) return invalid(); v.push_back(x); }
+                    std::vector<std::int64_t> v;
+                    v.reserve(static_cast<std::size_t>(count));
+                    for (std::uint64_t n = 0; n < count; ++n) {
+                        std::int64_t x = 0;
+                        if (!reader.signed_number(x)) return invalid();
+                        v.push_back(x);
+                    }
                     attribute.value = std::move(v);
                 } else if (type == 6) {
-                    std::vector<std::uint64_t> v; v.reserve(static_cast<std::size_t>(count));
-                    for (std::uint64_t n = 0; n < count; ++n) { std::uint64_t x = 0; if (!reader.unsigned_number(';', x)) return invalid(); v.push_back(x); }
+                    std::vector<std::uint64_t> v;
+                    v.reserve(static_cast<std::size_t>(count));
+                    for (std::uint64_t n = 0; n < count; ++n) {
+                        std::uint64_t x = 0;
+                        if (!reader.unsigned_number(';', x)) return invalid();
+                        v.push_back(x);
+                    }
                     attribute.value = std::move(v);
                 } else if (type == 7) {
-                    std::vector<double> v; v.reserve(static_cast<std::size_t>(count));
-                    for (std::uint64_t n = 0; n < count; ++n) { double x = 0; if (!reader.real(x)) return invalid(); v.push_back(x); }
+                    std::vector<double> v;
+                    v.reserve(static_cast<std::size_t>(count));
+                    for (std::uint64_t n = 0; n < count; ++n) {
+                        double x = 0;
+                        if (!reader.real(x)) return invalid();
+                        v.push_back(x);
+                    }
                     attribute.value = std::move(v);
                 } else {
-                    std::vector<std::string> v; v.reserve(static_cast<std::size_t>(count));
-                    for (std::uint64_t n = 0; n < count; ++n) { std::string x; if (!reader.string(x)) return invalid(); v.push_back(std::move(x)); }
+                    std::vector<std::string> v;
+                    v.reserve(static_cast<std::size_t>(count));
+                    for (std::uint64_t n = 0; n < count; ++n) {
+                        std::string x;
+                        if (!reader.string(x)) return invalid();
+                        v.push_back(std::move(x));
+                    }
                     attribute.value = std::move(v);
                 }
                 if (!variable.attributes.emplace(std::move(name), std::move(attribute)).second) return invalid();
@@ -443,4 +481,4 @@ std::string schema_digest(std::string_view canonical) {
     return out.str();
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

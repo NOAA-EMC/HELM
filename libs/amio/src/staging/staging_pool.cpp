@@ -33,9 +33,12 @@ namespace amio::detail {
 StagingPool::StagingPool(std::size_t buffer_count, std::size_t buffer_capacity, std::int64_t timeout_ms)
     : StagingPool(buffer_count, buffer_capacity, timeout_ms, kMaxBufferCount, GrowMode::Grow, static_cast<std::size_t>(-1)) {}
 
-StagingPool::StagingPool(std::size_t buffer_count, std::size_t buffer_capacity, std::int64_t timeout_ms, std::size_t max_buffer_count,
-                         GrowMode mode, std::size_t max_retained_bytes)
-    : buffer_count_(buffer_count), buffer_capacity_(buffer_capacity), timeout_ms_(timeout_ms), grow_mode_(mode),
+StagingPool::StagingPool(std::size_t buffer_count, std::size_t buffer_capacity, std::int64_t timeout_ms, std::size_t max_buffer_count, GrowMode mode,
+                         std::size_t max_retained_bytes)
+    : buffer_count_(buffer_count),
+      buffer_capacity_(buffer_capacity),
+      timeout_ms_(timeout_ms),
+      grow_mode_(mode),
       max_retained_bytes_(max_retained_bytes) {
     assert(buffer_count >= kMinBufferCount && buffer_count <= kMaxBufferCount);
     assert(buffer_capacity >= kMinBufferCapacity && buffer_capacity <= kMaxBufferCapacity);

@@ -1,5 +1,3 @@
-#include "amio/amio_evolution.h"
-
 #include <array>
 #include <cassert>
 #include <cstdio>
@@ -7,6 +5,8 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+
+#include "amio/amio_evolution.h"
 
 #ifdef AMIO_TEST_HAS_MPI
 #include <mpi.h>
@@ -19,7 +19,7 @@ void ok(amio_status_t status) {
     if (status != AMIO_OK) std::fprintf(stderr, "evolution Zarr call %d returned status %d\n", call, static_cast<int>(status));
     assert(status == AMIO_OK);
 }
-}
+}  // namespace
 
 int main(int argc, char **argv) {
 #ifdef AMIO_TEST_HAS_MPI
@@ -160,10 +160,8 @@ int main(int argc, char **argv) {
         ok(amio_put_field(step, required_name, sizeof(required_name) - 1, values.data(), values.size() * sizeof(float), &operation));
     } else {
         std::vector<float> local_values(static_cast<std::size_t>(local_rows));
-        for (int i = 0; i < local_rows; ++i)
-            local_values[static_cast<std::size_t>(i)] = static_cast<float>((local_offset + i + 1) * 10);
-        ok(amio_put_field(step, required_name, sizeof(required_name) - 1, local_values.data(),
-                          local_values.size() * sizeof(float), &operation));
+        for (int i = 0; i < local_rows; ++i) local_values[static_cast<std::size_t>(i)] = static_cast<float>((local_offset + i + 1) * 10);
+        ok(amio_put_field(step, required_name, sizeof(required_name) - 1, local_values.data(), local_values.size() * sizeof(float), &operation));
     }
     ok(amio_end_step(step));
     if (rank_count == 1) assert(amio_wait_operation(operation, AMIO_OPERATION_DURABLE, 0) == AMIO_ERR_UNSUPPORTED);
@@ -174,8 +172,8 @@ int main(int argc, char **argv) {
         assert(summary.step_id == 7 && summary.present_field_count == 1);
         std::vector<float> readback(static_cast<std::size_t>(rows));
         std::size_t required_bytes = 0;
-        ok(amio_read_step_field(dataset, 7, required_name, sizeof(required_name) - 1, nullptr,
-                                readback.data(), readback.size() * sizeof(float), &required_bytes));
+        ok(amio_read_step_field(dataset, 7, required_name, sizeof(required_name) - 1, nullptr, readback.data(), readback.size() * sizeof(float),
+                                &required_bytes));
         assert(required_bytes == values.size() * sizeof(float) && readback == values);
         amio_step_selection_t selection{};
         selection.struct_size = sizeof(selection);
@@ -185,11 +183,11 @@ int main(int argc, char **argv) {
         selection.extents[0] = 2;
         selection.strides[0] = 1;
         std::array<float, 2> selected{};
-        ok(amio_read_step_field(dataset, 7, required_name, sizeof(required_name) - 1, &selection,
-                                selected.data(), sizeof(selected), &required_bytes));
+        ok(amio_read_step_field(dataset, 7, required_name, sizeof(required_name) - 1, &selection, selected.data(), sizeof(selected),
+                                &required_bytes));
         assert(required_bytes == sizeof(selected) && selected[0] == 20.f && selected[1] == 30.f);
-        assert(amio_read_step_field(dataset, 7, optional_name, sizeof(optional_name) - 1, nullptr,
-                                    nullptr, 0, &required_bytes) == AMIO_ERR_FIELD_NOT_PRESENT);
+        assert(amio_read_step_field(dataset, 7, optional_name, sizeof(optional_name) - 1, nullptr, nullptr, 0, &required_bytes) ==
+               AMIO_ERR_FIELD_NOT_PRESENT);
     }
 
     amio_step_lease_handle lease = nullptr;

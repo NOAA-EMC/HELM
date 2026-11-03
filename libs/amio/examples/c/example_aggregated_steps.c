@@ -1,5 +1,4 @@
 #include <amio/amio_evolution.h>
-
 #include <mpi.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,12 +11,18 @@ int main(int argc, char **argv) {
     int rank = 0, size = 0;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-    if (size < 2) { MPI_Finalize(); return 2; }
+    if (size < 2) {
+        MPI_Finalize();
+        return 2;
+    }
 
     int32_t *producers = calloc((size_t)(size - 1), sizeof(*producers));
     int32_t writer = size - 1;
     static const char configuration[] = "{}";
-    if (producers == NULL) { MPI_Finalize(); return 2; }
+    if (producers == NULL) {
+        MPI_Finalize();
+        return 2;
+    }
     for (int r = 0; r < size - 1; ++r) producers[r] = r;
     amio_context_descriptor_t descriptor = {0};
     descriptor.struct_size = sizeof(descriptor);
@@ -38,8 +43,10 @@ int main(int argc, char **argv) {
         /* The service entry point is wired, but the persistent aggregated
            dataset lifecycle is not connected yet; fail explicitly and cleanly. */
         status = amio_run_service(context);
-        if (status != AMIO_ERR_UNSUPPORTED) fprintf(stderr, "expected unsupported service status, got %d\n", status);
-        else fprintf(stderr, "writer service correctly reports unsupported until aggregation lifecycle integration\n");
+        if (status != AMIO_ERR_UNSUPPORTED)
+            fprintf(stderr, "expected unsupported service status, got %d\n", status);
+        else
+            fprintf(stderr, "writer service correctly reports unsupported until aggregation lifecycle integration\n");
     } else if (status == AMIO_OK && rank < writer) {
         uint32_t completed = 0;
         status = amio_progress(context, 8, &completed);

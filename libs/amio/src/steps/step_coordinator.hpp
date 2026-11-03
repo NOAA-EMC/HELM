@@ -1,14 +1,6 @@
 #ifndef AMIO_SRC_STEPS_STEP_COORDINATOR_HPP
 #define AMIO_SRC_STEPS_STEP_COORDINATOR_HPP
 
-#include "amio/amio_errors.h"
-#include "c_boundary/operation_record.hpp"
-#include "memory/host_snapshot.hpp"
-#include "memory/memory_descriptor.hpp"
-#include "schema/schema.hpp"
-#include "steps/contribution_plan.hpp"
-#include "staging/resource_budget.hpp"
-
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -16,6 +8,14 @@
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "amio/amio_errors.h"
+#include "c_boundary/operation_record.hpp"
+#include "memory/host_snapshot.hpp"
+#include "memory/memory_descriptor.hpp"
+#include "schema/schema.hpp"
+#include "staging/resource_budget.hpp"
+#include "steps/contribution_plan.hpp"
 
 namespace amio::detail {
 
@@ -57,8 +57,7 @@ class StepCoordinator {
     [[nodiscard]] amio_status_t register_schema(std::shared_ptr<const Schema> schema);
     [[nodiscard]] amio_status_t begin_step(const StepBeginRequest &request);
     [[nodiscard]] StepPutResult put(const std::string &variable, const void *source, std::size_t bytes);
-    [[nodiscard]] StepPutResult put_memory(const std::string &variable, const MemoryDescriptor &descriptor,
-                                          const void *source, std::size_t bytes);
+    [[nodiscard]] StepPutResult put_memory(const std::string &variable, const MemoryDescriptor &descriptor, const void *source, std::size_t bytes);
     [[nodiscard]] amio_status_t end_step();
     [[nodiscard]] amio_status_t mark_payload_complete();
     [[nodiscard]] amio_status_t mark_publishing();
@@ -68,15 +67,29 @@ class StepCoordinator {
     [[nodiscard]] amio_status_t poison_dataset(amio_status_t error);
     [[nodiscard]] amio_status_t cancel_step();
     [[nodiscard]] amio_status_t wait_for_publication(std::uint64_t timeout_ms) const;
-    [[nodiscard]] StepState state() const noexcept { return state_; }
-    [[nodiscard]] const std::string &dataset_uuid() const noexcept { return dataset_uuid_; }
-    [[nodiscard]] std::uint64_t active_step_id() const noexcept { return active_step_id_; }
-    [[nodiscard]] double active_model_time() const noexcept { return active_model_time_; }
-    [[nodiscard]] const std::string &active_schema_digest() const noexcept { return active_schema_digest_; }
-    [[nodiscard]] bool dataset_poisoned() const noexcept { return dataset_poisoned_; }
+    [[nodiscard]] StepState state() const noexcept {
+        return state_;
+    }
+    [[nodiscard]] const std::string &dataset_uuid() const noexcept {
+        return dataset_uuid_;
+    }
+    [[nodiscard]] std::uint64_t active_step_id() const noexcept {
+        return active_step_id_;
+    }
+    [[nodiscard]] double active_model_time() const noexcept {
+        return active_model_time_;
+    }
+    [[nodiscard]] const std::string &active_schema_digest() const noexcept {
+        return active_schema_digest_;
+    }
+    [[nodiscard]] bool dataset_poisoned() const noexcept {
+        return dataset_poisoned_;
+    }
     [[nodiscard]] OperationSnapshot operation_snapshot(std::uint64_t handle) const noexcept;
     [[nodiscard]] std::shared_ptr<OperationRecord> operation_record(std::uint64_t handle) const noexcept;
-    [[nodiscard]] const std::map<std::string, StepContributionSnapshot, std::less<>> &contributions() const noexcept { return contributions_; }
+    [[nodiscard]] const std::map<std::string, StepContributionSnapshot, std::less<>> &contributions() const noexcept {
+        return contributions_;
+    }
 
    private:
     [[nodiscard]] amio_status_t fail_step(amio_status_t error) noexcept;
@@ -103,6 +116,6 @@ class StepCoordinator {
     bool dataset_poisoned_ = false;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
-#endif // AMIO_SRC_STEPS_STEP_COORDINATOR_HPP
+#endif  // AMIO_SRC_STEPS_STEP_COORDINATOR_HPP

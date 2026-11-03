@@ -1,6 +1,6 @@
 program example_step_collection
     use, intrinsic :: iso_c_binding, only: c_char, c_int, c_int32_t, c_int64_t, c_size_t, c_sizeof, &
-        c_float, c_double, c_ptr, c_null_ptr, c_null_char, c_loc
+                                                                              c_float, c_double, c_ptr, c_null_ptr, c_null_char, c_loc
     use mpi
     use amio_mod
     implicit none
@@ -26,7 +26,7 @@ program example_step_collection
 
     location = c_null_char
     call system_clock(clock_count)
-    write(location_text, '("./amio-step-",i0)') clock_count
+    write (location_text, '("./amio-step-",i0)') clock_count
     call set_c_string(location, trim(location_text))
     dimension_name = c_null_char
     call set_c_string(dimension_name, 'x')
@@ -34,34 +34,34 @@ program example_step_collection
     call set_c_string(field_name, 'temperature')
 
     context_desc = amio_context_descriptor_t( &
-        int(c_sizeof(context_desc), c_int32_t), 1_c_int32_t, AMIO_EXECUTION_PERSISTENT_DIRECT, AMIO_PROGRESS_CALLER, &
-        1_c_int32_t, 0_c_int32_t, 0_c_int32_t, 0_c_int32_t, c_null_ptr, c_null_ptr, c_null_ptr, &
-        int(MPI_COMM_SELF, c_int64_t), c_loc(config(1)), 2_c_int64_t, [0_c_int64_t, 0_c_int64_t])
+                   int(c_sizeof(context_desc), c_int32_t), 1_c_int32_t, AMIO_EXECUTION_PERSISTENT_DIRECT, AMIO_PROGRESS_CALLER, &
+                   1_c_int32_t, 0_c_int32_t, 0_c_int32_t, 0_c_int32_t, c_null_ptr, c_null_ptr, c_null_ptr, &
+                   int(MPI_COMM_SELF, c_int64_t), c_loc(config(1)), 2_c_int64_t, [0_c_int64_t, 0_c_int64_t])
     context = c_null_ptr
     status = amio_init_ex(context_desc, context)
     call check_status(status, 'amio_init_ex')
 
     dataset_desc = amio_dataset_descriptor_t( &
-        int(c_sizeof(dataset_desc), c_int32_t), 1_c_int32_t, c_loc(location(1)), int(len_trim(location_text), c_int64_t), &
-        AMIO_FORMAT_NETCDF4, 0_c_int32_t, 1048576_c_int64_t, 64_c_int64_t, 4096_c_int64_t, 8_c_int64_t, &
-        [0_c_int64_t, 0_c_int64_t])
+                   int(c_sizeof(dataset_desc), c_int32_t), 1_c_int32_t, c_loc(location(1)), int(len_trim(location_text), c_int64_t), &
+                   AMIO_FORMAT_NETCDF4, 0_c_int32_t, 1048576_c_int64_t, 64_c_int64_t, 4096_c_int64_t, 8_c_int64_t, &
+                   [0_c_int64_t, 0_c_int64_t])
     dataset = c_null_ptr
     status = amio_open_dataset_ex(context, dataset_desc, dataset)
     call check_status(status, 'amio_open_dataset_ex')
 
     dimension = amio_dimension_descriptor_t(int(c_sizeof(dimension), c_int32_t), 1_c_int32_t, c_loc(dimension_name(1)), &
-        1_c_int64_t, 4_c_int64_t, c_null_ptr, 0_c_int64_t, [0_c_int64_t, 0_c_int64_t])
+                                            1_c_int64_t, 4_c_int64_t, c_null_ptr, 0_c_int64_t, [0_c_int64_t, 0_c_int64_t])
     variable = amio_variable_descriptor_t(int(c_sizeof(variable), c_int32_t), 1_c_int32_t, c_loc(field_name(1)), &
-        11_c_int64_t, AMIO_DTYPE_F32, AMIO_DTYPE_F32, 1_c_int32_t, 1_c_int32_t, c_loc(dimension), &
-        0_c_int32_t, 0_c_int32_t, c_null_ptr, [0_c_int64_t, 0_c_int64_t])
+                                          11_c_int64_t, AMIO_DTYPE_F32, AMIO_DTYPE_F32, 1_c_int32_t, 1_c_int32_t, c_loc(dimension), &
+                                          0_c_int32_t, 0_c_int32_t, c_null_ptr, [0_c_int64_t, 0_c_int64_t])
     schema_desc = amio_schema_descriptor_t(int(c_sizeof(schema_desc), c_int32_t), 1_c_int32_t, 1_c_int64_t, c_loc(variable), &
-        [0_c_int64_t, 0_c_int64_t])
+                                           [0_c_int64_t, 0_c_int64_t])
     schema = c_null_ptr
     status = amio_define_schema(dataset, schema_desc, schema)
     call check_status(status, 'amio_define_schema')
 
     step_desc = amio_step_descriptor_t(int(c_sizeof(step_desc), c_int32_t), 1_c_int32_t, 0_c_int64_t, 12.5_c_double, schema, &
-        [0_c_int64_t, 0_c_int64_t])
+                                       [0_c_int64_t, 0_c_int64_t])
     step = c_null_ptr
     status = amio_begin_step(dataset, step_desc, step)
     call check_status(status, 'amio_begin_step')

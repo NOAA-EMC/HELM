@@ -15,7 +15,7 @@ enum class CreditOwner : std::uint8_t { Sender, Receiver, Control };
 
 /** Per-peer payload credits plus a physically separate reserved control pool. */
 class CreditWindow {
-public:
+   public:
     /** Finite byte/descriptor limits for each peer and the context as a whole. */
     struct Limits {
         std::size_t peer_count;
@@ -26,7 +26,13 @@ public:
         std::size_t control_bytes;
         std::size_t control_descriptors;
     };
-    struct Ticket { std::uint64_t id; std::size_t peer; CreditOwner owner; std::size_t bytes; std::size_t descriptors; };
+    struct Ticket {
+        std::uint64_t id;
+        std::size_t peer;
+        CreditOwner owner;
+        std::size_t bytes;
+        std::size_t descriptors;
+    };
     struct Snapshot {
         std::size_t sender_bytes = 0, receiver_bytes = 0, data_bytes = 0, control_bytes = 0;
         std::size_t sender_descriptors = 0, receiver_descriptors = 0, data_descriptors = 0, control_descriptors = 0;
@@ -43,9 +49,15 @@ public:
     [[nodiscard]] Snapshot snapshot() const noexcept;
     /** Return per-counter peak reservations since construction. */
     [[nodiscard]] Snapshot high_water() const noexcept;
-private:
-    struct Record { std::size_t peer, bytes, descriptors; CreditOwner owner; };
-    struct PeerUse { std::size_t sender_bytes=0, receiver_bytes=0, sender_descriptors=0, receiver_descriptors=0; };
+
+   private:
+    struct Record {
+        std::size_t peer, bytes, descriptors;
+        CreditOwner owner;
+    };
+    struct PeerUse {
+        std::size_t sender_bytes = 0, receiver_bytes = 0, sender_descriptors = 0, receiver_descriptors = 0;
+    };
     Limits limits_;
     mutable std::mutex mutex_;
     std::vector<PeerUse> peers_;
@@ -55,6 +67,6 @@ private:
     Snapshot high_water_;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

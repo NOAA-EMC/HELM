@@ -18,14 +18,15 @@ struct CliResult {
 };
 
 class ResultWriter {
-public:
+   public:
     explicit ResultWriter(bool json, std::ostream &out, std::ostream &err);
     int write(const CliResult &result) const;
     [[nodiscard]] static std::string quote(const std::string &value);
-private:
+
+   private:
     bool json_;
     std::ostream &out_;
     std::ostream &err_;
 };
 
-} // namespace amio::tools
+}  // namespace amio::tools

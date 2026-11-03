@@ -523,8 +523,8 @@ void test_outcome_registry_thread_safety() {
     for (int t = 0; t < kThreads; ++t) {
         auto outcomes = registry.get_outcomes(static_cast<std::uint64_t>(t));
         EXPECT_TRUE(outcomes.size() == OutcomeRegistry::kMaxOutcomesPerHandle, "thread " + std::to_string(t) + " should retain " +
-                                                          std::to_string(OutcomeRegistry::kMaxOutcomesPerHandle) +
-                                                          " outcomes, got " + std::to_string(outcomes.size()));
+                                                                                   std::to_string(OutcomeRegistry::kMaxOutcomesPerHandle) +
+                                                                                   " outcomes, got " + std::to_string(outcomes.size()));
         EXPECT_TRUE(!outcomes.empty() && outcomes.front().message == "thread " + std::to_string(t) + " op 0",
                     "thread " + std::to_string(t) + " should preserve its first cause");
     }

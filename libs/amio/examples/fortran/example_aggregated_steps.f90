@@ -16,13 +16,13 @@ program example_aggregated_steps
     call MPI_Comm_rank(MPI_COMM_WORLD, rank, ierr)
     call MPI_Comm_size(MPI_COMM_WORLD, size, ierr)
     if (size < 2) call MPI_Abort(MPI_COMM_WORLD, 2, ierr)
-    allocate(producers(size - 1))
-    producers = [(int(ierr, c_int32_t), ierr=0,size-2)]
+    allocate (producers(size - 1))
+    producers = [(int(ierr, c_int32_t), ierr=0, size - 2)]
     writer = int(size - 1, c_int32_t)
     descriptor = amio_context_descriptor_t(int(c_sizeof(descriptor), c_int32_t), 1_c_int32_t, &
-        AMIO_EXECUTION_PERSISTENT_AGGREGATED, AMIO_PROGRESS_CALLER, int(size, c_int32_t), &
-        int(size - 1, c_int32_t), 1_c_int32_t, 0_c_int32_t, c_loc(producers(1)), c_loc(writer(1)), c_null_ptr, &
-        int(MPI_COMM_WORLD, c_int64_t), c_loc(configuration(1)), 2_c_int64_t, [0_c_int64_t, 0_c_int64_t])
+                                           AMIO_EXECUTION_PERSISTENT_AGGREGATED, AMIO_PROGRESS_CALLER, int(size, c_int32_t), &
+                                           int(size - 1, c_int32_t), 1_c_int32_t, 0_c_int32_t, c_loc(producers(1)), c_loc(writer(1)), c_null_ptr, &
+                                           int(MPI_COMM_WORLD, c_int64_t), c_loc(configuration(1)), 2_c_int64_t, [0_c_int64_t, 0_c_int64_t])
     context = c_null_ptr
     status = amio_init_ex(descriptor, context)
     if (status == AMIO_OK) then

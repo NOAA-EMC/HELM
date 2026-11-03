@@ -837,8 +837,7 @@ codec:
     const auto serialized = ConfigLoader::serialize(config);
     assert(serialized.find("prefetch_capacity: 9") != std::string::npos);
     const auto position = valid.find("prefetch_capacity: 9");
-    const auto invalid = valid.substr(0, position) + "prefetch_capacity: 0" +
-                         valid.substr(position + std::string("prefetch_capacity: 9").size());
+    const auto invalid = valid.substr(0, position) + "prefetch_capacity: 0" + valid.substr(position + std::string("prefetch_capacity: 9").size());
     assert(ConfigLoader::parse_string(invalid, "yaml", config, error) == AMIO_ERR_MANIFEST_INVALID);
     assert(error.field_path == "backpressure.prefetch_capacity");
 }
@@ -938,7 +937,6 @@ static void test_evolution_mode_is_opt_in_and_bounded() {
     assert(config.worker_pool.numa_domain == 0);
     assert(ConfigLoader::parse_string(ConfigLoader::serialize(config), "yaml", reparsed, error) == AMIO_OK);
     assert(reparsed == config);
-
 }
 
 static void test_evolution_rejects_unknown_version_and_keys() {
@@ -984,8 +982,7 @@ static void test_evolution_requires_finite_budget_and_valid_roles() {
 
     yaml = valid_evolution_yaml();
     yaml.replace(yaml.find("persistent_direct"), std::string("persistent_direct").size(), "persistent_aggregated");
-    yaml.replace(yaml.find("producers: [0]"), std::string("producers: [0]").size(),
-                 "producers: [0]\n  writers: [1]\n  consumers: [2]");
+    yaml.replace(yaml.find("producers: [0]"), std::string("producers: [0]").size(), "producers: [0]\n  writers: [1]\n  consumers: [2]");
     assert(ConfigLoader::parse_string(yaml, "yaml", config, error) == AMIO_ERR_MANIFEST_INVALID);
     assert(error.field_path == "membership");
 

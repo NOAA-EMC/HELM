@@ -1,11 +1,11 @@
 #ifndef AMIO_SRC_CATALOG_KVSTORE_CATALOG_HPP
 #define AMIO_SRC_CATALOG_KVSTORE_CATALOG_HPP
 
-#include "catalog/posix_catalog.hpp"
-
 #include <cstdint>
 #include <string>
 #include <string_view>
+
+#include "catalog/posix_catalog.hpp"
 
 namespace amio::detail {
 
@@ -31,8 +31,8 @@ class KvStore {
 
 class KvStoreCatalog {
    public:
-    KvStoreCatalog(KvStore &store, std::string prefix, std::string dataset_uuid, std::string owner_token,
-                   KvStoreCapabilities capabilities, bool external_exclusive_owner = false, CatalogLimits limits = {});
+    KvStoreCatalog(KvStore &store, std::string prefix, std::string dataset_uuid, std::string owner_token, KvStoreCapabilities capabilities,
+                   bool external_exclusive_owner = false, CatalogLimits limits = {});
     [[nodiscard]] amio_status_t certify(PosixSyncLevel requested) const;
     [[nodiscard]] amio_status_t create_exclusive();
     [[nodiscard]] PublicationResult publish(CompletionRecord record, PosixSyncLevel requested = PosixSyncLevel::Visibility);
@@ -50,6 +50,6 @@ class KvStoreCatalog {
     CatalogLimits limits_;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
-#endif // AMIO_SRC_CATALOG_KVSTORE_CATALOG_HPP
+#endif  // AMIO_SRC_CATALOG_KVSTORE_CATALOG_HPP

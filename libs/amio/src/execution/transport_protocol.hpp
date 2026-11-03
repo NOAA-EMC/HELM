@@ -16,17 +16,43 @@ inline constexpr std::uint16_t kTransportProtocolVersion = 1;
 inline constexpr std::size_t kDatasetUuidBytes = 16;
 inline constexpr std::size_t kSchemaDigestBytes = 32;
 /** Serialized size of the canonical big-endian protocol envelope. */
-inline constexpr std::size_t kTransportEnvelopeWireBytes = 2 + 8 + kDatasetUuidBytes + 8 + kSchemaDigestBytes + 4 + 1 + 4 + 4 + 8 + 4 + 4 +
-                                                            4 + 2 * AMIO_MAX_RANK * 8 + 8 + 8 + 8;
+inline constexpr std::size_t kTransportEnvelopeWireBytes =
+    2 + 8 + kDatasetUuidBytes + 8 + kSchemaDigestBytes + 4 + 1 + 4 + 4 + 8 + 4 + 4 + 4 + 2 * AMIO_MAX_RANK * 8 + 8 + 8 + 8;
 
 /** Version 1 control and payload messages exchanged by an AMIO context. */
 enum class MessageKind : std::uint8_t {
-    Config = 1, Begin, Contribute, Credit, Chunk, Received, Seal, PayloadResult, Published, Cancel, Close, Error, EndOfStream, Release
+    Config = 1,
+    Begin,
+    Contribute,
+    Credit,
+    Chunk,
+    Received,
+    Seal,
+    PayloadResult,
+    Published,
+    Cancel,
+    Close,
+    Error,
+    EndOfStream,
+    Release
 };
 
 enum class ProtocolError : std::uint8_t {
-    None = 0, UnsupportedVersion, StaleEpoch, WrongDataset, InvalidKind, InvalidProducer, InvalidWriterMapping, InvalidWireFrame,
-    InvalidSequence, InvalidRegion, FragmentTooLarge, PayloadTooLarge, WrongSchema, WrongStep, WrongField
+    None = 0,
+    UnsupportedVersion,
+    StaleEpoch,
+    WrongDataset,
+    InvalidKind,
+    InvalidProducer,
+    InvalidWriterMapping,
+    InvalidWireFrame,
+    InvalidSequence,
+    InvalidRegion,
+    FragmentTooLarge,
+    PayloadTooLarge,
+    WrongSchema,
+    WrongStep,
+    WrongField
 };
 
 /** Fixed-size frame metadata; validate it before allocating or receiving payload bytes. */
@@ -73,12 +99,13 @@ struct TransportValidationContext {
 struct ProtocolValidationResult {
     ProtocolError error = ProtocolError::None;
     std::size_t payload_allocation_bytes = 0;
-    explicit operator bool() const noexcept { return error == ProtocolError::None; }
+    explicit operator bool() const noexcept {
+        return error == ProtocolError::None;
+    }
 };
 
 /** Validate identity, routing, region, sequence, and byte limits before payload allocation. */
-[[nodiscard]] ProtocolValidationResult validate_envelope(const TransportEnvelope &envelope,
-                                                          const TransportValidationContext &context) noexcept;
+[[nodiscard]] ProtocolValidationResult validate_envelope(const TransportEnvelope &envelope, const TransportValidationContext &context) noexcept;
 /** Encode fixed frame metadata as canonical big-endian bytes for same-job MPI transport. */
 [[nodiscard]] std::array<std::uint8_t, kTransportEnvelopeWireBytes> encode_envelope(const TransportEnvelope &envelope) noexcept;
 /** Decode one exact-size wire envelope; reject malformed lengths before reading fields. */
@@ -90,12 +117,13 @@ enum class SequenceResult : std::uint8_t { Accepted, Duplicate, Stale, InvalidPe
 
 /** Tracks the last accepted transfer sequence for each peer without growing after construction. */
 class SequenceLedger {
-public:
+   public:
     /** Create a ledger with a fixed number of peers; no storage grows during use. */
     explicit SequenceLedger(std::size_t peer_count);
     /** Accept a strictly increasing nonzero sequence for the selected peer. */
     [[nodiscard]] SequenceResult accept(std::size_t peer, std::uint64_t sequence) noexcept;
-private:
+
+   private:
     std::vector<std::uint64_t> last_sequence_;
     std::vector<bool> initialized_;
 };
@@ -113,6 +141,6 @@ enum class AckMilestone : std::uint8_t { None = 0, ReceiverOwnsPayload, BackendC
 /** Map a protocol message to its strongest acknowledged ownership/completion milestone. */
 [[nodiscard]] AckMilestone acknowledgment_milestone(MessageKind kind) noexcept;
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

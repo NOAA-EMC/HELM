@@ -7,10 +7,10 @@
 namespace amio::detail {
 
 bool StepReadQueue::valid(const StepReadKey &key, const StepReadMetadata &metadata) noexcept {
-    if (key.dataset_uuid.empty() || key.schema_digest.empty() || key.field.empty() ||
-        key.dataset_uuid.size() > 4096 || key.schema_digest.size() > 4096 || key.field.size() > 4096 ||
-        key.dataset_uuid != metadata.dataset_uuid || key.step_id != metadata.step_id ||
-        key.schema_digest != metadata.schema_digest || key.field != metadata.field) return false;
+    if (key.dataset_uuid.empty() || key.schema_digest.empty() || key.field.empty() || key.dataset_uuid.size() > 4096 ||
+        key.schema_digest.size() > 4096 || key.field.size() > 4096 || key.dataset_uuid != metadata.dataset_uuid || key.step_id != metadata.step_id ||
+        key.schema_digest != metadata.schema_digest || key.field != metadata.field)
+        return false;
     if (key.selection) {
         const auto &b = *key.selection;
         if (b.rank < 1 || b.rank > AMIO_MAX_RANK || metadata.global_extents.size() != static_cast<std::size_t>(b.rank)) return false;
@@ -41,7 +41,10 @@ std::string StepReadQueue::encode(const StepReadKey &key) {
     out.append(std::to_string(key.step_id)).push_back('|');
     part(key.schema_digest);
     part(key.field);
-    if (!key.selection) { out.push_back('F'); return out; }
+    if (!key.selection) {
+        out.push_back('F');
+        return out;
+    }
     const auto &b = *key.selection;
     out.push_back('S');
     out.append(std::to_string(b.rank)).push_back('|');
@@ -66,8 +69,7 @@ void StepReadQueue::evict_for(std::size_t bytes) {
     }
 }
 
-amio_status_t StepReadQueue::store(const StepReadKey &key, const StepReadMetadata &metadata,
-                                   const void *payload, std::size_t bytes) {
+amio_status_t StepReadQueue::store(const StepReadKey &key, const StepReadMetadata &metadata, const void *payload, std::size_t bytes) {
     if (!valid(key, metadata)) return AMIO_ERR_SCHEMA_MISMATCH;
     if (!metadata.field_present) return AMIO_ERR_FIELD_NOT_PRESENT;
     if (bytes == 0 || bytes != metadata.payload_bytes || payload == nullptr) return AMIO_ERR_INVALID_INPUT;
@@ -90,8 +92,7 @@ amio_status_t StepReadQueue::store(const StepReadKey &key, const StepReadMetadat
     return AMIO_OK;
 }
 
-amio_status_t StepReadQueue::load(const StepReadKey &key, const StepReadMetadata &metadata,
-                                  std::vector<std::byte> &payload) {
+amio_status_t StepReadQueue::load(const StepReadKey &key, const StepReadMetadata &metadata, std::vector<std::byte> &payload) {
     if (!valid(key, metadata)) return AMIO_ERR_SCHEMA_MISMATCH;
     if (!metadata.field_present) return AMIO_ERR_FIELD_NOT_PRESENT;
     if (metadata.payload_bytes > byte_limit_) return AMIO_ERR_BUDGET_EXCEEDED;
@@ -107,10 +108,18 @@ amio_status_t StepReadQueue::load(const StepReadKey &key, const StepReadMetadata
 
 void StepReadQueue::clear() noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
-    entries_.clear(); lru_.clear(); bytes_used_ = 0;
+    entries_.clear();
+    lru_.clear();
+    bytes_used_ = 0;
 }
 
-std::size_t StepReadQueue::bytes_used() const noexcept { std::lock_guard<std::mutex> lock(mutex_); return bytes_used_; }
-std::size_t StepReadQueue::entry_count() const noexcept { std::lock_guard<std::mutex> lock(mutex_); return entries_.size(); }
+std::size_t StepReadQueue::bytes_used() const noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return bytes_used_;
+}
+std::size_t StepReadQueue::entry_count() const noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return entries_.size();
+}
 
-} // namespace amio::detail
+}  // namespace amio::detail

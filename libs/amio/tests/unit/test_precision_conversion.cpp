@@ -1,15 +1,14 @@
-#include "operators/precision_conversion.hpp"
-
 #include <cassert>
 #include <cmath>
 #include <limits>
 #include <vector>
 
+#include "operators/precision_conversion.hpp"
+
 using namespace amio::detail;
 
 int main() {
-    const std::vector<double> input{1.0, -0.0, std::numeric_limits<double>::denorm_min(),
-                                    std::numeric_limits<double>::infinity(),
+    const std::vector<double> input{1.0, -0.0, std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::infinity(),
                                     std::numeric_limits<double>::quiet_NaN()};
     PrecisionConversionPolicy policy;
     policy.absolute_tolerance = 1e-6;

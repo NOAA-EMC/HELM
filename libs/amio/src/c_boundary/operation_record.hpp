@@ -1,13 +1,13 @@
 #ifndef AMIO_SRC_C_BOUNDARY_OPERATION_RECORD_HPP
 #define AMIO_SRC_C_BOUNDARY_OPERATION_RECORD_HPP
 
-#include "amio/amio_errors.h"
-
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
+
+#include "amio/amio_errors.h"
 
 namespace amio::detail {
 
@@ -52,6 +52,6 @@ class OperationRecord {
     std::atomic<std::uint32_t> observer_references_{0};
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
-#endif // AMIO_SRC_C_BOUNDARY_OPERATION_RECORD_HPP
+#endif  // AMIO_SRC_C_BOUNDARY_OPERATION_RECORD_HPP

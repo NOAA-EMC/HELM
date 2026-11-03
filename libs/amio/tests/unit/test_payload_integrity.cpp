@@ -1,9 +1,9 @@
-#include "operators/payload_integrity.hpp"
-
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <string>
+
+#include "operators/payload_integrity.hpp"
 
 using namespace amio::detail;
 

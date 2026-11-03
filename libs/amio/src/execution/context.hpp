@@ -1,18 +1,19 @@
 #ifndef AMIO_SRC_EXECUTION_CONTEXT_HPP
 #define AMIO_SRC_EXECUTION_CONTEXT_HPP
 
-#include "amio/amio_errors.h"
-
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "amio/amio_errors.h"
+
 #ifdef AMIO_HAS_MPI
 #include <mpi.h>
+
 #include <halo/communicator.hpp>
 #endif
 
@@ -40,19 +41,33 @@ class ExecutionContext {
     ExecutionContext(const ExecutionContext &) = delete;
     ExecutionContext &operator=(const ExecutionContext &) = delete;
 
-    [[nodiscard]] const RoleConfiguration &roles() const noexcept { return roles_; }
-    [[nodiscard]] ProgressPolicy progress_policy() const noexcept { return progress_; }
+    [[nodiscard]] const RoleConfiguration &roles() const noexcept {
+        return roles_;
+    }
+    [[nodiscard]] ProgressPolicy progress_policy() const noexcept {
+        return progress_;
+    }
     /** Return the immutable, validated rank-role and producer-to-writer map. */
     [[nodiscard]] const RoleMap &role_map() const noexcept;
-    [[nodiscard]] std::uint32_t rank() const noexcept { return rank_; }
-    [[nodiscard]] std::uint32_t size() const noexcept { return roles_.rank_count; }
+    [[nodiscard]] std::uint32_t rank() const noexcept {
+        return rank_;
+    }
+    [[nodiscard]] std::uint32_t size() const noexcept {
+        return roles_.rank_count;
+    }
 #ifdef AMIO_HAS_MPI
     /** Return the parent ordering communicator used by existing collective paths. */
-    [[nodiscard]] MPI_Comm communicator() const noexcept { return parent_.handle(); }
+    [[nodiscard]] MPI_Comm communicator() const noexcept {
+        return parent_.handle();
+    }
     /** Return the context-owned communicator reserved for control messages. */
-    [[nodiscard]] MPI_Comm control_communicator() const noexcept { return control_.handle(); }
+    [[nodiscard]] MPI_Comm control_communicator() const noexcept {
+        return control_.handle();
+    }
     /** Return the context-owned communicator reserved for payload messages. */
-    [[nodiscard]] MPI_Comm data_communicator() const noexcept { return data_.handle(); }
+    [[nodiscard]] MPI_Comm data_communicator() const noexcept {
+        return data_.handle();
+    }
     /** Return the HALO-owned producer group, or MPI_COMM_NULL for service-only ranks. */
     [[nodiscard]] MPI_Comm producer_communicator() const noexcept {
         return producer_group_.has_value() ? producer_group_->handle() : MPI_COMM_NULL;
@@ -87,12 +102,13 @@ class ExecutionContext {
    private:
     ExecutionContext(RoleConfiguration roles, ProgressPolicy progress, std::uint32_t rank
 #ifdef AMIO_HAS_MPI
-                     , halo::Communicator parent, halo::Communicator control, halo::Communicator data,
-                     std::optional<halo::Communicator> producer_group, std::optional<halo::Communicator> writer_group,
-                     std::optional<halo::Communicator> consumer_group, std::optional<halo::Communicator> service_group
+                     ,
+                     halo::Communicator parent, halo::Communicator control, halo::Communicator data, std::optional<halo::Communicator> producer_group,
+                     std::optional<halo::Communicator> writer_group, std::optional<halo::Communicator> consumer_group,
+                     std::optional<halo::Communicator> service_group
 #endif
-                     , std::shared_ptr<const RoleMap> role_map
-                     );
+                     ,
+                     std::shared_ptr<const RoleMap> role_map);
 
     RoleConfiguration roles_;
     ProgressPolicy progress_;
@@ -112,9 +128,8 @@ class ExecutionContext {
 /** Compare bounded metadata against the storage root without allocating a second copy.
  * All context members must call in the same order with the same byte limit.
  */
-[[nodiscard]] amio_status_t compare_context_metadata(const ExecutionContext &context, std::string_view value,
-                                                      std::size_t max_bytes) noexcept;
+[[nodiscard]] amio_status_t compare_context_metadata(const ExecutionContext &context, std::string_view value, std::size_t max_bytes) noexcept;
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
-#endif // AMIO_SRC_EXECUTION_CONTEXT_HPP
+#endif  // AMIO_SRC_EXECUTION_CONTEXT_HPP

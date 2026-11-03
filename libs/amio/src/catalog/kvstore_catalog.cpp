@@ -9,7 +9,8 @@ namespace amio::detail {
 namespace {
 
 bool safe_key(std::string_view value) {
-    if (value.empty() || value.front() == '/' || value.find('\\') != std::string_view::npos || value.find('\0') != std::string_view::npos) return false;
+    if (value.empty() || value.front() == '/' || value.find('\\') != std::string_view::npos || value.find('\0') != std::string_view::npos)
+        return false;
     std::size_t at = 0;
     while (at <= value.size()) {
         const auto slash = value.find('/', at);
@@ -23,13 +24,14 @@ bool safe_key(std::string_view value) {
 
 bool safe_identity(std::string_view value) {
     if (value.empty() || value.size() > 128) return false;
-    for (const unsigned char c : value) if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) return false;
+    for (const unsigned char c : value)
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) return false;
     return true;
 }
 
 std::string identity(std::string_view uuid, std::string_view owner) {
-    return std::string("{\"format_version\":1,\"layout\":\"step_collection\",\"dataset_uuid\":\"") + std::string(uuid) +
-           "\",\"owner_token\":\"" + std::string(owner) + "\"}";
+    return std::string("{\"format_version\":1,\"layout\":\"step_collection\",\"dataset_uuid\":\"") + std::string(uuid) + "\",\"owner_token\":\"" +
+           std::string(owner) + "\"}";
 }
 
 std::string make_head(std::string_view uuid, std::uint64_t step, std::string_view commit) {
@@ -46,24 +48,32 @@ bool parse_head(std::string_view text, std::string_view uuid, std::string &commi
     std::uint64_t step = 0;
     const auto parsed = std::from_chars(text.data() + prefix.size(), text.data() + marker_at, step);
     (void)step;
-    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + marker_at || text.size() < marker_at + marker.size() + 2 || text.substr(text.size() - 2) != "\"}") return false;
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + marker_at || text.size() < marker_at + marker.size() + 2 ||
+        text.substr(text.size() - 2) != "\"}")
+        return false;
     commit.assign(text.substr(marker_at + marker.size(), text.size() - marker_at - marker.size() - 2));
     return safe_key(commit) && commit.rfind("commits/", 0) == 0;
 }
 
-} // namespace
+}  // namespace
 
 KvStoreCatalog::KvStoreCatalog(KvStore &store, std::string prefix, std::string dataset_uuid, std::string owner_token,
                                KvStoreCapabilities capabilities, bool external_exclusive_owner, CatalogLimits limits)
-    : store_(&store), prefix_(std::move(prefix)), uuid_(std::move(dataset_uuid)), owner_(std::move(owner_token)),
-      capabilities_(capabilities), external_exclusive_owner_(external_exclusive_owner), limits_(limits) {}
+    : store_(&store),
+      prefix_(std::move(prefix)),
+      uuid_(std::move(dataset_uuid)),
+      owner_(std::move(owner_token)),
+      capabilities_(capabilities),
+      external_exclusive_owner_(external_exclusive_owner),
+      limits_(limits) {}
 
 std::string KvStoreCatalog::key(std::string_view relative) const {
     return prefix_.empty() ? std::string(relative) : prefix_ + "/" + std::string(relative);
 }
 
 amio_status_t KvStoreCatalog::certify(PosixSyncLevel requested) const {
-    if (!store_ || !safe_key(prefix_.empty() ? std::string_view("collection") : std::string_view(prefix_)) || !safe_identity(uuid_) || !safe_identity(owner_)) {
+    if (!store_ || !safe_key(prefix_.empty() ? std::string_view("collection") : std::string_view(prefix_)) || !safe_identity(uuid_) ||
+        !safe_identity(owner_)) {
         return AMIO_ERR_INVALID_INPUT;
     }
     if (!capabilities_.atomic_single_key_replace || !capabilities_.fresh_read_after_write) return AMIO_ERR_UNSUPPORTED;
@@ -82,18 +92,26 @@ amio_status_t KvStoreCatalog::create_exclusive() {
         std::string existing;
         const auto read = store_->read(marker, existing, true);
         if (read == KvReadOutcome::Found) {
-            if (existing == contents) { created_ = true; return AMIO_OK; }
+            if (existing == contents) {
+                created_ = true;
+                return AMIO_OK;
+            }
             return AMIO_ERR_INVALID_POLICY;
         }
         if (read != KvReadOutcome::Missing) return AMIO_ERR_PUBLICATION_PENDING;
     }
-    const auto outcome = store_->write(marker, contents, capabilities_.atomic_create_if_absent ? KvWriteCondition::CreateOnly : KvWriteCondition::Replace);
-    if (outcome == KvWriteOutcome::Written) { created_ = true; return AMIO_OK; }
+    const auto outcome =
+        store_->write(marker, contents, capabilities_.atomic_create_if_absent ? KvWriteCondition::CreateOnly : KvWriteCondition::Replace);
+    if (outcome == KvWriteOutcome::Written) {
+        created_ = true;
+        return AMIO_OK;
+    }
     std::string observed;
     const auto read = store_->read(marker, observed, true);
     if (outcome == KvWriteOutcome::Unknown && read == KvReadOutcome::Found && observed == contents) {
         // In the no-CAS case this is safe only under the caller's declared external owner precondition.
-        created_ = true; return AMIO_OK;
+        created_ = true;
+        return AMIO_OK;
     }
     return outcome == KvWriteOutcome::Unknown || read == KvReadOutcome::Unknown ? AMIO_ERR_PUBLICATION_PENDING : AMIO_ERR_INVALID_POLICY;
 }
@@ -103,7 +121,8 @@ PublicationResult KvStoreCatalog::publish(CompletionRecord record, PosixSyncLeve
     if (certified != AMIO_OK) return {certified, PublicationState::Failed, {}};
     if (!created_ || record.dataset_uuid != uuid_) return {AMIO_ERR_INVALID_POLICY, PublicationState::Failed, {}};
     for (const auto &payload : record.payloads) {
-        if (!safe_key(payload.relative_path) || payload.relative_path.rfind("payloads/", 0) != 0) return {AMIO_ERR_INVALID_INPUT, PublicationState::Failed, {}};
+        if (!safe_key(payload.relative_path) || payload.relative_path.rfind("payloads/", 0) != 0)
+            return {AMIO_ERR_INVALID_INPUT, PublicationState::Failed, {}};
         std::uint64_t payload_bytes = 0;
         const auto read = store_->size(key(payload.relative_path), payload_bytes, true);
         if (read == KvReadOutcome::Unknown) return {AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, {}};
@@ -112,7 +131,8 @@ PublicationResult KvStoreCatalog::publish(CompletionRecord record, PosixSyncLeve
             return {AMIO_ERR_BACKEND_FAILURE, PublicationState::Failed, {}};
         }
     }
-    record.achieved_guarantee = requested == PosixSyncLevel::DirectorySync ? "directory_sync" : (requested == PosixSyncLevel::FileSync ? "file_sync" : "visibility");
+    record.achieved_guarantee =
+        requested == PosixSyncLevel::DirectorySync ? "directory_sync" : (requested == PosixSyncLevel::FileSync ? "file_sync" : "visibility");
     std::string encoded;
     const auto encode_status = encode_commit_document(record, encoded, limits_);
     if (encode_status != AMIO_OK) return {encode_status, PublicationState::Failed, {}};
@@ -121,10 +141,11 @@ PublicationResult KvStoreCatalog::publish(CompletionRecord record, PosixSyncLeve
         std::string existing;
         const auto read = store_->read(key(commit), existing, true);
         if (read == KvReadOutcome::Found && existing != encoded) return {AMIO_ERR_INVALID_POLICY, PublicationState::Failed, commit};
-        if (read == KvReadOutcome::Unknown || read == KvReadOutcome::Failed) return {AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, commit};
+        if (read == KvReadOutcome::Unknown || read == KvReadOutcome::Failed)
+            return {AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, commit};
     }
-    const auto commit_outcome = store_->write(key(commit), encoded,
-                                               capabilities_.atomic_create_if_absent ? KvWriteCondition::CreateOnly : KvWriteCondition::Replace);
+    const auto commit_outcome =
+        store_->write(key(commit), encoded, capabilities_.atomic_create_if_absent ? KvWriteCondition::CreateOnly : KvWriteCondition::Replace);
     if (commit_outcome != KvWriteOutcome::Written) {
         std::string observed;
         const auto read = store_->read(key(commit), observed, true);
@@ -149,7 +170,8 @@ PublicationResult KvStoreCatalog::reconcile(std::string_view relative_commit) co
     if (!safe_key(relative_commit) || relative_commit.rfind("commits/", 0) != 0) return {AMIO_ERR_INVALID_INPUT, PublicationState::Failed, {}};
     std::string head_value;
     const auto head_read = store_->read(key("head.json"), head_value, true);
-    if (head_read == KvReadOutcome::Unknown || head_read == KvReadOutcome::Failed) return {AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, std::string(relative_commit)};
+    if (head_read == KvReadOutcome::Unknown || head_read == KvReadOutcome::Failed)
+        return {AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, std::string(relative_commit)};
     if (head_read == KvReadOutcome::Missing) return {AMIO_ERR_STEP_FAILED, PublicationState::Failed, std::string(relative_commit)};
     std::string current;
     if (!parse_head(head_value, uuid_, current)) return {AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, std::string(relative_commit)};
@@ -171,4 +193,4 @@ PublicationResult KvStoreCatalog::reconcile(std::string_view relative_commit) co
     return {AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, std::string(relative_commit)};
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

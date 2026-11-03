@@ -103,7 +103,7 @@ struct BackpressureCfg {
     std::size_t high_watermark = 0;
     std::size_t queue_capacity = 1024;
     std::size_t prefetch_capacity = 1024; /**< Maximum background read-ahead tasks retained by the worker pool. */
-    std::size_t timeout_ms = 5000; /**< Maximum admission wait in milliseconds before rejecting a write. */
+    std::size_t timeout_ms = 5000;        /**< Maximum admission wait in milliseconds before rejecting a write. */
 };
 
 // CodecConfig -- lossless codec settings.
@@ -274,8 +274,7 @@ inline bool operator==(const PrefetchConfig &a, const PrefetchConfig &b) {
 
 inline bool operator==(const BackpressureCfg &a, const BackpressureCfg &b) {
     return a.low_watermark == b.low_watermark && a.high_watermark == b.high_watermark && a.queue_capacity == b.queue_capacity &&
-           a.prefetch_capacity == b.prefetch_capacity &&
-           a.timeout_ms == b.timeout_ms;
+           a.prefetch_capacity == b.prefetch_capacity && a.timeout_ms == b.timeout_ms;
 }
 
 inline bool operator==(const CodecConfig &a, const CodecConfig &b) {
@@ -287,14 +286,14 @@ inline bool operator==(const Config &a, const Config &b) {
            a.staging_timeout_ms == b.staging_timeout_ms && a.backpressure == b.backpressure && a.backend == b.backend && a.codec == b.codec &&
            a.io_ranks == b.io_ranks && a.evolution.enabled == b.evolution.enabled && a.evolution.version == b.evolution.version &&
            a.evolution.execution_mode == b.evolution.execution_mode && a.evolution.progress_mode == b.evolution.progress_mode &&
-           a.evolution.layout == b.evolution.layout &&
-           a.evolution.destination_backend == b.evolution.destination_backend && a.evolution.destination_path == b.evolution.destination_path &&
-           a.evolution.create_policy == b.evolution.create_policy && a.evolution.producers == b.evolution.producers &&
-           a.evolution.writers == b.evolution.writers && a.evolution.consumers == b.evolution.consumers &&
-           a.evolution.budgets.total_bytes == b.evolution.budgets.total_bytes &&
+           a.evolution.layout == b.evolution.layout && a.evolution.destination_backend == b.evolution.destination_backend &&
+           a.evolution.destination_path == b.evolution.destination_path && a.evolution.create_policy == b.evolution.create_policy &&
+           a.evolution.producers == b.evolution.producers && a.evolution.writers == b.evolution.writers &&
+           a.evolution.consumers == b.evolution.consumers && a.evolution.budgets.total_bytes == b.evolution.budgets.total_bytes &&
            a.evolution.budgets.staging_bytes == b.evolution.budgets.staging_bytes &&
            a.evolution.budgets.metadata_bytes == b.evolution.budgets.metadata_bytes &&
-           a.evolution.budgets.transport_bytes == b.evolution.budgets.transport_bytes && a.evolution.budgets.view_bytes == b.evolution.budgets.view_bytes &&
+           a.evolution.budgets.transport_bytes == b.evolution.budgets.transport_bytes &&
+           a.evolution.budgets.view_bytes == b.evolution.budgets.view_bytes &&
            a.evolution.budgets.control_reserve_bytes == b.evolution.budgets.control_reserve_bytes &&
            a.evolution.budgets.total_descriptors == b.evolution.budgets.total_descriptors &&
            a.evolution.budgets.control_reserve_descriptors == b.evolution.budgets.control_reserve_descriptors &&

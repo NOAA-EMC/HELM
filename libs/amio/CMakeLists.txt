@@ -89,15 +89,15 @@ endif()
 # single configure-time flow with FATAL_ERROR semantics, and task 1.3 declares the closure in the Spack recipe.
 # ####################################################################################################################################################
 
-# HELM micro-libraries - CONF (config parsing), HALO (MPI communicators), LOGS (diagnostics). All PRIVATE to amio_core.
-# When AMIO is built from this HELM checkout, build the sibling libraries as
-# CMake subprojects so a developer does not need to install them into a prefix
-# first. Packaged consumers and standalone source archives can opt out and use
-# the normal find_package path.
+# HELM micro-libraries - CONF (config parsing), HALO (MPI communicators), LOGS (diagnostics). All PRIVATE to amio_core. When AMIO is built from this
+# HELM checkout, build the sibling libraries as CMake subprojects so a developer does not need to install them into a prefix first. Packaged consumers
+# and standalone source archives can opt out and use the normal find_package path.
 option(AMIO_USE_HELM_SOURCE_LIBRARIES "Build CONF, HALO, and LOGS from this HELM checkout" ON)
 set(_amio_helm_lib_root "${CMAKE_CURRENT_SOURCE_DIR}/..")
-if(AMIO_USE_HELM_SOURCE_LIBRARIES AND EXISTS "${_amio_helm_lib_root}/conf/CMakeLists.txt" AND
-   EXISTS "${_amio_helm_lib_root}/halo/CMakeLists.txt" AND EXISTS "${_amio_helm_lib_root}/logs/CMakeLists.txt")
+if(AMIO_USE_HELM_SOURCE_LIBRARIES
+   AND EXISTS "${_amio_helm_lib_root}/conf/CMakeLists.txt"
+   AND EXISTS "${_amio_helm_lib_root}/halo/CMakeLists.txt"
+   AND EXISTS "${_amio_helm_lib_root}/logs/CMakeLists.txt")
     if(NOT TARGET HELM::CONF)
         set(CONF_BUILD_FORTRAN OFF CACHE BOOL "Build CONF's Fortran wrapper when embedded in AMIO")
         add_subdirectory("${_amio_helm_lib_root}/conf" "${CMAKE_CURRENT_BINARY_DIR}/helm-conf" EXCLUDE_FROM_ALL)
@@ -121,9 +121,8 @@ endif()
 # kokkos/mdspan - reference implementation of std::experimental::mdspan used for Memory_View.  Header-only; PRIVATE to amio_core.
 find_package(mdspan CONFIG QUIET)
 
-# Accelerator runtime discovery is independent of mdspan discovery. Kokkos is
-# optional and remains a private implementation dependency; device submission
-# stays disabled until an adapter is compiled and qualified for the runtime.
+# Accelerator runtime discovery is independent of mdspan discovery. Kokkos is optional and remains a private implementation dependency; device
+# submission stays disabled until an adapter is compiled and qualified for the runtime.
 include(AMIOMemoryBackend)
 amio_discover_memory_backend()
 
@@ -476,12 +475,12 @@ add_library(
     src/factory/backend_factory.cpp
     src/drivers/common/var_attributes.cpp)
 
-# Evolving engine modules are kept private and are discovered only beneath
-# their dedicated implementation directories. CONFIGURE_DEPENDS makes a newly
-# added source trigger CMake regeneration while avoiding references to files
-# that have not been implemented yet.
+# Evolving engine modules are kept private and are discovered only beneath their dedicated implementation directories. CONFIGURE_DEPENDS makes a newly
+# added source trigger CMake regeneration while avoiding references to files that have not been implemented yet.
 file(
-    GLOB AMIO_EVOLUTION_CORE_SOURCES CONFIGURE_DEPENDS
+    GLOB
+    AMIO_EVOLUTION_CORE_SOURCES
+    CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/schema/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/steps/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/catalog/*.cpp"
@@ -532,8 +531,7 @@ if(AMIO_MEMORY_BACKEND_TARGET)
     endif()
 endif()
 
-# Compile the concrete catalog bridge in feature-enabled builds. TensorStore
-# remains a private dependency; a host-only/NCZarr build never parses its
+# Compile the concrete catalog bridge in feature-enabled builds. TensorStore remains a private dependency; a host-only/NCZarr build never parses its
 # headers or advertises its catalog adapter.
 if(AMIO_HAS_TENSORSTORE)
     target_link_libraries(amio_core PRIVATE TensorStore::tensorstore)
@@ -548,14 +546,9 @@ endif()
 
 # HELM micro-libraries — PRIVATE so no header/symbol leaks to consumers (R7.2, R7.3, R7.4, R7.5, R7.6).
 target_link_libraries(amio_core PRIVATE HELM::CONF HELM::HALO HELM::LOGS)
-# The shared library has runtime/link-time dependencies on HELM and the
-# selected backend runtimes. Export them as LINK_ONLY requirements so
-# downstream consumers resolve the installed DSO closure without inheriting
-# private compile include directories or definitions.
-target_link_libraries(amio_core INTERFACE
-    "$<LINK_ONLY:HELM::CONF>"
-    "$<LINK_ONLY:HELM::HALO>"
-    "$<LINK_ONLY:HELM::LOGS>")
+# The shared library has runtime/link-time dependencies on HELM and the selected backend runtimes. Export them as LINK_ONLY requirements so downstream
+# consumers resolve the installed DSO closure without inheriting private compile include directories or definitions.
+target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:HELM::CONF>" "$<LINK_ONLY:HELM::HALO>" "$<LINK_ONLY:HELM::LOGS>")
 if(MPI_CXX_FOUND)
     target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:MPI::MPI_CXX>")
 endif()

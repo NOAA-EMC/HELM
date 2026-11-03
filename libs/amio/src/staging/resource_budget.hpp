@@ -47,7 +47,9 @@ class ResourceBudget {
     [[nodiscard]] Snapshot snapshot() const noexcept;
     /** Return peak reservations per resource counter since construction. */
     [[nodiscard]] Snapshot high_water() const noexcept;
-    [[nodiscard]] const Limits &limits() const noexcept { return limits_; }
+    [[nodiscard]] const Limits &limits() const noexcept {
+        return limits_;
+    }
 
    private:
     struct Record {
@@ -64,6 +66,6 @@ class ResourceBudget {
     Snapshot high_water_;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
-#endif // AMIO_SRC_STAGING_RESOURCE_BUDGET_HPP
+#endif  // AMIO_SRC_STAGING_RESOURCE_BUDGET_HPP

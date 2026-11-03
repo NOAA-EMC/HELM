@@ -1,11 +1,11 @@
-#include "amio/amio_evolution.h"
-
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <string>
+
+#include "amio/amio_evolution.h"
 
 #ifdef AMIO_TEST_HAS_MPI
 #include <mpi.h>
@@ -18,7 +18,7 @@ void ok(amio_status_t status) {
     if (status != AMIO_OK) std::fprintf(stderr, "evolution GRIB2 call %u returned %d\n", call, static_cast<int>(status));
     assert(status == AMIO_OK);
 }
-}
+}  // namespace
 
 int main() {
 #ifdef AMIO_TEST_HAS_MPI
@@ -91,8 +91,8 @@ int main() {
     const int64_t parameter = 0;
     const int64_t surface_type = 100;
     const int64_t level = 50000;
-    const char *attribute_names[] = {"grib2.parameter_category", "grib2.parameter_number",
-                                     "grib2.type_of_first_fixed_surface", "grib2.scaled_value_first_surface"};
+    const char *attribute_names[] = {"grib2.parameter_category", "grib2.parameter_number", "grib2.type_of_first_fixed_surface",
+                                     "grib2.scaled_value_first_surface"};
     const int64_t attribute_values[] = {category, parameter, surface_type, level};
     amio_attribute_descriptor_t attributes[4]{};
     for (std::size_t i = 0; i < 4; ++i) {
@@ -152,8 +152,7 @@ int main() {
     assert(summary.present_field_count == 1);
     std::array<float, 6> readback{};
     std::size_t required = 0;
-    ok(amio_read_step_field(dataset, 3, field_name, sizeof(field_name) - 1, nullptr,
-                            readback.data(), sizeof(readback), &required));
+    ok(amio_read_step_field(dataset, 3, field_name, sizeof(field_name) - 1, nullptr, readback.data(), sizeof(readback), &required));
     assert(required == sizeof(values));
     assert(readback == values);
 

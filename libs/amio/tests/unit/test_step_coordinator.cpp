@@ -1,10 +1,3 @@
-#include "catalog/collection_reader.hpp"
-#include "catalog/posix_catalog.hpp"
-#include "execution/direct_execution.hpp"
-#include "schema/schema.hpp"
-#include "staging/resource_budget.hpp"
-#include "steps/step_coordinator.hpp"
-
 #include <cassert>
 #include <cstdint>
 #include <filesystem>
@@ -13,6 +6,13 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "catalog/collection_reader.hpp"
+#include "catalog/posix_catalog.hpp"
+#include "execution/direct_execution.hpp"
+#include "schema/schema.hpp"
+#include "staging/resource_budget.hpp"
+#include "steps/step_coordinator.hpp"
 
 using namespace amio::detail;
 
@@ -118,7 +118,7 @@ void test_required_and_optional_fields_and_duplicate_contributions() {
     std::vector<float> values(4, 2.0f);
     assert(coordinator.put("pressure", values.data(), values.size() * sizeof(float)).status == AMIO_OK);
     assert(coordinator.put("not-in-schema", values.data(), values.size() * sizeof(float)).status == AMIO_ERR_INVALID_INPUT);
-    assert(coordinator.end_step() == AMIO_OK); // optional temperature may be absent
+    assert(coordinator.end_step() == AMIO_OK);  // optional temperature may be absent
     assert(coordinator.mark_payload_complete() == AMIO_OK);
     assert(coordinator.mark_publishing() == AMIO_OK);
     assert(coordinator.mark_publication_visible() == AMIO_OK);
@@ -321,8 +321,7 @@ void test_direct_execution_votes_after_payloads_and_publishes_authoritative_head
                 const auto path = std::string("payloads/steps/1/") + encode_field_path(field) + ".bin";
                 const auto status = catalog.write_payload(path, contribution.bytes.data(), contribution.bytes.size());
                 if (status != AMIO_OK) return status;
-                completion.payloads.push_back({field, path, contribution.bytes.size(), 0,
-                                               contribution.region.offsets, contribution.region.extents});
+                completion.payloads.push_back({field, path, contribution.bytes.size(), 0, contribution.region.offsets, contribution.region.extents});
             }
             return AMIO_OK;
         },
@@ -353,8 +352,7 @@ void test_direct_execution_votes_after_payloads_and_publishes_authoritative_head
                 const auto path = std::string("payloads/steps/2/") + encode_field_path(field) + ".bin";
                 const auto write_status = catalog.write_payload(path, contribution.bytes.data(), contribution.bytes.size());
                 if (write_status != AMIO_OK) return write_status;
-                completion.payloads.push_back({field, path, contribution.bytes.size(), 0,
-                                               contribution.region.offsets, contribution.region.extents});
+                completion.payloads.push_back({field, path, contribution.bytes.size(), 0, contribution.region.offsets, contribution.region.extents});
             }
             return AMIO_OK;
         },
@@ -388,8 +386,7 @@ void test_direct_execution_fails_without_publishing_when_a_writer_vote_fails() {
     CompletionRecord record;
     amio_status_t voted_status = AMIO_OK;
     const auto result = direct.publish(
-        coordinator, std::move(record),
-        [](const auto &, CompletionRecord &) -> amio_status_t { return AMIO_ERR_BACKEND_FAILURE; },
+        coordinator, std::move(record), [](const auto &, CompletionRecord &) -> amio_status_t { return AMIO_ERR_BACKEND_FAILURE; },
         [&](amio_status_t local_status) {
             voted_status = local_status;
             return local_status;
@@ -401,7 +398,7 @@ void test_direct_execution_fails_without_publishing_when_a_writer_vote_fails() {
     std::filesystem::remove_all(root, ec);
 }
 
-} // namespace
+}  // namespace
 
 int main() {
     test_step_lifecycle_and_source_release_are_distinct_from_publication();

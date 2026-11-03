@@ -4,9 +4,9 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <mutex>
 #include <new>
 #include <stdexcept>
-#include <mutex>
 #include <unordered_map>
 #include <utility>
 
@@ -24,13 +24,12 @@ DatasetOwners &dataset_owners() {
 }
 
 bool active(StepState state) noexcept {
-    return state == StepState::Open || state == StepState::Sealed || state == StepState::Transferring ||
-           state == StepState::PayloadReady || state == StepState::Publishing || state == StepState::Reconciling;
+    return state == StepState::Open || state == StepState::Sealed || state == StepState::Transferring || state == StepState::PayloadReady ||
+           state == StepState::Publishing || state == StepState::Reconciling;
 }
-} // namespace
+}  // namespace
 
-StepCoordinator::StepCoordinator(std::string dataset_uuid, ResourceBudget &budget)
-    : dataset_uuid_(std::move(dataset_uuid)), budget_(budget) {
+StepCoordinator::StepCoordinator(std::string dataset_uuid, ResourceBudget &budget) : dataset_uuid_(std::move(dataset_uuid)), budget_(budget) {
     if (dataset_uuid_.empty()) throw std::invalid_argument("dataset UUID cannot be empty");
     auto &registry = dataset_owners();
     std::lock_guard<std::mutex> lock(registry.mutex);
@@ -68,8 +67,8 @@ amio_status_t StepCoordinator::begin_step(const StepBeginRequest &request) {
     if (!std::isfinite(request.model_time) || request.snapshot_descriptors == 0) return AMIO_ERR_INVALID_POLICY;
     const auto schema = schemas_.find(request.schema_digest);
     if (schema == schemas_.end()) return AMIO_ERR_SCHEMA_MISMATCH;
-    const auto plan_status = plan_.configure(*schema->second, request.contributions, request.snapshot_bytes,
-                                             request.empty_contributor, request.defer_required_field_validation);
+    const auto plan_status = plan_.configure(*schema->second, request.contributions, request.snapshot_bytes, request.empty_contributor,
+                                             request.defer_required_field_validation);
     if (plan_status != AMIO_OK) return plan_status;
     std::shared_ptr<OperationRecord> completion;
     try {
@@ -105,8 +104,8 @@ StepPutResult StepCoordinator::put(const std::string &variable_name, const void 
     }
 }
 
-StepPutResult StepCoordinator::put_memory(const std::string &variable_name, const MemoryDescriptor &descriptor,
-                                          const void *source, std::size_t bytes) {
+StepPutResult StepCoordinator::put_memory(const std::string &variable_name, const MemoryDescriptor &descriptor, const void *source,
+                                          std::size_t bytes) {
     const auto descriptor_status = validate_memory_descriptor(descriptor, bytes);
     if (descriptor_status != AMIO_OK) return {descriptor_status};
     const auto valid = validate_put(variable_name, bytes);
@@ -179,7 +178,8 @@ amio_status_t StepCoordinator::end_step() {
 }
 
 amio_status_t StepCoordinator::mark_payload_complete() {
-    if (state_ != StepState::Sealed && state_ != StepState::Transferring) return state_ == StepState::Failed ? AMIO_ERR_STEP_FAILED : AMIO_ERR_INVALID_POLICY;
+    if (state_ != StepState::Sealed && state_ != StepState::Transferring)
+        return state_ == StepState::Failed ? AMIO_ERR_STEP_FAILED : AMIO_ERR_INVALID_POLICY;
     for (auto &[id, operation] : operations_) {
         (void)id;
         if (operation->snapshot().outcome == OperationOutcome::Pending) operation->mark(OperationMilestone::PayloadComplete);
@@ -202,7 +202,8 @@ amio_status_t StepCoordinator::mark_reconciling() {
 }
 
 amio_status_t StepCoordinator::mark_publication_visible(bool storage_synced) {
-    if (state_ != StepState::Publishing && state_ != StepState::Reconciling) return state_ == StepState::Failed ? AMIO_ERR_STEP_FAILED : AMIO_ERR_INVALID_POLICY;
+    if (state_ != StepState::Publishing && state_ != StepState::Reconciling)
+        return state_ == StepState::Failed ? AMIO_ERR_STEP_FAILED : AMIO_ERR_INVALID_POLICY;
     for (auto &[id, operation] : operations_) {
         (void)id;
         if (operation->snapshot().outcome == OperationOutcome::Pending) {
@@ -223,7 +224,8 @@ amio_status_t StepCoordinator::mark_publication_visible(bool storage_synced) {
 }
 
 amio_status_t StepCoordinator::fail_publication(amio_status_t error) {
-    if (state_ != StepState::Publishing && state_ != StepState::Reconciling) return state_ == StepState::Failed ? AMIO_ERR_STEP_FAILED : AMIO_ERR_INVALID_POLICY;
+    if (state_ != StepState::Publishing && state_ != StepState::Reconciling)
+        return state_ == StepState::Failed ? AMIO_ERR_STEP_FAILED : AMIO_ERR_INVALID_POLICY;
     return fail_step(error == AMIO_OK ? AMIO_ERR_BACKEND_FAILURE : error);
 }
 
@@ -287,4 +289,4 @@ std::uint64_t StepCoordinator::add_operation() {
     return id;
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

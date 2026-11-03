@@ -1,5 +1,3 @@
-#include "drivers/zarr/zarr_steps.hpp"
-
 #include <array>
 #include <cassert>
 #include <cstddef>
@@ -12,6 +10,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "drivers/zarr/zarr_steps.hpp"
 
 using namespace amio::detail;
 
@@ -41,24 +41,24 @@ int main() {
     assert(layout.step_root.ends_with("/steps/00000000000000000012"));
     assert(layout.array_paths.size() == 2);
     assert(layout.array_paths[0].find("/fields/") != std::string::npos);
-    assert(layout.array_paths[0] != layout.array_paths[1]); // opaque encoded names cannot collide
+    assert(layout.array_paths[0] != layout.array_paths[1]);  // opaque encoded names cannot collide
     assert(layout.array_paths[1].find("..") == std::string::npos);
 
     std::map<std::string, std::vector<std::byte>, std::less<>> payloads;
     payloads.emplace("temperature", std::vector<std::byte>(2 * 3 * sizeof(float)));
-    assert(validate_zarr_step_payloads(schema, payloads, error)); // optional omission is valid
+    assert(validate_zarr_step_payloads(schema, payloads, error));  // optional omission is valid
 
     payloads.clear();
     payloads.emplace("optional tendency", std::vector<std::byte>(3 * sizeof(std::int16_t)));
-    assert(!validate_zarr_step_payloads(schema, payloads, error)); // required omission
+    assert(!validate_zarr_step_payloads(schema, payloads, error));  // required omission
 
     payloads.clear();
     payloads.emplace("temperature", std::vector<std::byte>(sizeof(float)));
-    assert(!validate_zarr_step_payloads(schema, payloads, error)); // byte/shape mismatch
+    assert(!validate_zarr_step_payloads(schema, payloads, error));  // byte/shape mismatch
 
     payloads["temperature"].resize(2 * 3 * sizeof(float));
     payloads.emplace("undeclared", std::vector<std::byte>(sizeof(float)));
-    assert(!validate_zarr_step_payloads(schema, payloads, error)); // undeclared field
+    assert(!validate_zarr_step_payloads(schema, payloads, error));  // undeclared field
 
 #ifdef AMIO_HAS_TENSORSTORE
     payloads.clear();
@@ -83,7 +83,7 @@ int main() {
     std::map<std::string, ZarrRegionView, std::less<>> regions;
     regions.emplace("temperature", ZarrRegionView{{0, 0}, {2, 3}, payloads.at("temperature")});
     assert(!write_zarr_step_regions(root, "dataset-zarr-001", 12, schema, invalid_shards, regions, error));
-    assert(!write_zarr_step(root, "dataset-zarr-001", 12, schema, payloads, error)); // immutable step collision
+    assert(!write_zarr_step(root, "dataset-zarr-001", 12, schema, payloads, error));  // immutable step collision
     std::filesystem::remove_all(root);
 #endif
 }

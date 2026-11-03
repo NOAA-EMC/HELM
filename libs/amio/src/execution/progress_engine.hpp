@@ -1,8 +1,6 @@
 #ifndef AMIO_SRC_EXECUTION_PROGRESS_ENGINE_HPP
 #define AMIO_SRC_EXECUTION_PROGRESS_ENGINE_HPP
 
-#include "execution/context.hpp"
-
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -11,13 +9,15 @@
 #include <mutex>
 #include <thread>
 
+#include "execution/context.hpp"
+
 namespace amio::detail {
 
 /** Bounded progress queue: caller policy runs callbacks only from progress(); background
  * policy runs them on one worker after MPI_THREAD_MULTIPLE has been validated.
  */
 class ProgressEngine {
-public:
+   public:
     using Callback = std::function<amio_status_t()>;
     ProgressEngine(ProgressPolicy policy, std::size_t queue_capacity, int thread_level);
     ProgressEngine(const ProgressEngine &) = delete;
@@ -29,7 +29,7 @@ public:
     [[nodiscard]] amio_status_t close(std::chrono::milliseconds timeout);
     [[nodiscard]] std::size_t pending() const noexcept;
 
-private:
+   private:
     void background_loop() noexcept;
     amio_status_t run_one(Callback callback) noexcept;
     ProgressPolicy policy_;
@@ -45,6 +45,6 @@ private:
     amio_status_t first_error_ = AMIO_OK;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

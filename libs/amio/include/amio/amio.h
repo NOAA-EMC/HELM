@@ -28,10 +28,10 @@
 #include <stdint.h>
 
 #include "amio/amio_errors.h"
+#include "amio/amio_evolution.h"
 #include "amio/amio_export.h"
 #include "amio/amio_mdspan_fwd.h"
 #include "amio/amio_types.h"
-#include "amio/amio_evolution.h"
 
 #ifdef __cplusplus
 extern "C" {

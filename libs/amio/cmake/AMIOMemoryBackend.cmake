@@ -1,7 +1,6 @@
 include_guard(GLOBAL)
 
-# Kokkos is a runtime provider; mdspan alone is only a view utility and never
-# enables device-pointer submission. Keep the target private to libamio.
+# Kokkos is a runtime provider; mdspan alone is only a view utility and never enables device-pointer submission. Keep the target private to libamio.
 function(amio_discover_memory_backend)
     find_package(Kokkos CONFIG QUIET)
     if(Kokkos_FOUND AND TARGET Kokkos::kokkos)

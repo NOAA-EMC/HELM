@@ -1,10 +1,10 @@
-#include "catalog/tensorstore_kvstore.hpp"
-
-#include <cassert>
 #include <barrier>
+#include <cassert>
 #include <filesystem>
 #include <string>
 #include <thread>
+
+#include "catalog/tensorstore_kvstore.hpp"
 
 int main() {
     using namespace amio::detail;

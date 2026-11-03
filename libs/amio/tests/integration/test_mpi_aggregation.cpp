@@ -1,22 +1,23 @@
-#include "execution/context.hpp"
+#include "drivers/grib2/grib2_steps.hpp"
 #include "execution/aggregated_execution.hpp"
+#include "execution/context.hpp"
 #include "execution/credit_window.hpp"
 #include "execution/mpi_transport.hpp"
 #include "execution/role_map.hpp"
 #include "workers/comm_split.hpp"
 #include "workers/worker_pool.hpp"
-#include "drivers/grib2/grib2_steps.hpp"
 #ifdef AMIO_TEST_NATIVE_NETCDF
+#include <netcdf.h>
+
 #include "drivers/netcdf/netcdf_driver.hpp"
 #include "schema/schema.hpp"
 #include "schema/schema_wire_buffer.hpp"
-#include <netcdf.h>
 #endif
 
 #include <mpi.h>
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstdint>
 #include <cstring>
@@ -29,7 +30,9 @@ using namespace amio::detail;
 
 namespace {
 
-void require(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
+void require(bool ok, const char *message) {
+    if (!ok) throw std::runtime_error(message);
+}
 
 void test_role_and_progress_rejections() {
     RoleConfiguration one_rank;
@@ -37,8 +40,7 @@ void test_role_and_progress_rejections() {
     one_rank.rank_count = 1;
     one_rank.producers = {0};
     require(validate_roles(one_rank) == AMIO_ERR_INVALID_POLICY, "one-rank aggregation must be rejected");
-    require(validate_progress_support(ProgressPolicy::Background, 2) == AMIO_ERR_THREADING_UNSUPPORTED,
-            "background MPI requires MULTIPLE");
+    require(validate_progress_support(ProgressPolicy::Background, 2) == AMIO_ERR_THREADING_UNSUPPORTED, "background MPI requires MULTIPLE");
 }
 
 void test_destination_region_chunks() {
@@ -56,8 +58,7 @@ void test_destination_region_chunks() {
     auto sink = [&](const DestinationRegionChunk &region, std::span<const std::byte> part) {
         require(region.dimension_count == 2 && region.extents[0] == 1 && region.extents[1] == 2 && part.size() == 8,
                 "fragment is divided into bounded destination rows");
-        require(region.offsets[0] == 7 + rows && region.offsets[1] == (rows == 0 ? 12 : 11) &&
-                    part.data() == bytes.data() + 8 * rows,
+        require(region.offsets[0] == 7 + rows && region.offsets[1] == (rows == 0 ? 12 : 11) && part.data() == bytes.data() + 8 * rows,
                 "each destination row preserves its region and byte offset");
         ++rows;
         return AMIO_OK;
@@ -77,14 +78,15 @@ void test_destination_region_chunks() {
     frame.extents[0] = 0;
     frame.contribution_bytes = 0;
     frame.payload_bytes = 0;
-    require(visit_destination_regions(frame, 4, {}, [&](const DestinationRegionChunk &region, std::span<const std::byte> part) {
-                require(region.extents[0] == 0 && part.empty(), "empty contribution remains an empty destination region");
-                return AMIO_OK;
-            }) == AMIO_OK,
+    require(visit_destination_regions(frame, 4, {},
+                                      [&](const DestinationRegionChunk &region, std::span<const std::byte> part) {
+                                          require(region.extents[0] == 0 && part.empty(), "empty contribution remains an empty destination region");
+                                          return AMIO_OK;
+                                      }) == AMIO_OK,
             "empty contributions participate without inventing payload");
 }
 
-} // namespace
+}  // namespace
 
 int main(int argc, char **argv) {
     int provided = MPI_THREAD_SINGLE;
@@ -96,28 +98,25 @@ int main(int argc, char **argv) {
     try {
         IOCommunicator default_communicator;
         CommConfig default_config;
-        require(split_communicator(default_config, rank, default_communicator) == AMIO_OK &&
-                    default_communicator.rank() == rank && default_communicator.size() == size,
+        require(split_communicator(default_config, rank, default_communicator) == AMIO_OK && default_communicator.rank() == rank &&
+                    default_communicator.size() == size,
                 "default I/O communicator reports the parent rank and size");
         MPI_Comm parent_subset = MPI_COMM_NULL;
-        require(MPI_Comm_split(MPI_COMM_WORLD, rank % 2, rank, &parent_subset) == MPI_SUCCESS,
-                "create caller parent communicator");
+        require(MPI_Comm_split(MPI_COMM_WORLD, rank % 2, rank, &parent_subset) == MPI_SUCCESS, "create caller parent communicator");
         int subset_rank = -1, subset_size = 0;
-        require(MPI_Comm_rank(parent_subset, &subset_rank) == MPI_SUCCESS &&
-                    MPI_Comm_size(parent_subset, &subset_size) == MPI_SUCCESS,
+        require(MPI_Comm_rank(parent_subset, &subset_rank) == MPI_SUCCESS && MPI_Comm_size(parent_subset, &subset_size) == MPI_SUCCESS,
                 "query caller parent communicator");
         g_amio_parent_comm = parent_subset;
         IOCommunicator subset_communicator;
-        require(split_communicator(default_config, rank, subset_communicator) == AMIO_OK &&
-                    subset_communicator.rank() == subset_rank && subset_communicator.size() == subset_size,
+        require(split_communicator(default_config, rank, subset_communicator) == AMIO_OK && subset_communicator.rank() == subset_rank &&
+                    subset_communicator.size() == subset_size,
                 "default I/O communicator reports custom parent rank and size");
         IOCommunicator copied_communicator = subset_communicator;
         g_amio_parent_comm = MPI_COMM_WORLD;
-        require(subset_communicator.handle() == parent_subset,
-                "default I/O handle remains bound to its initialization parent");
-        require(copied_communicator.handle() == parent_subset && copied_communicator.rank() == subset_rank &&
-                    copied_communicator.size() == subset_size,
-                "copied I/O communicator retains its parent details");
+        require(subset_communicator.handle() == parent_subset, "default I/O handle remains bound to its initialization parent");
+        require(
+            copied_communicator.handle() == parent_subset && copied_communicator.rank() == subset_rank && copied_communicator.size() == subset_size,
+            "copied I/O communicator retains its parent details");
         require(MPI_Comm_free(&parent_subset) == MPI_SUCCESS, "release caller parent communicator");
         require(subset_communicator.rank() == subset_rank && subset_communicator.size() == subset_size,
                 "communicator rank and size remain cached without later MPI calls");
@@ -144,15 +143,12 @@ int main(int argc, char **argv) {
                         comparison == MPI_IDENT && worker_configuration.io_comm.size() == 1,
                     "writer workers use the context storage communicator");
         } else {
-            require(worker_binding == AMIO_ERR_INVALID_POLICY && !worker_configuration.io_comm.valid,
-                    "producer roles cannot bind storage workers");
+            require(worker_binding == AMIO_ERR_INVALID_POLICY && !worker_configuration.io_comm.valid, "producer roles cannot bind storage workers");
         }
         std::string metadata(9000, 'x');
-        require(compare_context_metadata(*context, metadata, 10000) == AMIO_OK,
-                "metadata agreement uses nonzero storage root across chunks");
+        require(compare_context_metadata(*context, metadata, 10000) == AMIO_OK, "metadata agreement uses nonzero storage root across chunks");
         if (rank == 0) metadata[5000] = 'y';
-        require(compare_context_metadata(*context, metadata, 10000) == AMIO_ERR_SCHEMA_MISMATCH,
-                "metadata disagreement is reported to all ranks");
+        require(compare_context_metadata(*context, metadata, 10000) == AMIO_ERR_SCHEMA_MISMATCH, "metadata disagreement is reported to all ranks");
         if (rank == 0) metadata.resize(1);
         require(compare_context_metadata(*context, metadata, 10000) == AMIO_ERR_SCHEMA_MISMATCH,
                 "different metadata lengths are reported without out-of-bounds reads");
@@ -161,23 +157,18 @@ int main(int argc, char **argv) {
         if (rank < 3) {
             int producer_group_size = 0;
             require(context->producer_communicator() != MPI_COMM_NULL &&
-                        MPI_Comm_size(context->producer_communicator(), &producer_group_size) == MPI_SUCCESS &&
-                        producer_group_size == 3,
+                        MPI_Comm_size(context->producer_communicator(), &producer_group_size) == MPI_SUCCESS && producer_group_size == 3,
                     "producer ranks share a HALO-owned producer communicator");
             require(context->writer_communicator() == MPI_COMM_NULL && !context->can_open_storage(),
                     "producer ranks have no storage communicator or open permission");
-            require(context->service_communicator() == MPI_COMM_NULL,
-                    "producer ranks are excluded from the service-only communicator");
+            require(context->service_communicator() == MPI_COMM_NULL, "producer ranks are excluded from the service-only communicator");
         } else {
             int writer_group_size = 0;
             int service_group_size = 0;
-            require(context->producer_communicator() == MPI_COMM_NULL &&
-                        context->writer_communicator() != MPI_COMM_NULL &&
-                        MPI_Comm_size(context->writer_communicator(), &writer_group_size) == MPI_SUCCESS &&
-                        writer_group_size == 1 && context->can_open_storage() &&
-                        context->service_communicator() != MPI_COMM_NULL &&
-                        MPI_Comm_size(context->service_communicator(), &service_group_size) == MPI_SUCCESS &&
-                        service_group_size == 1,
+            require(context->producer_communicator() == MPI_COMM_NULL && context->writer_communicator() != MPI_COMM_NULL &&
+                        MPI_Comm_size(context->writer_communicator(), &writer_group_size) == MPI_SUCCESS && writer_group_size == 1 &&
+                        context->can_open_storage() && context->service_communicator() != MPI_COMM_NULL &&
+                        MPI_Comm_size(context->service_communicator(), &service_group_size) == MPI_SUCCESS && service_group_size == 1,
                     "service writer owns the only storage-opening communicator");
         }
 
@@ -217,8 +208,7 @@ int main(int argc, char **argv) {
         for (int dataset = 0; dataset < 3; ++dataset) {
             validation.expected_step_id = static_cast<std::uint64_t>(dataset);
             if (rank < 3) {
-                const std::array<std::uint8_t, 10> bytes{static_cast<std::uint8_t>(dataset), static_cast<std::uint8_t>(rank), 2, 3, 4,
-                                                         5, 6, 7, 8, 9};
+                const std::array<std::uint8_t, 10> bytes{static_cast<std::uint8_t>(dataset), static_cast<std::uint8_t>(rank), 2, 3, 4, 5, 6, 7, 8, 9};
                 const std::uint32_t fragment_count = rank == 2 ? 1 : 3;
                 TransportEnvelope envelope;
                 envelope.context_epoch = validation.expected_epoch;
@@ -239,33 +229,34 @@ int main(int argc, char **argv) {
                 std::array<std::uint32_t, 3> observed{};
                 std::array<std::uint64_t, 3> observed_bytes{};
                 std::array<std::uint8_t, 20> destination{};
-                const auto status = aggregation.receive_round(validation,
-                    [&](const TransportEnvelope &envelope, std::span<const std::byte> chunk) {
-                        const auto producer = envelope.producer_rank;
-                        require(producer < observed.size(), "round only contains configured producers");
-                        if (dataset == 2) {
-                            require(false, "duplicate contribution sequence is rejected before the sink");
-                        }
-                        require(envelope.step_id == static_cast<std::uint64_t>(dataset) &&
-                                    envelope.fragment_index == observed[producer],
-                                "dataset and fragment order");
-                        require(envelope.fragment_offset == observed_bytes[producer] && chunk.size() <= 4,
-                                "writer receives ordered bounded destination chunks");
-                        if (producer == 2) require(chunk.empty(), "empty producer sends an explicit empty chunk");
-                        else require(chunk.size() == std::min<std::size_t>(4, 10 - observed_bytes[producer]), "chunk payload length");
-                        require(visit_destination_regions(envelope, 1, chunk,
-                            [&](const DestinationRegionChunk &region, std::span<const std::byte> part) {
-                                require(region.dimension_count == 1 && region.offsets[0] <= destination.size() &&
-                                            part.size() <= destination.size() - region.offsets[0],
-                                        "forwarded region fits the destination");
-                                for (std::size_t i = 0; i < part.size(); ++i)
-                                    destination[region.offsets[0] + i] = std::to_integer<std::uint8_t>(part[i]);
-                                return AMIO_OK;
-                            }) == AMIO_OK, "forwarded fragment maps to bounded destination regions");
-                        ++observed[producer];
-                        observed_bytes[producer] += chunk.size();
-                        return AMIO_OK;
-                    });
+                const auto status = aggregation.receive_round(validation, [&](const TransportEnvelope &envelope, std::span<const std::byte> chunk) {
+                    const auto producer = envelope.producer_rank;
+                    require(producer < observed.size(), "round only contains configured producers");
+                    if (dataset == 2) {
+                        require(false, "duplicate contribution sequence is rejected before the sink");
+                    }
+                    require(envelope.step_id == static_cast<std::uint64_t>(dataset) && envelope.fragment_index == observed[producer],
+                            "dataset and fragment order");
+                    require(envelope.fragment_offset == observed_bytes[producer] && chunk.size() <= 4,
+                            "writer receives ordered bounded destination chunks");
+                    if (producer == 2)
+                        require(chunk.empty(), "empty producer sends an explicit empty chunk");
+                    else
+                        require(chunk.size() == std::min<std::size_t>(4, 10 - observed_bytes[producer]), "chunk payload length");
+                    require(visit_destination_regions(envelope, 1, chunk,
+                                                      [&](const DestinationRegionChunk &region, std::span<const std::byte> part) {
+                                                          require(region.dimension_count == 1 && region.offsets[0] <= destination.size() &&
+                                                                      part.size() <= destination.size() - region.offsets[0],
+                                                                  "forwarded region fits the destination");
+                                                          for (std::size_t i = 0; i < part.size(); ++i)
+                                                              destination[region.offsets[0] + i] = std::to_integer<std::uint8_t>(part[i]);
+                                                          return AMIO_OK;
+                                                      }) == AMIO_OK,
+                            "forwarded fragment maps to bounded destination regions");
+                    ++observed[producer];
+                    observed_bytes[producer] += chunk.size();
+                    return AMIO_OK;
+                });
                 if (dataset == 2) {
                     require(status == AMIO_ERR_INVALID_POLICY && observed == std::array<std::uint32_t, 3>{},
                             "round drains every duplicate sequence without invoking the sink");
@@ -274,8 +265,7 @@ int main(int argc, char **argv) {
                             "writer consumes all canonical contributions before releasing credits");
                     require(observed_bytes == std::array<std::uint64_t, 3>{10, 10, 0}, "contribution byte totals are preserved");
                     for (std::size_t producer = 0; producer < 2; ++producer) {
-                        require(destination[producer * 10] == static_cast<std::uint8_t>(dataset) &&
-                                    destination[producer * 10 + 1] == producer,
+                        require(destination[producer * 10] == static_cast<std::uint8_t>(dataset) && destination[producer * 10 + 1] == producer,
                                 "destination values preserve producer and dataset identity");
                         for (std::size_t i = 2; i < 10; ++i)
                             require(destination[producer * 10 + i] == i, "destination values preserve the scientific payload");
@@ -284,13 +274,12 @@ int main(int argc, char **argv) {
             }
         }
         const auto transport_usage = transport_credits.snapshot();
-        require(transport_usage.data_bytes == 0 && transport_usage.data_descriptors == 0 &&
-                    transport_usage.control_bytes == 0 && transport_usage.control_descriptors == 0,
+        require(transport_usage.data_bytes == 0 && transport_usage.data_descriptors == 0 && transport_usage.control_bytes == 0 &&
+                    transport_usage.control_descriptors == 0,
                 "sender, receiver, and reserved control credits return to zero after completion");
         const auto transport_peak = transport_credits.high_water();
         require(transport_peak.data_bytes <= 64 && transport_peak.data_descriptors <= 16 &&
-                    transport_peak.control_bytes <= 4 * kTransportEnvelopeWireBytes &&
-                    transport_peak.control_descriptors <= 8 &&
+                    transport_peak.control_bytes <= 4 * kTransportEnvelopeWireBytes && transport_peak.control_descriptors <= 8 &&
                     (rank == 2 || transport_peak.data_bytes > 0),
                 "transport high-water remains bounded after all fragments drain");
 
@@ -322,8 +311,7 @@ int main(int argc, char **argv) {
             rejected.contribution_bytes = 1;
             rejected.payload_bytes = 1;
             const std::byte data{42};
-            require(transport.send_fragment(3, rejected, std::span(&data, 1)) == AMIO_ERR_QUEUE_FULL,
-                    "producer receives receiver-credit rejection");
+            require(transport.send_fragment(3, rejected, std::span(&data, 1)) == AMIO_ERR_QUEUE_FULL, "producer receives receiver-credit rejection");
 
             auto held = transport_credits.acquire(3, CreditOwner::Sender, 16, 4);
             require(held.has_value(), "hold sender capacity to exercise local rejection");
@@ -371,11 +359,10 @@ int main(int argc, char **argv) {
             TransportEnvelope frame;
             std::vector<std::byte> payload;
             CreditWindow::Ticket ticket{};
-            require(large_transport.receive_fragment(0, large_validation, frame, payload, &ticket) == AMIO_ERR_QUEUE_FULL &&
-                        payload.empty(),
+            require(large_transport.receive_fragment(0, large_validation, frame, payload, &ticket) == AMIO_ERR_QUEUE_FULL && payload.empty(),
                     "oversized fragment is rejected before receiving data");
-            require(large_transport.receive_fragment(0, large_validation, frame, payload, &ticket) == AMIO_OK &&
-                        frame.sequence == 101 && payload.size() == 1 && payload[0] == std::byte{0x5a},
+            require(large_transport.receive_fragment(0, large_validation, frame, payload, &ticket) == AMIO_OK && frame.sequence == 101 &&
+                        payload.size() == 1 && payload[0] == std::byte{0x5a},
                     "valid payload is not contaminated by the rejected fragment");
             require(large_transport.release_receiver_credit(ticket, payload) == AMIO_OK && payload.capacity() == 0 &&
                         large_credits.snapshot().receiver_bytes == 0,
@@ -407,21 +394,21 @@ int main(int argc, char **argv) {
             const auto bytes = std::as_bytes(std::span(values));
             require(aligned_aggregation.forward(frame, bytes, 8) == AMIO_ERR_INVALID_INPUT,
                     "a fragment ceiling smaller than an element is rejected before transfer");
-            require(aligned_aggregation.forward(frame, bytes, sizeof(values[0])) == AMIO_OK,
-                    "typed producer values use element-aligned fragments");
+            require(aligned_aggregation.forward(frame, bytes, sizeof(values[0])) == AMIO_OK, "typed producer values use element-aligned fragments");
         } else if (rank == 3) {
             std::array<std::uint32_t, 4> destination{};
             std::size_t fragments = 0;
             require(aligned_aggregation.receive_regions(0, aligned_validation, sizeof(std::uint32_t),
-                [&](const DestinationRegionChunk &region, std::span<const std::byte> part) {
-                    require(part.size() == sizeof(std::uint32_t), "fragment contains one complete element");
-                    ++fragments;
-                    require(region.offsets[0] < destination.size() && region.extents[0] == 1,
-                            "typed destination region is in bounds");
-                    std::memcpy(&destination[region.offsets[0]], part.data(), part.size());
-                    return AMIO_OK;
-                }) == AMIO_OK && fragments == 2 && destination[1] == 42 && destination[2] == 123456,
-                "writer reconstructs typed values from aligned destination fragments");
+                                                        [&](const DestinationRegionChunk &region, std::span<const std::byte> part) {
+                                                            require(part.size() == sizeof(std::uint32_t), "fragment contains one complete element");
+                                                            ++fragments;
+                                                            require(region.offsets[0] < destination.size() && region.extents[0] == 1,
+                                                                    "typed destination region is in bounds");
+                                                            std::memcpy(&destination[region.offsets[0]], part.data(), part.size());
+                                                            return AMIO_OK;
+                                                        }) == AMIO_OK &&
+                        fragments == 2 && destination[1] == 42 && destination[2] == 123456,
+                    "writer reconstructs typed values from aligned destination fragments");
         }
         MPI_Barrier(MPI_COMM_WORLD);
 
@@ -494,15 +481,16 @@ int main(int argc, char **argv) {
             ResourceBudget metadata_budget({2048, 8, 1024, 4});
             SchemaWireBuffer schema_wire(metadata_budget, 1024);
             require(native_aggregation.receive(0, native_validation,
-                [&](const TransportEnvelope &frame, std::span<const std::byte> bytes) {
-                    if (frame.fragment_index == 0) {
-                        if (frame.contribution_bytes > 1024) return static_cast<amio_status_t>(AMIO_ERR_INVALID_INPUT);
-                        const auto status = schema_wire.begin(static_cast<std::size_t>(frame.contribution_bytes));
-                        if (status != AMIO_OK) return status;
-                    }
-                    return schema_wire.append(static_cast<std::size_t>(frame.fragment_offset), bytes);
-                }) == AMIO_OK && Schema::from_canonical(schema_wire.complete(), 1024, schema).ok(),
-                "decode bounded producer schema before native writer open");
+                                               [&](const TransportEnvelope &frame, std::span<const std::byte> bytes) {
+                                                   if (frame.fragment_index == 0) {
+                                                       if (frame.contribution_bytes > 1024) return static_cast<amio_status_t>(AMIO_ERR_INVALID_INPUT);
+                                                       const auto status = schema_wire.begin(static_cast<std::size_t>(frame.contribution_bytes));
+                                                       if (status != AMIO_OK) return status;
+                                                   }
+                                                   return schema_wire.append(static_cast<std::size_t>(frame.fragment_offset), bytes);
+                                               }) == AMIO_OK &&
+                        Schema::from_canonical(schema_wire.complete(), 1024, schema).ok(),
+                    "decode bounded producer schema before native writer open");
             require(metadata_budget.snapshot().control_bytes == schema_wire.complete().size(),
                     "schema wire allocation is charged to the control budget");
             schema_wire.reset();
@@ -511,33 +499,37 @@ int main(int argc, char **argv) {
             driver.set_communicator(context->writer_communicator());
             driver.open_step_write(native_path.string(), schema, 10.0);
             driver.prepare_step_independent_writes("temperature");
-            require(native_aggregation.serve_control(0, native_validation,
-                [&](const TransportEnvelope &control) {
-                    if (control.kind == MessageKind::Begin) return AMIO_OK;
-                    if (control.kind == MessageKind::Close) { driver.close_step_write(); return AMIO_OK; }
-                    return AMIO_ERR_INVALID_POLICY;
-                },
-                [&](const TransportEnvelope &control) {
-                    if (control.kind != MessageKind::Begin) return static_cast<amio_status_t>(AMIO_OK);
-                    return native_aggregation.receive_regions(0, native_validation, sizeof(float),
-                        [&](const DestinationRegionChunk &region, std::span<const std::byte> bytes) {
-                            RegionSelection selection;
-                            selection.offsets.assign(region.offsets.begin(), region.offsets.begin() + region.dimension_count);
-                            selection.extents.assign(region.extents.begin(), region.extents.begin() + region.dimension_count);
-                            selection.empty = bytes.empty();
-                            driver.write_step_region_independent("temperature", selection, bytes.data());
-                            return AMIO_OK;
-                        });
-                }) == AMIO_OK, "writer service stores received regions and closes after payload");
+            require(native_aggregation.serve_control(
+                        0, native_validation,
+                        [&](const TransportEnvelope &control) {
+                            if (control.kind == MessageKind::Begin) return AMIO_OK;
+                            if (control.kind == MessageKind::Close) {
+                                driver.close_step_write();
+                                return AMIO_OK;
+                            }
+                            return AMIO_ERR_INVALID_POLICY;
+                        },
+                        [&](const TransportEnvelope &control) {
+                            if (control.kind != MessageKind::Begin) return static_cast<amio_status_t>(AMIO_OK);
+                            return native_aggregation.receive_regions(
+                                0, native_validation, sizeof(float), [&](const DestinationRegionChunk &region, std::span<const std::byte> bytes) {
+                                    RegionSelection selection;
+                                    selection.offsets.assign(region.offsets.begin(), region.offsets.begin() + region.dimension_count);
+                                    selection.extents.assign(region.extents.begin(), region.extents.begin() + region.dimension_count);
+                                    selection.empty = bytes.empty();
+                                    driver.write_step_region_independent("temperature", selection, bytes.data());
+                                    return AMIO_OK;
+                                });
+                        }) == AMIO_OK,
+                    "writer service stores received regions and closes after payload");
         }
         MPI_Barrier(MPI_COMM_WORLD);
         if (rank == 0) {
             int ncid = -1, variable = -1;
             std::array<float, 4> values{};
-            require(nc_open(native_path.c_str(), NC_NOWRITE, &ncid) == NC_NOERR &&
-                        nc_inq_varid(ncid, "temperature", &variable) == NC_NOERR &&
-                        nc_get_var_float(ncid, variable, values.data()) == NC_NOERR &&
-                        values[1] == 1.25f && values[2] == 2.5f && nc_close(ncid) == NC_NOERR,
+            require(nc_open(native_path.c_str(), NC_NOWRITE, &ncid) == NC_NOERR && nc_inq_varid(ncid, "temperature", &variable) == NC_NOERR &&
+                        nc_get_var_float(ncid, variable, values.data()) == NC_NOERR && values[1] == 1.25f && values[2] == 2.5f &&
+                        nc_close(ncid) == NC_NOERR,
                     "independent native reader recovers forwarded values");
             std::error_code ec;
             std::filesystem::remove(native_path, ec);
@@ -559,8 +551,13 @@ int main(int argc, char **argv) {
         auto grib_validation = validation;
         grib_validation.expected_step_id = 104;
         std::array<unsigned char, 21> encoded{};
-        encoded[0] = 'G'; encoded[1] = 'R'; encoded[2] = 'I'; encoded[3] = 'B';
-        encoded[7] = 2; encoded[15] = static_cast<unsigned char>(encoded.size()); encoded[16] = 42;
+        encoded[0] = 'G';
+        encoded[1] = 'R';
+        encoded[2] = 'I';
+        encoded[3] = 'B';
+        encoded[7] = 2;
+        encoded[15] = static_cast<unsigned char>(encoded.size());
+        encoded[16] = 42;
         encoded[17] = encoded[18] = encoded[19] = encoded[20] = '7';
         if (rank == 0) {
             TransportEnvelope frame;
@@ -581,10 +578,11 @@ int main(int argc, char **argv) {
             std::string error;
             require(writer.begin_message(0, 0, encoded.size(), error), "writer opens an indexed complete GRIB message");
             require(grib_aggregation.receive(0, grib_validation,
-                [&](const TransportEnvelope &frame, std::span<const std::byte> bytes) {
-                    return writer.append_chunk(frame.fragment_offset, bytes, error) ? AMIO_OK : AMIO_ERR_BACKEND_FAILURE;
-                }) == AMIO_OK && writer.finish(error) && writer.index().size() == 1,
-                "writer validates and publishes the bounded encoded-message stream");
+                                             [&](const TransportEnvelope &frame, std::span<const std::byte> bytes) {
+                                                 return writer.append_chunk(frame.fragment_offset, bytes, error) ? AMIO_OK : AMIO_ERR_BACKEND_FAILURE;
+                                             }) == AMIO_OK &&
+                        writer.finish(error) && writer.index().size() == 1,
+                    "writer validates and publishes the bounded encoded-message stream");
         }
         MPI_Barrier(MPI_COMM_WORLD);
         if (rank == 0) {
@@ -608,10 +606,12 @@ int main(int argc, char **argv) {
         const std::array<MessageKind, 4> commands{MessageKind::Begin, MessageKind::Seal, MessageKind::Cancel, MessageKind::Close};
         if (rank == 3) {
             bool invoked = false;
-            require(control_transport.try_receive_control(0, control_validation, [&](const TransportEnvelope &) {
-                        invoked = true;
-                        return AMIO_OK;
-                    }) == AMIO_ERR_OPERATION_PENDING && !invoked,
+            require(control_transport.try_receive_control(0, control_validation,
+                                                          [&](const TransportEnvelope &) {
+                                                              invoked = true;
+                                                              return AMIO_OK;
+                                                          }) == AMIO_ERR_OPERATION_PENDING &&
+                        !invoked,
                     "caller-driven control polling returns pending without a command");
         }
         MPI_Barrier(MPI_COMM_WORLD);
@@ -635,35 +635,42 @@ int main(int argc, char **argv) {
             frame.kind = MessageKind::Begin;
             frame.sequence = 5;
             ++frame.context_epoch;
-            require(control_transport.send_control(3, frame) == AMIO_ERR_STEP_FAILED,
-                    "stale control identity receives a failure acknowledgment");
+            require(control_transport.send_control(3, frame) == AMIO_ERR_STEP_FAILED, "stale control identity receives a failure acknowledgment");
             --frame.context_epoch;
             frame.sequence = 6;
             frame.kind = MessageKind::Close;
-            require(control_transport.send_control(3, frame) == AMIO_OK,
-                    "valid control follows a rejected stale command");
+            require(control_transport.send_control(3, frame) == AMIO_OK, "valid control follows a rejected stale command");
             require(control_credits.release(*held), "release held sender payload credits");
         } else if (rank == 3) {
             auto held = control_credits.acquire(0, CreditOwner::Receiver, 16, 4);
             require(held.has_value(), "occupy writer payload credits during service control");
             for (std::size_t i = 0; i < commands.size(); ++i) {
                 const auto expected = commands[i] == MessageKind::Cancel ? AMIO_ERR_INVALID_POLICY : AMIO_OK;
-                require(control_transport.receive_control(0, control_validation, [&](const TransportEnvelope &frame) {
-                            require(frame.kind == commands[i] && frame.sequence == i + 1,
-                                    "service control retains lifecycle command order");
-                            return frame.kind == MessageKind::Cancel ? AMIO_ERR_INVALID_POLICY : AMIO_OK;
-                        }) == expected, "writer handles each service command using reserved credits");
+                require(control_transport.receive_control(0, control_validation,
+                                                          [&](const TransportEnvelope &frame) {
+                                                              require(frame.kind == commands[i] && frame.sequence == i + 1,
+                                                                      "service control retains lifecycle command order");
+                                                              return frame.kind == MessageKind::Cancel ? AMIO_ERR_INVALID_POLICY : AMIO_OK;
+                                                          }) == expected,
+                        "writer handles each service command using reserved credits");
             }
             bool invoked = false;
             ProtocolError error = ProtocolError::None;
-            require(control_transport.receive_control(0, control_validation, [&](const TransportEnvelope &) {
-                        invoked = true;
-                        return AMIO_OK;
-                    }, &error) == AMIO_ERR_INVALID_POLICY && error == ProtocolError::StaleEpoch && !invoked,
+            require(control_transport.receive_control(
+                        0, control_validation,
+                        [&](const TransportEnvelope &) {
+                            invoked = true;
+                            return AMIO_OK;
+                        },
+                        &error) == AMIO_ERR_INVALID_POLICY &&
+                        error == ProtocolError::StaleEpoch && !invoked,
                     "stale control identity is rejected before the service handler");
-            require(control_transport.receive_control(0, control_validation, [&](const TransportEnvelope &frame) {
-                        return frame.kind == MessageKind::Close && frame.sequence == 6 ? AMIO_OK : AMIO_ERR_INVALID_POLICY;
-                    }) == AMIO_OK, "valid control remains usable after stale-command rejection");
+            require(control_transport.receive_control(0, control_validation,
+                                                      [&](const TransportEnvelope &frame) {
+                                                          return frame.kind == MessageKind::Close && frame.sequence == 6 ? AMIO_OK
+                                                                                                                         : AMIO_ERR_INVALID_POLICY;
+                                                      }) == AMIO_OK,
+                    "valid control remains usable after stale-command rejection");
             require(control_credits.release(*held), "release held receiver payload credits");
         }
         MPI_Barrier(MPI_COMM_WORLD);
@@ -678,8 +685,10 @@ int main(int argc, char **argv) {
         int close_vote = 1, close_count = 0;
         MPI_Allreduce(&close_vote, &close_count, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
         require(close_count == 4, "all roles join graceful service close");
-        if (rank < 3) require(!mapping.can_open_storage(static_cast<std::uint32_t>(rank)), "producer cannot open storage");
-        else require(mapping.can_open_storage(static_cast<std::uint32_t>(rank)), "writer can open storage");
+        if (rank < 3)
+            require(!mapping.can_open_storage(static_cast<std::uint32_t>(rank)), "producer cannot open storage");
+        else
+            require(mapping.can_open_storage(static_cast<std::uint32_t>(rank)), "writer can open storage");
         MPI_Barrier(MPI_COMM_WORLD);
 
         // A writer with no mapped producer must be able to complete the
@@ -691,15 +700,15 @@ int main(int argc, char **argv) {
         sparse_roles.producers = {0};
         sparse_roles.writers = {1, 2, 3};
         std::unique_ptr<ExecutionContext> sparse_context;
-        require(ExecutionContext::create(sparse_roles, ProgressPolicy::Caller, "sparse-writer-round", MPI_COMM_WORLD,
-                                         sparse_context) == AMIO_OK,
+        require(ExecutionContext::create(sparse_roles, ProgressPolicy::Caller, "sparse-writer-round", MPI_COMM_WORLD, sparse_context) == AMIO_OK,
                 "context with zero-count writers");
         WorkerPoolConfig sparse_workers;
         const auto sparse_binding = bind_writer_worker_config(*sparse_context, sparse_workers);
-        if (rank == 0) require(sparse_binding == AMIO_ERR_INVALID_POLICY, "producer cannot bind writer workers");
-        else require(sparse_binding == AMIO_OK && sparse_workers.io_comm.size() == 3 &&
-                         sparse_workers.io_comm.rank() == rank - 1,
-                     "all writers, including idle writers, bind the full writer group");
+        if (rank == 0)
+            require(sparse_binding == AMIO_ERR_INVALID_POLICY, "producer cannot bind writer workers");
+        else
+            require(sparse_binding == AMIO_OK && sparse_workers.io_comm.size() == 3 && sparse_workers.io_comm.rank() == rank - 1,
+                    "all writers, including idle writers, bind the full writer group");
         CreditWindow sparse_credits({2, 16, 2, 64, 4, 4 * kTransportEnvelopeWireBytes, 4});
         MpiTransport sparse_transport(*sparse_context, sparse_credits, 4);
         AggregatedExecution sparse_aggregation(*sparse_context, sparse_transport);
@@ -729,15 +738,13 @@ int main(int argc, char **argv) {
             require(sparse_aggregation.forward(empty, {}) == AMIO_OK, "send explicit empty contribution to mapped writer");
         } else {
             std::uint32_t sink_calls = 0;
-            const auto status = sparse_aggregation.receive_round_regions(sparse_validation, 1,
-                [&](const DestinationRegionChunk &region, std::span<const std::byte> chunk) {
-                    require(rank == 1 && chunk.empty() && region.extents[0] == 0,
-                            "only the mapped writer receives the empty destination region");
+            const auto status = sparse_aggregation.receive_round_regions(
+                sparse_validation, 1, [&](const DestinationRegionChunk &region, std::span<const std::byte> chunk) {
+                    require(rank == 1 && chunk.empty() && region.extents[0] == 0, "only the mapped writer receives the empty destination region");
                     ++sink_calls;
                     return AMIO_OK;
                 });
-            require(status == AMIO_OK && sink_calls == (rank == 1 ? 1u : 0u),
-                    "zero-count writer drains an empty canonical round without waiting");
+            require(status == AMIO_OK && sink_calls == (rank == 1 ? 1u : 0u), "zero-count writer drains an empty canonical round without waiting");
         }
         MPI_Barrier(MPI_COMM_WORLD);
 
@@ -754,17 +761,19 @@ int main(int argc, char **argv) {
                 command.sequence = kind == MessageKind::Begin ? 2 : 3;
                 for (std::uint32_t writer = 1; writer <= 3; ++writer) {
                     command.writer_rank = writer;
-                    require(sparse_transport.send_control(writer, command) == AMIO_OK,
-                            "lifecycle control reaches each writer in the static group");
+                    require(sparse_transport.send_control(writer, command) == AMIO_OK, "lifecycle control reaches each writer in the static group");
                 }
             }
         } else {
             std::size_t commands_handled = 0;
-            require(sparse_aggregation.serve_control(0, sparse_validation, [&](const TransportEnvelope &command) {
-                        const auto expected = commands_handled++ == 0 ? MessageKind::Begin : MessageKind::Close;
-                        return command.kind == expected && command.writer_rank == static_cast<std::uint32_t>(rank)
-                                   ? AMIO_OK : AMIO_ERR_INVALID_POLICY;
-                    }) == AMIO_OK && commands_handled == 2,
+            require(sparse_aggregation.serve_control(0, sparse_validation,
+                                                     [&](const TransportEnvelope &command) {
+                                                         const auto expected = commands_handled++ == 0 ? MessageKind::Begin : MessageKind::Close;
+                                                         return command.kind == expected && command.writer_rank == static_cast<std::uint32_t>(rank)
+                                                                    ? AMIO_OK
+                                                                    : AMIO_ERR_INVALID_POLICY;
+                                                     }) == AMIO_OK &&
+                        commands_handled == 2,
                     "mapped and idle writers leave their service loop after close");
         }
         MPI_Barrier(MPI_COMM_WORLD);
@@ -783,20 +792,17 @@ int main(int argc, char **argv) {
             require(sparse_transport.send_control(1, command) == AMIO_OK, "writer accepts work before induced failure");
             command.kind = MessageKind::Close;
             command.sequence = 5;
-            require(sparse_transport.send_control(1, command) == AMIO_ERR_STEP_FAILED,
-                    "writer reports an earlier progress failure at close");
+            require(sparse_transport.send_control(1, command) == AMIO_ERR_STEP_FAILED, "writer reports an earlier progress failure at close");
         } else if (rank == 1) {
             bool closed = false;
-            const auto status = sparse_aggregation.serve_control(0, sparse_validation,
+            const auto status = sparse_aggregation.serve_control(
+                0, sparse_validation,
                 [&](const TransportEnvelope &command) {
                     if (command.kind == MessageKind::Close) closed = true;
                     return AMIO_OK;
                 },
-                [&](const TransportEnvelope &command) {
-                    return command.kind == MessageKind::Begin ? AMIO_ERR_BACKEND_FAILURE : AMIO_OK;
-                });
-            require(status == AMIO_ERR_BACKEND_FAILURE && closed,
-                    "service retains its first failure while allowing close cleanup");
+                [&](const TransportEnvelope &command) { return command.kind == MessageKind::Begin ? AMIO_ERR_BACKEND_FAILURE : AMIO_OK; });
+            require(status == AMIO_ERR_BACKEND_FAILURE && closed, "service retains its first failure while allowing close cleanup");
         }
         MPI_Barrier(MPI_COMM_WORLD);
 
@@ -810,12 +816,10 @@ int main(int argc, char **argv) {
             command.writer_rank = 1;
             command.sequence = 6;
             require(sparse_transport.send_control(1, command) == AMIO_OK, "writer accepts the first control sequence");
-            require(sparse_transport.send_control(1, command) == AMIO_ERR_STEP_FAILED,
-                    "duplicate control sequence is rejected");
+            require(sparse_transport.send_control(1, command) == AMIO_ERR_STEP_FAILED, "duplicate control sequence is rejected");
             command.kind = MessageKind::Close;
             command.sequence = 7;
-            require(sparse_transport.send_control(1, command) == AMIO_ERR_STEP_FAILED,
-                    "close reports the earlier duplicate control failure");
+            require(sparse_transport.send_control(1, command) == AMIO_ERR_STEP_FAILED, "close reports the earlier duplicate control failure");
         } else if (rank == 1) {
             std::size_t begins = 0;
             bool closed = false;
@@ -852,23 +856,22 @@ int main(int argc, char **argv) {
                     "sender completes receipt acknowledgments while writer drains failed work");
             command.kind = MessageKind::Close;
             command.sequence = 9;
-            require(sparse_transport.send_control(1, command) == AMIO_ERR_STEP_FAILED,
-                    "close reports the failed backend contribution");
+            require(sparse_transport.send_control(1, command) == AMIO_ERR_STEP_FAILED, "close reports the failed backend contribution");
         } else if (rank == 1) {
             bool closed = false;
             std::size_t writes = 0;
-            const auto status = sparse_aggregation.serve_control(0, sparse_validation,
+            const auto status = sparse_aggregation.serve_control(
+                0, sparse_validation,
                 [&](const TransportEnvelope &command) {
                     if (command.kind == MessageKind::Close) closed = true;
                     return AMIO_OK;
                 },
                 [&](const TransportEnvelope &command) -> amio_status_t {
                     if (command.kind != MessageKind::Begin) return AMIO_OK;
-                    return sparse_aggregation.receive(0, sparse_validation,
-                        [&](const TransportEnvelope &, std::span<const std::byte>) {
-                            ++writes;
-                            return AMIO_ERR_BACKEND_FAILURE;
-                        });
+                    return sparse_aggregation.receive(0, sparse_validation, [&](const TransportEnvelope &, std::span<const std::byte>) {
+                        ++writes;
+                        return AMIO_ERR_BACKEND_FAILURE;
+                    });
                 });
             require(status == AMIO_ERR_BACKEND_FAILURE && closed && writes == 1,
                     "service records the first backend failure, drains later chunks, and closes");
@@ -883,8 +886,7 @@ int main(int argc, char **argv) {
         stream_roles.rank_count = 4;
         stream_roles.producers = {0, 1};
         stream_roles.consumers = {2, 3};
-        require(ExecutionContext::create(stream_roles, ProgressPolicy::Caller, "stream-role-groups", MPI_COMM_WORLD,
-                                         context) == AMIO_OK,
+        require(ExecutionContext::create(stream_roles, ProgressPolicy::Caller, "stream-role-groups", MPI_COMM_WORLD, context) == AMIO_OK,
                 "stream context creates statically configured producer and consumer groups");
         if (rank < 2) {
             int group_size = 0;

@@ -95,8 +95,8 @@ amio_err_t split_communicator(const CommConfig &config, int my_rank, IOCommunica
         if (MPI_Initialized(&initialized) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
         if (initialized) {
             if (MPI_Finalized(&finalized) != MPI_SUCCESS || finalized || g_amio_parent_comm == MPI_COMM_NULL ||
-                MPI_Comm_rank(g_amio_parent_comm, &rank) != MPI_SUCCESS ||
-                MPI_Comm_size(g_amio_parent_comm, &size) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+                MPI_Comm_rank(g_amio_parent_comm, &rank) != MPI_SUCCESS || MPI_Comm_size(g_amio_parent_comm, &size) != MPI_SUCCESS)
+                return AMIO_ERR_COMM_SPLIT_FAILED;
         }
 #endif
         result.valid = true;

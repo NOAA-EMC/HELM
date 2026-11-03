@@ -1,5 +1,3 @@
-#include "amio/amio_evolution.h"
-
 #include <mpi.h>
 
 #include <array>
@@ -8,11 +6,13 @@
 #include <string>
 #include <vector>
 
+#include "amio/amio_evolution.h"
+
 namespace {
 void require(bool ok, const char *message) {
     if (!ok) throw std::runtime_error(message);
 }
-} // namespace
+}  // namespace
 
 int main(int argc, char **argv) {
     int provided = MPI_THREAD_SINGLE;
@@ -62,14 +62,11 @@ int main(int argc, char **argv) {
         require(amio_init_ex(&invalid_descriptor, &context) == AMIO_ERR_INVALID_POLICY && context == nullptr,
                 "different ordered role maps are rejected before communicator splitting");
         context = nullptr;
-        require(amio_init_ex(&descriptor, &context) == AMIO_OK && context != nullptr,
-                "public API creates the configured producer/writer context");
+        require(amio_init_ex(&descriptor, &context) == AMIO_OK && context != nullptr, "public API creates the configured producer/writer context");
         uint32_t role = AMIO_ROLE_INACTIVE;
         uint32_t group_rank = UINT32_MAX;
-        require(amio_query_context_role(context, &role, &group_rank) == AMIO_OK,
-                "public role query succeeds without changing context state");
-        require(role == (rank < 3 ? AMIO_ROLE_PRODUCER : AMIO_ROLE_WRITER) &&
-                    group_rank == static_cast<uint32_t>(rank < 3 ? rank : 0),
+        require(amio_query_context_role(context, &role, &group_rank) == AMIO_OK, "public role query succeeds without changing context state");
+        require(role == (rank < 3 ? AMIO_ROLE_PRODUCER : AMIO_ROLE_WRITER) && group_rank == static_cast<uint32_t>(rank < 3 ? rank : 0),
                 "public API reports correct role and role-local rank");
         uint32_t progressed = UINT32_MAX;
         require(amio_progress(context, 4, &progressed) == AMIO_OK && progressed == 0,
@@ -87,8 +84,7 @@ int main(int argc, char **argv) {
                     diagnostics_json.find("\"rank\":" + std::to_string(rank)) != std::string::npos,
                 "diagnostics expose effective execution mode and this rank's topology locally");
         size_t reduced_bytes = 0;
-        require(amio_reduce_diagnostics(context, nullptr, 0, &reduced_bytes) == AMIO_OK,
-                "reduced diagnostic size query remains local");
+        require(amio_reduce_diagnostics(context, nullptr, 0, &reduced_bytes) == AMIO_OK, "reduced diagnostic size query remains local");
         std::vector<char> reduced_diagnostics(reduced_bytes);
         require(amio_reduce_diagnostics(context, reduced_diagnostics.data(), reduced_diagnostics.size(), &reduced_bytes) == AMIO_OK,
                 "explicit context reduction succeeds when every context rank calls it");
@@ -141,12 +137,10 @@ int main(int argc, char **argv) {
         descriptor.writers = nullptr;
         descriptor.consumers = consumers.data();
         context = nullptr;
-        require(amio_init_ex(&descriptor, &context) == AMIO_OK && context != nullptr,
-                "public API creates the configured producer/consumer context");
+        require(amio_init_ex(&descriptor, &context) == AMIO_OK && context != nullptr, "public API creates the configured producer/consumer context");
         role = AMIO_ROLE_INACTIVE;
         group_rank = UINT32_MAX;
-        require(amio_query_context_role(context, &role, &group_rank) == AMIO_OK &&
-                    role == (rank < 2 ? AMIO_ROLE_PRODUCER : AMIO_ROLE_CONSUMER) &&
+        require(amio_query_context_role(context, &role, &group_rank) == AMIO_OK && role == (rank < 2 ? AMIO_ROLE_PRODUCER : AMIO_ROLE_CONSUMER) &&
                     group_rank == static_cast<uint32_t>(rank < 2 ? rank : rank - 2),
                 "public API reports producer and consumer local ranks");
         require(amio_run_service(context) == AMIO_ERR_INVALID_POLICY,

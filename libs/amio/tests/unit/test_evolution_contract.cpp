@@ -1,6 +1,3 @@
-#include "amio/amio_evolution.h"
-#include "c_boundary/amio_tool_api.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -11,6 +8,9 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+
+#include "amio/amio_evolution.h"
+#include "c_boundary/amio_tool_api.hpp"
 
 #ifdef AMIO_TEST_HAS_MPI
 #include <mpi.h>
@@ -95,7 +95,6 @@ void test_typed_release_names_reject_invalid_handles() {
     expect(amio_release_step_lease(nullptr) == AMIO_ERR_NULL_HANDLE, "null consumer lease must be rejected");
     expect(amio_release_step_handle(bogus_step) == AMIO_ERR_INVALID_HANDLE, "invalid producer step handle must not be dereferenced");
     expect(amio_release_step_lease(bogus_lease) == AMIO_ERR_INVALID_HANDLE, "invalid consumer lease must not be dereferenced");
-
 }
 
 void test_context_initialization_outputs_and_capability_query() {
@@ -107,8 +106,7 @@ void test_context_initialization_outputs_and_capability_query() {
     expect(context == nullptr, "rejected context initialization clears its output handle");
 
     size_t required = 19;
-    expect(amio_query_capabilities(nullptr, nullptr, 0, &required) == AMIO_ERR_NULL_HANDLE,
-           "capability query rejects a null context");
+    expect(amio_query_capabilities(nullptr, nullptr, 0, &required) == AMIO_ERR_NULL_HANDLE, "capability query rejects a null context");
     expect(required == 0, "rejected capability query clears its required length");
 
     descriptor.version = AMIO_EVOLUTION_DESCRIPTOR_VERSION_1;
@@ -132,20 +130,19 @@ void test_context_initialization_outputs_and_capability_query() {
     if (context != nullptr) {
         uint32_t local_role = AMIO_ROLE_INACTIVE;
         uint32_t local_group_rank = UINT32_MAX;
-        expect(amio_query_context_role(context, &local_role, &local_group_rank) == AMIO_OK &&
-                   local_role == AMIO_ROLE_PRODUCER && local_group_rank == static_cast<uint32_t>(
+        expect(amio_query_context_role(context, &local_role, &local_group_rank) == AMIO_OK && local_role == AMIO_ROLE_PRODUCER &&
+                   local_group_rank == static_cast<uint32_t>(
 #ifdef AMIO_TEST_HAS_MPI
-                       rank
+                                           rank
 #else
-                       0
+                                           0
 #endif
-                   ), "role query reports the local producer role and producer-group rank");
+                                           ),
+               "role query reports the local producer role and producer-group rank");
         required = 0;
-        expect(amio_query_capabilities(context, nullptr, 0, &required) == AMIO_OK && required > 1,
-               "capability query supports size discovery");
+        expect(amio_query_capabilities(context, nullptr, 0, &required) == AMIO_OK && required > 1, "capability query supports size discovery");
         std::vector<char> report(required);
-        expect(amio_query_capabilities(context, report.data(), report.size(), &required) == AMIO_OK,
-               "capability query fills a caller buffer");
+        expect(amio_query_capabilities(context, report.data(), report.size(), &required) == AMIO_OK, "capability query fills a caller buffer");
         expect(std::strstr(report.data(), "borrowed_buffer\":\"unsupported") != nullptr,
                "capability report rejects unimplemented borrowed buffers explicitly");
         expect(std::strstr(report.data(), "f64_f32_precision\":\"compiled") != nullptr &&
@@ -160,8 +157,8 @@ void test_context_initialization_outputs_and_capability_query() {
         expect(amio_query_diagnostics(context, diagnostic_report.data(), diagnostic_report.size(), &diagnostic_bytes) == AMIO_OK,
                "local diagnostics fill a caller-owned buffer");
         expect(std::strstr(diagnostic_report.data(), "\"api_version\":2") != nullptr &&
-                   std::strstr(diagnostic_report.data(),
-                               "\"topology\":{\"execution_mode\":\"persistent_direct\",\"progress_mode\":\"caller\"") != nullptr &&
+                   std::strstr(diagnostic_report.data(), "\"topology\":{\"execution_mode\":\"persistent_direct\",\"progress_mode\":\"caller\"") !=
+                       nullptr &&
                    std::strstr(diagnostic_report.data(), "\"rank_count\":") != nullptr &&
                    std::strstr(diagnostic_report.data(), "\"dropped_sample_count\":0") != nullptr,
                "diagnostics expose a versioned snapshot with effective topology");
@@ -199,15 +196,14 @@ void test_context_initialization_outputs_and_capability_query() {
 #ifndef AMIO_HAS_TENSORSTORE
         auto unsupported = dataset_descriptor;
         unsupported.format = AMIO_FORMAT_ZARR3;
-        expect(amio_open_dataset_ex(context, &unsupported, &dataset) == AMIO_ERR_UNSUPPORTED,
-               "unavailable evolution backend is rejected explicitly");
+        expect(amio_open_dataset_ex(context, &unsupported, &dataset) == AMIO_ERR_UNSUPPORTED, "unavailable evolution backend is rejected explicitly");
         expect(dataset == nullptr, "rejected evolution dataset open clears its output handle");
 #endif
         const auto dataset_open_status = amio_open_dataset_ex(context, &dataset_descriptor, &dataset);
-        if (dataset_open_status != AMIO_OK) std::fprintf(stderr, "dataset open status: %d, root=%d, marker=%d\n", dataset_open_status,
-                                                        std::filesystem::exists(root), std::filesystem::exists(root / "amio.json"));
-        expect(dataset_open_status == AMIO_OK,
-               "valid NetCDF evolution dataset claims a new exclusive collection");
+        if (dataset_open_status != AMIO_OK)
+            std::fprintf(stderr, "dataset open status: %d, root=%d, marker=%d\n", dataset_open_status, std::filesystem::exists(root),
+                         std::filesystem::exists(root / "amio.json"));
+        expect(dataset_open_status == AMIO_OK, "valid NetCDF evolution dataset claims a new exclusive collection");
         expect(dataset != nullptr, "successful evolution dataset open returns a typed dataset handle");
         if (dataset != nullptr) {
             amio_catalog_cursor_t empty_cursor{};
@@ -218,14 +214,12 @@ void test_context_initialization_outputs_and_capability_query() {
                        empty_count == 0 && empty_more == 0 && empty_cursor.dataset_uuid[0] != '\0',
                    "empty collection listing succeeds with an initialized dataset cursor");
         }
-        expect(amio_release_context(context) == AMIO_ERR_INVALID_POLICY,
-               "context cannot release its communicator while a dataset borrows it");
+        expect(amio_release_context(context) == AMIO_ERR_INVALID_POLICY, "context cannot release its communicator while a dataset borrows it");
 
         amio_validation_request_t validation{};
         validation.struct_size = sizeof(validation);
         validation.version = AMIO_EVOLUTION_DESCRIPTOR_VERSION_1;
-        validation.check_mask = (UINT64_C(1) << (AMIO_VALIDATE_COMPLETION_CHAIN - 1)) |
-                                (UINT64_C(1) << (AMIO_VALIDATE_INTEGRITY - 1));
+        validation.check_mask = (UINT64_C(1) << (AMIO_VALIDATE_COMPLETION_CHAIN - 1)) | (UINT64_C(1) << (AMIO_VALIDATE_INTEGRITY - 1));
         validation.max_results = 2;
         size_t result_count = 0;
         uint64_t next_cursor = 0;
@@ -234,8 +228,7 @@ void test_context_initialization_outputs_and_capability_query() {
         amio_validation_result_t validation_results[2]{};
         expect(amio_validate_dataset(dataset, &validation, validation_results, 2, &result_count, &next_cursor) == AMIO_OK,
                "evolution dataset validation returns a bounded page");
-        expect(validation_results[0].status == AMIO_VALIDATION_PASS &&
-                   validation_results[1].status == AMIO_VALIDATION_UNSUPPORTED,
+        expect(validation_results[0].status == AMIO_VALIDATION_PASS && validation_results[1].status == AMIO_VALIDATION_UNSUPPORTED,
                "structural completion passes while an empty collection has no integrity evidence");
 
         const char dimension_name[] = "x";
@@ -287,22 +280,50 @@ void test_context_initialization_outputs_and_capability_query() {
         const double conversion_tolerance = 0.00001;
         const uint8_t authorized = 1;
         amio_attribute_descriptor_t precision_attributes[4]{};
-        precision_attributes[0] = {sizeof(amio_attribute_descriptor_t), AMIO_EVOLUTION_DESCRIPTOR_VERSION_1,
-            precision_name, sizeof(precision_name)-1, AMIO_ATTRIBUTE_UTF8, 0, 1, precision_value,
-            sizeof(precision_value)-1, {0,0}};
-        precision_attributes[1] = {sizeof(amio_attribute_descriptor_t), AMIO_EVOLUTION_DESCRIPTOR_VERSION_1,
-            tolerance_name, sizeof(tolerance_name)-1, AMIO_ATTRIBUTE_F64, 0, 1, &conversion_tolerance,
-            sizeof(conversion_tolerance), {0,0}};
-        precision_attributes[2] = {sizeof(amio_attribute_descriptor_t), AMIO_EVOLUTION_DESCRIPTOR_VERSION_1,
-            field_authorization_name, sizeof(field_authorization_name)-1, AMIO_ATTRIBUTE_BOOL, 0, 1, &authorized,
-            sizeof(authorized), {0,0}};
-        precision_attributes[3] = {sizeof(amio_attribute_descriptor_t), AMIO_EVOLUTION_DESCRIPTOR_VERSION_1,
-            restart_authorization_name, sizeof(restart_authorization_name)-1, AMIO_ATTRIBUTE_BOOL, 0, 1, &authorized,
-            sizeof(authorized), {0,0}};
+        precision_attributes[0] = {sizeof(amio_attribute_descriptor_t),
+                                   AMIO_EVOLUTION_DESCRIPTOR_VERSION_1,
+                                   precision_name,
+                                   sizeof(precision_name) - 1,
+                                   AMIO_ATTRIBUTE_UTF8,
+                                   0,
+                                   1,
+                                   precision_value,
+                                   sizeof(precision_value) - 1,
+                                   {0, 0}};
+        precision_attributes[1] = {sizeof(amio_attribute_descriptor_t),
+                                   AMIO_EVOLUTION_DESCRIPTOR_VERSION_1,
+                                   tolerance_name,
+                                   sizeof(tolerance_name) - 1,
+                                   AMIO_ATTRIBUTE_F64,
+                                   0,
+                                   1,
+                                   &conversion_tolerance,
+                                   sizeof(conversion_tolerance),
+                                   {0, 0}};
+        precision_attributes[2] = {sizeof(amio_attribute_descriptor_t),
+                                   AMIO_EVOLUTION_DESCRIPTOR_VERSION_1,
+                                   field_authorization_name,
+                                   sizeof(field_authorization_name) - 1,
+                                   AMIO_ATTRIBUTE_BOOL,
+                                   0,
+                                   1,
+                                   &authorized,
+                                   sizeof(authorized),
+                                   {0, 0}};
+        precision_attributes[3] = {sizeof(amio_attribute_descriptor_t),
+                                   AMIO_EVOLUTION_DESCRIPTOR_VERSION_1,
+                                   restart_authorization_name,
+                                   sizeof(restart_authorization_name) - 1,
+                                   AMIO_ATTRIBUTE_BOOL,
+                                   0,
+                                   1,
+                                   &authorized,
+                                   sizeof(authorized),
+                                   {0, 0}};
         const char low_precision_name[] = "low_precision";
         auto low_precision_variable = variable;
         low_precision_variable.name = low_precision_name;
-        low_precision_variable.name_bytes = sizeof(low_precision_name)-1;
+        low_precision_variable.name_bytes = sizeof(low_precision_name) - 1;
         low_precision_variable.source_dtype = AMIO_DTYPE_F64;
         low_precision_variable.stored_dtype = AMIO_DTYPE_F32;
         low_precision_variable.required = 0;
@@ -326,8 +347,7 @@ void test_context_initialization_outputs_and_capability_query() {
             expect(amio_define_schema(dataset, &schema_descriptor, &repeated) == AMIO_OK && repeated != nullptr,
                    "equivalent schema definitions remain usable with existing handles");
         }
-        for (auto repeated : repeated_schemas)
-            expect(amio_release_schema(repeated) == AMIO_OK, "release repeated schema observation");
+        for (auto repeated : repeated_schemas) expect(amio_release_schema(repeated) == AMIO_OK, "release repeated schema observation");
         {
             std::string oversized_value(8192, 'x');
             auto oversized_attribute = attribute;
@@ -351,16 +371,14 @@ void test_context_initialization_outputs_and_capability_query() {
             tiny_budget_descriptor.control_budget_bytes = 1;
             tiny_budget_descriptor.control_budget_descriptors = 1;
             amio_dataset_handle tiny_dataset = nullptr;
-            expect(amio_open_dataset_ex(context, &tiny_budget_descriptor, &tiny_dataset) == AMIO_OK &&
-                       tiny_dataset != nullptr,
+            expect(amio_open_dataset_ex(context, &tiny_budget_descriptor, &tiny_dataset) == AMIO_OK && tiny_dataset != nullptr,
                    "dataset accepts a finite control budget before schema metadata is admitted");
             if (tiny_dataset != nullptr) {
                 amio_schema_handle rejected_schema = reinterpret_cast<amio_schema_handle>(static_cast<uintptr_t>(0x1234));
-                expect(amio_define_schema(tiny_dataset, &schema_descriptor, &rejected_schema) == AMIO_ERR_BUDGET_EXCEEDED &&
-                           rejected_schema == nullptr,
-                       "schema retention is rejected when its metadata exceeds the configured control budget");
-                expect(amio_close_dataset_ex(tiny_dataset) == AMIO_OK,
-                       "dataset with rejected schema metadata closes without a retained handle");
+                expect(
+                    amio_define_schema(tiny_dataset, &schema_descriptor, &rejected_schema) == AMIO_ERR_BUDGET_EXCEEDED && rejected_schema == nullptr,
+                    "schema retention is rejected when its metadata exceeds the configured control budget");
+                expect(amio_close_dataset_ex(tiny_dataset) == AMIO_OK, "dataset with rejected schema metadata closes without a retained handle");
             }
         }
         if (schema != nullptr) {
@@ -388,29 +406,26 @@ void test_context_initialization_outputs_and_capability_query() {
                 host_memory.strides[0] = 2 * sizeof(float);
                 host_memory.strides[1] = sizeof(float);
                 amio_operation_handle operation = nullptr;
-                expect(amio_put_field_memory(step, variable_name, sizeof(variable_name) - 1, &host_memory, expected,
-                                             sizeof(expected), &operation) == AMIO_OK &&
+                expect(amio_put_field_memory(step, variable_name, sizeof(variable_name) - 1, &host_memory, expected, sizeof(expected), &operation) ==
+                               AMIO_OK &&
                            operation != nullptr,
                        "typed host-memory submission snapshots a complete field and returns an operation handle");
                 const double low_precision_values[] = {1.1, 2.2, 3.3, -0.0};
                 amio_operation_handle precision_operation = nullptr;
-                expect(amio_put_field(step, low_precision_name, sizeof(low_precision_name)-1,
-                                      low_precision_values, sizeof(low_precision_values), &precision_operation) == AMIO_OK &&
+                expect(amio_put_field(step, low_precision_name, sizeof(low_precision_name) - 1, low_precision_values, sizeof(low_precision_values),
+                                      &precision_operation) == AMIO_OK &&
                            precision_operation != nullptr,
                        "authorized F64 input is admitted for bounded F32 storage conversion");
                 amio_operation_status_t operation_status{};
-                expect(amio_query_operation(operation, &operation_status) == AMIO_OK &&
-                           operation_status.outcome == AMIO_OPERATION_PENDING &&
+                expect(amio_query_operation(operation, &operation_status) == AMIO_OK && operation_status.outcome == AMIO_OPERATION_PENDING &&
                            (operation_status.milestones & AMIO_OPERATION_SOURCE_RELEASED) != 0,
                        "operation status distinguishes source reuse from publication");
-                expect(amio_wait_operation(operation, AMIO_OPERATION_SOURCE_RELEASED, 0) == AMIO_OK,
-                       "wait can observe source release independently");
+                expect(amio_wait_operation(operation, AMIO_OPERATION_SOURCE_RELEASED, 0) == AMIO_OK, "wait can observe source release independently");
                 expect(amio_wait_operation(operation, AMIO_OPERATION_BACKEND_COMPLETE, 0) == AMIO_ERR_TIMEOUT,
                        "a timed-out completion wait leaves accepted snapshot work pending");
                 expect(amio_close_dataset_ex(dataset) == AMIO_ERR_INVALID_POLICY,
                        "dataset close cannot release accepted work owned by an active step");
-                expect(amio_query_operation(operation, &operation_status) == AMIO_OK &&
-                           operation_status.outcome == AMIO_OPERATION_PENDING &&
+                expect(amio_query_operation(operation, &operation_status) == AMIO_OK && operation_status.outcome == AMIO_OPERATION_PENDING &&
                            (operation_status.milestones & AMIO_OPERATION_SOURCE_RELEASED) != 0,
                        "rejected close preserves the accepted operation and its source-release state");
                 expect(amio_release_step_handle(step) == AMIO_ERR_INVALID_POLICY,
@@ -434,13 +449,11 @@ void test_context_initialization_outputs_and_capability_query() {
                            std::strstr(diagnostic_report.data(), "\"resource_high_water\":[0,48,") != nullptr,
                        "diagnostics report step counters and lifetime timing/resource aggregates after scope eviction");
                 std::uint64_t event_history_high_water = 0;
-                expect(read_json_uint64_array_item(diagnostic_report.data(), "cumulative_resource_high_water", 10,
-                                                   event_history_high_water) && event_history_high_water > 0,
+                expect(read_json_uint64_array_item(diagnostic_report.data(), "cumulative_resource_high_water", 10, event_history_high_water) &&
+                           event_history_high_water > 0,
                        "public diagnostics JSON reports bounded event-history occupancy");
-                expect(amio_cancel_step(step) == AMIO_ERR_INVALID_POLICY,
-                       "a completed step cannot be rolled back by cancellation");
-                expect(amio_query_operation(operation, &operation_status) == AMIO_OK &&
-                           operation_status.outcome == AMIO_OPERATION_SUCCEEDED &&
+                expect(amio_cancel_step(step) == AMIO_ERR_INVALID_POLICY, "a completed step cannot be rolled back by cancellation");
+                expect(amio_query_operation(operation, &operation_status) == AMIO_OK && operation_status.outcome == AMIO_OPERATION_SUCCEEDED &&
                            (operation_status.milestones & AMIO_OPERATION_READER_VISIBLE) != 0,
                        "successful end reports reader visibility separately from source release");
                 expect(amio_wait_operation(operation, AMIO_OPERATION_READER_VISIBLE, 0) == AMIO_OK,
@@ -449,35 +462,34 @@ void test_context_initialization_outputs_and_capability_query() {
                        "visibility does not falsely imply stable-storage durability");
 
                 amio_step_summary_t summary{};
-                expect(amio_describe_step(dataset, 0, &summary) == AMIO_OK && summary.step_id == 0 &&
-                           summary.present_field_count == 2 && summary.required_field_count == 1,
+                expect(amio_describe_step(dataset, 0, &summary) == AMIO_OK && summary.step_id == 0 && summary.present_field_count == 2 &&
+                           summary.required_field_count == 1,
                        "step description returns committed field-presence metadata");
                 amio_catalog_cursor_t cursor{};
                 amio_step_summary_t listed[1]{};
                 size_t listed_count = 0;
                 int has_more = 0;
-                expect(amio_list_steps(dataset, nullptr, 1, listed, 1, &listed_count, &cursor, &has_more) == AMIO_OK &&
-                           listed_count == 1 && listed[0].step_id == 0 && has_more == 0 && cursor.dataset_uuid[0] != '\0',
+                expect(amio_list_steps(dataset, nullptr, 1, listed, 1, &listed_count, &cursor, &has_more) == AMIO_OK && listed_count == 1 &&
+                           listed[0].step_id == 0 && has_more == 0 && cursor.dataset_uuid[0] != '\0',
                        "bounded list returns step summaries and a dataset-bound cursor");
                 float readback[4]{};
                 size_t read_bytes = 0;
-                expect(amio_read_step_field(dataset, 0, variable_name, sizeof(variable_name) - 1, nullptr, nullptr, 0,
-                                            &read_bytes) == AMIO_OK && read_bytes == sizeof(readback),
+                expect(amio_read_step_field(dataset, 0, variable_name, sizeof(variable_name) - 1, nullptr, nullptr, 0, &read_bytes) == AMIO_OK &&
+                           read_bytes == sizeof(readback),
                        "read supports a bounded size query before allocation");
-                expect(amio_read_step_field(dataset, 0, variable_name, sizeof(variable_name) - 1, nullptr, readback,
-                                            sizeof(readback), &read_bytes) == AMIO_OK,
+                expect(amio_read_step_field(dataset, 0, variable_name, sizeof(variable_name) - 1, nullptr, readback, sizeof(readback), &read_bytes) ==
+                           AMIO_OK,
                        "read returns the complete committed field");
-                for (std::size_t i = 0; i < 4; ++i)
-                    expect(readback[i] == expected[i], "public read returns the native field value");
+                for (std::size_t i = 0; i < 4; ++i) expect(readback[i] == expected[i], "public read returns the native field value");
                 float converted_readback[4]{};
-                expect(amio_read_step_field(dataset, 0, low_precision_name, sizeof(low_precision_name)-1, nullptr,
-                                            converted_readback, sizeof(converted_readback), &read_bytes) == AMIO_OK &&
+                expect(amio_read_step_field(dataset, 0, low_precision_name, sizeof(low_precision_name) - 1, nullptr, converted_readback,
+                                            sizeof(converted_readback), &read_bytes) == AMIO_OK &&
                            read_bytes == sizeof(converted_readback) && converted_readback[0] == static_cast<float>(1.1) &&
                            std::signbit(converted_readback[3]),
                        "stored F32 conversion is visible through the public reader with signed zero preserved");
                 float cached_readback[4]{};
-                expect(amio_read_step_field(dataset, 0, variable_name, sizeof(variable_name) - 1, nullptr,
-                                            cached_readback, sizeof(cached_readback), &read_bytes) == AMIO_OK &&
+                expect(amio_read_step_field(dataset, 0, variable_name, sizeof(variable_name) - 1, nullptr, cached_readback, sizeof(cached_readback),
+                                            &read_bytes) == AMIO_OK &&
                            std::equal(std::begin(readback), std::end(readback), std::begin(cached_readback)),
                        "repeated full-field reads preserve values through the step-aware cache");
                 amio_step_selection_t selection{};
@@ -488,51 +500,44 @@ void test_context_initialization_outputs_and_capability_query() {
                 selection.extents[0] = 2;
                 selection.strides[0] = 1;
                 float selected[2]{};
-                expect(amio_read_step_field(dataset, 0, variable_name, sizeof(variable_name) - 1, &selection, selected,
-                                            sizeof(selected), &read_bytes) == AMIO_OK && selected[0] == expected[1] &&
-                           selected[1] == expected[2],
+                expect(amio_read_step_field(dataset, 0, variable_name, sizeof(variable_name) - 1, &selection, selected, sizeof(selected),
+                                            &read_bytes) == AMIO_OK &&
+                           selected[0] == expected[1] && selected[1] == expected[2],
                        "selected read returns the requested contiguous region");
                 float cached_selected[2]{};
-                expect(amio_read_step_field(dataset, 0, variable_name, sizeof(variable_name) - 1, &selection,
-                                            cached_selected, sizeof(cached_selected), &read_bytes) == AMIO_OK &&
+                expect(amio_read_step_field(dataset, 0, variable_name, sizeof(variable_name) - 1, &selection, cached_selected,
+                                            sizeof(cached_selected), &read_bytes) == AMIO_OK &&
                            cached_selected[0] == selected[0] && cached_selected[1] == selected[1],
                        "repeated selected reads reuse the selection-specific cache entry");
                 diagnostic_bytes = 0;
                 expect(amio_query_diagnostics(context, nullptr, 0, &diagnostic_bytes) == AMIO_OK && diagnostic_bytes > 1,
                        "diagnostics remain queryable after cached reads");
                 diagnostic_report.assign(diagnostic_bytes, '\0');
-                expect(amio_query_diagnostics(context, diagnostic_report.data(), diagnostic_report.size(),
-                                              &diagnostic_bytes) == AMIO_OK,
+                expect(amio_query_diagnostics(context, diagnostic_report.data(), diagnostic_report.size(), &diagnostic_bytes) == AMIO_OK,
                        "cached-read diagnostics fill the caller buffer");
                 std::uint64_t cache_high_water = 0;
                 expect(std::strstr(diagnostic_report.data(), "\"prefetch_bytes\"") != nullptr &&
-                           read_json_uint64_array_item(diagnostic_report.data(), "cumulative_resource_high_water", 6,
-                                                       cache_high_water) &&
+                           read_json_uint64_array_item(diagnostic_report.data(), "cumulative_resource_high_water", 6, cache_high_water) &&
                            cache_high_water == sizeof(readback) + sizeof(converted_readback) + sizeof(selected),
                        "diagnostics report bounded step-read cache occupancy in the prefetch high-water dimension");
-                expect(amio_read_step_field(dataset, 0, optional_variable_name, sizeof(optional_variable_name) - 1,
-                                            nullptr, nullptr, 0, &read_bytes) == AMIO_ERR_FIELD_NOT_PRESENT,
+                expect(amio_read_step_field(dataset, 0, optional_variable_name, sizeof(optional_variable_name) - 1, nullptr, nullptr, 0,
+                                            &read_bytes) == AMIO_ERR_FIELD_NOT_PRESENT,
                        "an absent optional field is reported explicitly");
 
-                validation.check_mask = (UINT64_C(1) << (AMIO_VALIDATE_REQUIRED_FIELDS - 1)) |
-                                        (UINT64_C(1) << (AMIO_VALIDATE_PAYLOAD_PRESENCE - 1));
+                validation.check_mask = (UINT64_C(1) << (AMIO_VALIDATE_REQUIRED_FIELDS - 1)) | (UINT64_C(1) << (AMIO_VALIDATE_PAYLOAD_PRESENCE - 1));
                 expect(amio_validate_dataset(dataset, &validation, validation_results, 2, &result_count, &next_cursor) == AMIO_OK &&
-                           validation_results[0].status == AMIO_VALIDATION_PASS &&
-                           validation_results[1].status == AMIO_VALIDATION_PASS,
+                           validation_results[0].status == AMIO_VALIDATION_PASS && validation_results[1].status == AMIO_VALIDATION_PASS,
                        "bounded structural validation confirms required fields and payload presence");
 #ifdef AMIO_TEST_HAS_NETCDF
                 const auto payload = root / "payloads" / "steps" / "00000000000000000000.nc";
                 int reader = -1;
-                expect(nc_open(payload.c_str(), NC_NOWRITE, &reader) == NC_NOERR,
-                       "published step is independently openable by native NetCDF-C");
+                expect(nc_open(payload.c_str(), NC_NOWRITE, &reader) == NC_NOERR, "published step is independently openable by native NetCDF-C");
                 if (reader >= 0) {
                     int variable_id = -1;
                     float actual[4]{};
-                    expect(nc_inq_varid(reader, variable_name, &variable_id) == NC_NOERR &&
-                               nc_get_var_float(reader, variable_id, actual) == NC_NOERR,
+                    expect(nc_inq_varid(reader, variable_name, &variable_id) == NC_NOERR && nc_get_var_float(reader, variable_id, actual) == NC_NOERR,
                            "native reader finds and reads the named step field");
-                    for (std::size_t i = 0; i < 4; ++i)
-                        expect(actual[i] == expected[i], "native reader returns the submitted field value");
+                    for (std::size_t i = 0; i < 4; ++i) expect(actual[i] == expected[i], "native reader returns the submitted field value");
                     int precision_varid = -1;
                     float native_converted[4]{};
                     expect(nc_inq_varid(reader, low_precision_name, &precision_varid) == NC_NOERR &&
@@ -545,8 +550,7 @@ void test_context_initialization_outputs_and_capability_query() {
                        "completion record and authoritative head exist after successful publication");
 #endif
                 expect(amio_release_operation(operation) == AMIO_OK, "operation observation has a distinct release operation");
-                expect(amio_release_operation(precision_operation) == AMIO_OK,
-                       "precision conversion operation observation can be released");
+                expect(amio_release_operation(precision_operation) == AMIO_OK, "precision conversion operation observation can be released");
                 expect(amio_release_step_handle(step) == AMIO_OK, "producer step handle has a distinct release operation");
 
                 step_descriptor.step_id = 1;
@@ -555,8 +559,8 @@ void test_context_initialization_outputs_and_capability_query() {
                        "a later step can reuse the registered immutable schema");
                 if (second_step != nullptr) {
                     amio_operation_handle second_operation = nullptr;
-                    expect(amio_put_field(second_step, variable_name, sizeof(variable_name) - 1, expected, sizeof(expected),
-                                          &second_operation) == AMIO_OK,
+                    expect(amio_put_field(second_step, variable_name, sizeof(variable_name) - 1, expected, sizeof(expected), &second_operation) ==
+                               AMIO_OK,
                            "later step accepts its required field");
                     expect(amio_end_step(second_step) == AMIO_OK, "later step publishes after linking the prior commit");
                     expect(amio_release_operation(second_operation) == AMIO_OK, "later operation observation is released");
@@ -566,17 +570,16 @@ void test_context_initialization_outputs_and_capability_query() {
                 amio_step_summary_t first_page[1]{};
                 size_t first_page_count = 0;
                 int first_page_more = 0;
-                expect(amio_list_steps(dataset, nullptr, 1, first_page, 1, &first_page_count, &first_page_cursor,
-                                       &first_page_more) == AMIO_OK && first_page_count == 1 && first_page[0].step_id == 1 &&
-                           first_page_more == 1,
+                expect(amio_list_steps(dataset, nullptr, 1, first_page, 1, &first_page_count, &first_page_cursor, &first_page_more) == AMIO_OK &&
+                           first_page_count == 1 && first_page[0].step_id == 1 && first_page_more == 1,
                        "bounded listing returns the head page and continuation cursor");
                 amio_catalog_cursor_t final_cursor{};
                 amio_step_summary_t second_page[1]{};
                 size_t second_page_count = 0;
                 int second_page_more = 1;
-                expect(amio_list_steps(dataset, &first_page_cursor, 1, second_page, 1, &second_page_count, &final_cursor,
-                                       &second_page_more) == AMIO_OK && second_page_count == 1 && second_page[0].step_id == 0 &&
-                           second_page_more == 0,
+                expect(amio_list_steps(dataset, &first_page_cursor, 1, second_page, 1, &second_page_count, &final_cursor, &second_page_more) ==
+                               AMIO_OK &&
+                           second_page_count == 1 && second_page[0].step_id == 0 && second_page_more == 0,
                        "continuation cursor returns the older committed step exactly once");
 
                 amio_step_descriptor_t cancelled_descriptor{};
@@ -593,16 +596,13 @@ void test_context_initialization_outputs_and_capability_query() {
                     expect(amio_put_field(cancelled_step, variable_name, sizeof(variable_name) - 1, expected, sizeof(expected),
                                           &cancelled_operation) == AMIO_OK,
                            "cancel path admits and snapshots a field before cancellation");
-                    expect(amio_cancel_step(cancelled_step) == AMIO_OK,
-                           "an open public step can be explicitly cancelled before publication");
+                    expect(amio_cancel_step(cancelled_step) == AMIO_OK, "an open public step can be explicitly cancelled before publication");
                     amio_operation_status_t cancelled_status{};
-                    expect(amio_query_operation(cancelled_operation, &cancelled_status) == AMIO_OK &&
-                               cancelled_status.outcome == AMIO_OPERATION_FAILED,
-                           "cancelling a step fails its accepted operation explicitly");
-                    expect(amio_release_operation(cancelled_operation) == AMIO_OK,
-                           "a cancelled operation can release its observer handle");
-                    expect(amio_release_step_handle(cancelled_step) == AMIO_OK,
-                           "a cancelled producer step can release its handle");
+                    expect(
+                        amio_query_operation(cancelled_operation, &cancelled_status) == AMIO_OK && cancelled_status.outcome == AMIO_OPERATION_FAILED,
+                        "cancelling a step fails its accepted operation explicitly");
+                    expect(amio_release_operation(cancelled_operation) == AMIO_OK, "a cancelled operation can release its observer handle");
+                    expect(amio_release_step_handle(cancelled_step) == AMIO_OK, "a cancelled producer step can release its handle");
                 }
                 amio_step_handle reused_cancelled_id = nullptr;
                 expect(amio_begin_step(dataset, &cancelled_descriptor, &reused_cancelled_id) == AMIO_ERR_INVALID_POLICY &&
@@ -612,10 +612,9 @@ void test_context_initialization_outputs_and_capability_query() {
                 amio_step_summary_t after_cancel_steps[3]{};
                 size_t after_cancel_count = 0;
                 int after_cancel_more = 0;
-                expect(amio_list_steps(dataset, nullptr, 3, after_cancel_steps, 3, &after_cancel_count,
-                                       &after_cancel_cursor, &after_cancel_more) == AMIO_OK &&
-                           after_cancel_count == 2 && after_cancel_steps[0].step_id == 1 &&
-                           after_cancel_steps[1].step_id == 0,
+                expect(amio_list_steps(dataset, nullptr, 3, after_cancel_steps, 3, &after_cancel_count, &after_cancel_cursor, &after_cancel_more) ==
+                               AMIO_OK &&
+                           after_cancel_count == 2 && after_cancel_steps[0].step_id == 1 && after_cancel_steps[1].step_id == 0,
                        "a cancelled step remains absent from complete-step discovery");
 
                 amio_step_descriptor_t incomplete_descriptor = cancelled_descriptor;
@@ -625,31 +624,27 @@ void test_context_initialization_outputs_and_capability_query() {
                 expect(amio_begin_step(dataset, &incomplete_descriptor, &incomplete_step) == AMIO_OK && incomplete_step != nullptr,
                        "a step can begin before discovering a required contribution is missing");
                 if (incomplete_step != nullptr) {
-                    expect(amio_end_step(incomplete_step) == AMIO_ERR_FIELD_NOT_PRESENT,
-                           "an incomplete step cannot be implicitly sealed");
-                    expect(amio_release_step_handle(incomplete_step) == AMIO_OK,
-                           "a failed terminal step releases its producer handle");
+                    expect(amio_end_step(incomplete_step) == AMIO_ERR_FIELD_NOT_PRESENT, "an incomplete step cannot be implicitly sealed");
+                    expect(amio_release_step_handle(incomplete_step) == AMIO_OK, "a failed terminal step releases its producer handle");
                 }
                 amio_step_handle reused_failed_id = nullptr;
-                expect(amio_begin_step(dataset, &incomplete_descriptor, &reused_failed_id) == AMIO_ERR_INVALID_POLICY &&
-                           reused_failed_id == nullptr,
+                expect(amio_begin_step(dataset, &incomplete_descriptor, &reused_failed_id) == AMIO_ERR_INVALID_POLICY && reused_failed_id == nullptr,
                        "a failed step ID cannot be reused");
                 amio_step_summary_t after_failure_steps[3]{};
                 size_t after_failure_count = 0;
                 amio_catalog_cursor_t after_failure_cursor{};
                 int after_failure_more = 0;
-                expect(amio_list_steps(dataset, nullptr, 3, after_failure_steps, 3, &after_failure_count,
-                                       &after_failure_cursor, &after_failure_more) == AMIO_OK &&
-                           after_failure_count == 2 && after_failure_steps[0].step_id == 1 &&
-                           after_failure_steps[1].step_id == 0,
+                expect(amio_list_steps(dataset, nullptr, 3, after_failure_steps, 3, &after_failure_count, &after_failure_cursor,
+                                       &after_failure_more) == AMIO_OK &&
+                           after_failure_count == 2 && after_failure_steps[0].step_id == 1 && after_failure_steps[1].step_id == 0,
                        "an incomplete failed step remains absent from complete-step discovery");
             }
         }
         expect(amio_release_schema(schema) == AMIO_OK, "caller can release its schema observation handle");
 #ifdef AMIO_TEST_HAS_NETCDF
         validation.check_mask = UINT64_C(1) << (AMIO_VALIDATE_INTEGRITY - 1);
-        expect(amio_validate_dataset(dataset, &validation, validation_results, 2, &result_count, &next_cursor) == AMIO_OK &&
-                   result_count == 1 && validation_results[0].status == AMIO_VALIDATION_PASS,
+        expect(amio_validate_dataset(dataset, &validation, validation_results, 2, &result_count, &next_cursor) == AMIO_OK && result_count == 1 &&
+                   validation_results[0].status == AMIO_VALIDATION_PASS,
                "integrity validation verifies canonical logical bytes for every committed payload");
         const auto corrupted_payload = root / "payloads" / "steps" / "00000000000000000000.nc";
         int corrupt_ncid = -1, corrupt_varid = -1;
@@ -657,44 +652,49 @@ void test_context_initialization_outputs_and_capability_query() {
         bool corrupted = nc_open(corrupted_payload.c_str(), NC_WRITE, &corrupt_ncid) == NC_NOERR;
         if (corrupted) corrupted = nc_inq_varid(corrupt_ncid, variable_name, &corrupt_varid) == NC_NOERR;
         if (corrupted) corrupted = nc_get_var_float(corrupt_ncid, corrupt_varid, corrupted_values) == NC_NOERR;
-        if (corrupted) { corrupted_values[0] += 1.0f; corrupted = nc_put_var_float(corrupt_ncid, corrupt_varid, corrupted_values) == NC_NOERR; }
+        if (corrupted) {
+            corrupted_values[0] += 1.0f;
+            corrupted = nc_put_var_float(corrupt_ncid, corrupt_varid, corrupted_values) == NC_NOERR;
+        }
         if (corrupt_ncid >= 0) nc_close(corrupt_ncid);
         expect(corrupted, "test fixture can mutate a committed native payload");
-        expect(amio_validate_dataset(dataset, &validation, validation_results, 2, &result_count, &next_cursor) == AMIO_OK &&
-                   result_count == 1 && validation_results[0].status == AMIO_VALIDATION_FAIL,
+        expect(amio_validate_dataset(dataset, &validation, validation_results, 2, &result_count, &next_cursor) == AMIO_OK && result_count == 1 &&
+                   validation_results[0].status == AMIO_VALIDATION_FAIL,
                "integrity validation rejects a corrupted stored field");
 #endif
         amio_dataset_handle reader = nullptr;
-        const auto reader_status=amio_open_dataset_reader(context, location.data(), location.size(), &reader);
-        if(reader_status!=AMIO_OK) std::fprintf(stderr,"reader open status: %d\n",reader_status);
-        expect(reader_status == AMIO_OK && reader != nullptr,
-               "read-only utility handle reopens an existing collection and its schemas");
+        const auto reader_status = amio_open_dataset_reader(context, location.data(), location.size(), &reader);
+        if (reader_status != AMIO_OK) std::fprintf(stderr, "reader open status: %d\n", reader_status);
+        expect(reader_status == AMIO_OK && reader != nullptr, "read-only utility handle reopens an existing collection and its schemas");
         if (reader != nullptr) {
             float reopened_values[4]{};
             size_t reopened_bytes = 0;
-            expect(amio_read_step_field(reader, 0, variable_name, sizeof(variable_name)-1, nullptr,
-                                        reopened_values, sizeof(reopened_values), &reopened_bytes) == AMIO_OK &&
+            expect(amio_read_step_field(reader, 0, variable_name, sizeof(variable_name) - 1, nullptr, reopened_values, sizeof(reopened_values),
+                                        &reopened_bytes) == AMIO_OK &&
                        reopened_bytes == sizeof(reopened_values) && reopened_values[0] == 2.25f,
                    "reopened collection supports public bounded native field reads");
             amio_validation_request_t reopened_validation{};
-            reopened_validation.struct_size=sizeof(reopened_validation);
-            reopened_validation.version=AMIO_EVOLUTION_DESCRIPTOR_VERSION_1;
-            reopened_validation.check_mask=(UINT64_C(1)<<(AMIO_VALIDATE_COMPLETION_CHAIN-1))|
-                (UINT64_C(1)<<(AMIO_VALIDATE_REQUIRED_FIELDS-1))|(UINT64_C(1)<<(AMIO_VALIDATE_PAYLOAD_PRESENCE-1));
-            reopened_validation.max_results=3;
-            amio_validation_result_t reopened_results[3]{}; size_t reopened_count=0; uint64_t reopened_cursor=0;
-            expect(amio_validate_dataset(reader,&reopened_validation,reopened_results,3,&reopened_count,&reopened_cursor)==AMIO_OK &&
-                       reopened_count==3 && reopened_results[0].status==AMIO_VALIDATION_PASS && reopened_cursor==0,
+            reopened_validation.struct_size = sizeof(reopened_validation);
+            reopened_validation.version = AMIO_EVOLUTION_DESCRIPTOR_VERSION_1;
+            reopened_validation.check_mask = (UINT64_C(1) << (AMIO_VALIDATE_COMPLETION_CHAIN - 1)) |
+                                             (UINT64_C(1) << (AMIO_VALIDATE_REQUIRED_FIELDS - 1)) |
+                                             (UINT64_C(1) << (AMIO_VALIDATE_PAYLOAD_PRESENCE - 1));
+            reopened_validation.max_results = 3;
+            amio_validation_result_t reopened_results[3]{};
+            size_t reopened_count = 0;
+            uint64_t reopened_cursor = 0;
+            expect(amio_validate_dataset(reader, &reopened_validation, reopened_results, 3, &reopened_count, &reopened_cursor) == AMIO_OK &&
+                       reopened_count == 3 && reopened_results[0].status == AMIO_VALIDATION_PASS && reopened_cursor == 0,
                    "reopened collection exposes the public structural validation report");
-            reopened_validation.check_mask=UINT64_C(1)<<(AMIO_VALIDATE_INTEGRITY-1);
-            reopened_validation.max_results=1;
-            expect(amio_validate_dataset(reader,&reopened_validation,reopened_results,3,&reopened_count,&reopened_cursor)==AMIO_OK &&
-                       reopened_count==1 && reopened_results[0].status==AMIO_VALIDATION_FAIL,
+            reopened_validation.check_mask = UINT64_C(1) << (AMIO_VALIDATE_INTEGRITY - 1);
+            reopened_validation.max_results = 1;
+            expect(amio_validate_dataset(reader, &reopened_validation, reopened_results, 3, &reopened_count, &reopened_cursor) == AMIO_OK &&
+                       reopened_count == 1 && reopened_results[0].status == AMIO_VALIDATION_FAIL,
                    "reopened collection integrity validation detects changed committed bytes");
-            amio_schema_handle forbidden_schema=reinterpret_cast<amio_schema_handle>(static_cast<uintptr_t>(1));
-            expect(amio_define_schema(reader,&schema_descriptor,&forbidden_schema)==AMIO_ERR_INVALID_POLICY && forbidden_schema==nullptr,
+            amio_schema_handle forbidden_schema = reinterpret_cast<amio_schema_handle>(static_cast<uintptr_t>(1));
+            expect(amio_define_schema(reader, &schema_descriptor, &forbidden_schema) == AMIO_ERR_INVALID_POLICY && forbidden_schema == nullptr,
                    "read-only utility handle rejects schema mutation");
-            expect(amio_close_dataset_ex(reader)==AMIO_OK,"read-only utility handle closes cleanly");
+            expect(amio_close_dataset_ex(reader) == AMIO_OK, "read-only utility handle closes cleanly");
         }
         expect(amio_close_dataset_ex(dataset) == AMIO_OK, "evolution dataset closes after schema registration");
         expect(amio_release_context(context) == AMIO_OK, "context closes after its dataset is released");
@@ -703,19 +703,17 @@ void test_context_initialization_outputs_and_capability_query() {
         disabled_descriptor.canonical_configuration = diagnostics_off;
         disabled_descriptor.configuration_bytes = sizeof(diagnostics_off) - 1;
         amio_context_handle disabled_context = nullptr;
-        expect(amio_init_ex(&disabled_descriptor, &disabled_context) == AMIO_OK,
-               "context initializes with standard diagnostics disabled");
+        expect(amio_init_ex(&disabled_descriptor, &disabled_context) == AMIO_OK, "context initializes with standard diagnostics disabled");
         size_t disabled_bytes = 0;
         expect(amio_query_diagnostics(disabled_context, nullptr, 0, &disabled_bytes) == AMIO_ERR_UNSUPPORTED,
                "diagnostics query reports unsupported when collection is disabled");
-        expect(amio_release_context(disabled_context) == AMIO_OK,
-               "diagnostics-disabled context releases cleanly");
+        expect(amio_release_context(disabled_context) == AMIO_OK, "diagnostics-disabled context releases cleanly");
         expect(std::filesystem::exists(root / "amio.json"), "exclusive collection identity is persisted");
         std::filesystem::remove_all(root, ec);
     }
 }
 
-} // namespace
+}  // namespace
 
 int main() {
 #ifdef AMIO_TEST_HAS_MPI

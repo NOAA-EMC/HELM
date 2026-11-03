@@ -1,10 +1,10 @@
-#include "schema/schema.hpp"
-
 #include <cassert>
 #include <cstdint>
 #include <limits>
 #include <string>
 #include <utility>
+
+#include "schema/schema.hpp"
 
 namespace {
 
@@ -75,9 +75,9 @@ void test_bounded_canonical_decode() {
     field.attributes.emplace("text", Attribute{std::string("x:;y")});
     field.attributes.emplace("ints", Attribute{std::vector<std::int64_t>{-1, 2}});
     field.attributes.emplace("uints", Attribute{std::vector<std::uint64_t>{0, 2}});
-    field.attributes.emplace("reals", Attribute{std::vector<double>{0.0, -0.0, std::numeric_limits<double>::denorm_min(),
-                                                                   std::numeric_limits<double>::max(), std::numeric_limits<double>::infinity(),
-                                                                   std::numeric_limits<double>::quiet_NaN()}});
+    field.attributes.emplace("reals",
+                             Attribute{std::vector<double>{0.0, -0.0, std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::max(),
+                                                           std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}});
     field.attributes.emplace("texts", Attribute{std::vector<std::string>{"", "ab"}});
     assert(original.add_variable(std::move(field)).ok());
     assert(original.seal().ok());
@@ -94,17 +94,15 @@ void test_bounded_canonical_decode() {
     malformed = original.canonical() + "junk";
     assert(!Schema::from_canonical(malformed, malformed.size(), decoded).ok());
     assert(decoded.digest() == digest);
-    const std::string excessive_count =
-        "amio-schema-v1;digest=fnv1a64-v1;variables=1;1:x;0;0;1;1;1:d;1;0;1;1:a;5:18446744073709551615:";
+    const std::string excessive_count = "amio-schema-v1;digest=fnv1a64-v1;variables=1;1:x;0;0;1;1;1:d;1;0;1;1:a;5:18446744073709551615:";
     assert(!Schema::from_canonical(excessive_count, excessive_count.size(), decoded).ok());
     assert(decoded.digest() == digest);
-    const std::string noncanonical =
-        "amio-schema-v1;digest=fnv1a64-v1;variables=01;1:x;0;0;1;1;1:d;1;0;0;";
+    const std::string noncanonical = "amio-schema-v1;digest=fnv1a64-v1;variables=01;1:x;0;0;1;1;1:d;1;0;0;";
     assert(!Schema::from_canonical(noncanonical, noncanonical.size(), decoded).ok());
     assert(decoded.digest() == digest);
 }
 
-} // namespace
+}  // namespace
 
 int main() {
     test_fnv_known_answer();

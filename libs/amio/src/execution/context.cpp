@@ -1,6 +1,4 @@
 #include "execution/context.hpp"
-#include "execution/role_map.hpp"
-#include "workers/comm_split.hpp"
 
 #include <algorithm>
 #include <array>
@@ -10,31 +8,29 @@
 #include <sstream>
 #include <utility>
 
+#include "execution/role_map.hpp"
+#include "workers/comm_split.hpp"
+
 namespace amio::detail {
 
-amio_status_t compare_context_metadata(const ExecutionContext &context, std::string_view value,
-                                       std::size_t max_bytes) noexcept {
+amio_status_t compare_context_metadata(const ExecutionContext &context, std::string_view value, std::size_t max_bytes) noexcept {
 #ifdef AMIO_HAS_MPI
     const int root = static_cast<int>(context.storage_root_rank());
     const MPI_Comm communicator = context.communicator();
     unsigned long long total = context.rank() == static_cast<std::uint32_t>(root) ? value.size() : 0;
-    if (MPI_Bcast(&total, 1, MPI_UNSIGNED_LONG_LONG, root, communicator) != MPI_SUCCESS)
-        return AMIO_ERR_COMM_SPLIT_FAILED;
+    if (MPI_Bcast(&total, 1, MPI_UNSIGNED_LONG_LONG, root, communicator) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
     if (total > max_bytes) return AMIO_ERR_INVALID_INPUT;
     std::array<char, 4096> chunk{};
     int mismatch = value.size() != total ? 1 : 0;
     for (std::size_t offset = 0; offset < static_cast<std::size_t>(total);) {
         const auto count = std::min(chunk.size(), static_cast<std::size_t>(total) - offset);
         if (context.rank() == static_cast<std::uint32_t>(root)) std::memcpy(chunk.data(), value.data() + offset, count);
-        if (MPI_Bcast(chunk.data(), static_cast<int>(count), MPI_CHAR, root, communicator) != MPI_SUCCESS)
-            return AMIO_ERR_COMM_SPLIT_FAILED;
-        if (offset > value.size() || count > value.size() - offset ||
-            std::memcmp(chunk.data(), value.data() + offset, count) != 0) mismatch = 1;
+        if (MPI_Bcast(chunk.data(), static_cast<int>(count), MPI_CHAR, root, communicator) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+        if (offset > value.size() || count > value.size() - offset || std::memcmp(chunk.data(), value.data() + offset, count) != 0) mismatch = 1;
         offset += count;
     }
     int any_mismatch = 0;
-    if (MPI_Allreduce(&mismatch, &any_mismatch, 1, MPI_INT, MPI_MAX, communicator) != MPI_SUCCESS)
-        return AMIO_ERR_COMM_SPLIT_FAILED;
+    if (MPI_Allreduce(&mismatch, &any_mismatch, 1, MPI_INT, MPI_MAX, communicator) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
     return any_mismatch ? AMIO_ERR_SCHEMA_MISMATCH : AMIO_OK;
 #else
     (void)context;
@@ -44,11 +40,9 @@ amio_status_t compare_context_metadata(const ExecutionContext &context, std::str
 
 namespace {
 
-bool add_role(const std::vector<int> &ranks, std::uint32_t rank_count, std::vector<std::uint8_t> &assigned,
-              std::size_t &assigned_count) {
+bool add_role(const std::vector<int> &ranks, std::uint32_t rank_count, std::vector<std::uint8_t> &assigned, std::size_t &assigned_count) {
     for (const int rank : ranks) {
-        if (rank < 0 || static_cast<std::uint32_t>(rank) >= rank_count || assigned[static_cast<std::size_t>(rank)] != 0)
-            return false;
+        if (rank < 0 || static_cast<std::uint32_t>(rank) >= rank_count || assigned[static_cast<std::size_t>(rank)] != 0) return false;
         assigned[static_cast<std::size_t>(rank)] = 1;
         ++assigned_count;
     }
@@ -105,7 +99,7 @@ amio_status_t agree_on_configuration(MPI_Comm comm, const std::string &canonical
 }
 #endif
 
-} // namespace
+}  // namespace
 
 amio_status_t validate_roles(const RoleConfiguration &roles) {
     if (roles.rank_count == 0 || roles.rank_count > 1'000'000) return AMIO_ERR_INVALID_POLICY;
@@ -114,20 +108,22 @@ amio_status_t validate_roles(const RoleConfiguration &roles) {
         std::size_t assigned_count = 0;
         if (!add_role(roles.producers, roles.rank_count, assigned, assigned_count) ||
             !add_role(roles.writers, roles.rank_count, assigned, assigned_count) ||
-            !add_role(roles.consumers, roles.rank_count, assigned, assigned_count)) return AMIO_ERR_INVALID_POLICY;
+            !add_role(roles.consumers, roles.rank_count, assigned, assigned_count))
+            return AMIO_ERR_INVALID_POLICY;
 
         switch (roles.mode) {
             case ExecutionMode::Direct:
-                if (!roles.writers.empty() || !roles.consumers.empty() ||
-                    (!roles.producers.empty() && assigned_count != roles.rank_count)) return AMIO_ERR_INVALID_POLICY;
+                if (!roles.writers.empty() || !roles.consumers.empty() || (!roles.producers.empty() && assigned_count != roles.rank_count))
+                    return AMIO_ERR_INVALID_POLICY;
                 return AMIO_OK;
             case ExecutionMode::Aggregated:
                 if (roles.rank_count < 2 || roles.producers.empty() || roles.writers.empty() || !roles.consumers.empty() ||
-                    assigned_count != roles.rank_count) return AMIO_ERR_INVALID_POLICY;
+                    assigned_count != roles.rank_count)
+                    return AMIO_ERR_INVALID_POLICY;
                 return AMIO_OK;
             case ExecutionMode::Stream:
-                if (roles.producers.empty() || roles.consumers.empty() || !roles.writers.empty() ||
-                    assigned_count != roles.rank_count) return AMIO_ERR_INVALID_POLICY;
+                if (roles.producers.empty() || roles.consumers.empty() || !roles.writers.empty() || assigned_count != roles.rank_count)
+                    return AMIO_ERR_INVALID_POLICY;
                 return AMIO_OK;
         }
     } catch (const std::bad_alloc &) {
@@ -151,25 +147,37 @@ amio_status_t validate_progress_support(ProgressPolicy policy, int provided_thre
 
 ExecutionContext::ExecutionContext(RoleConfiguration roles, ProgressPolicy progress, std::uint32_t rank
 #ifdef AMIO_HAS_MPI
-                                   , halo::Communicator parent, halo::Communicator control, halo::Communicator data
-                                   , std::optional<halo::Communicator> producer_group,
-                                   std::optional<halo::Communicator> writer_group,
-                                   std::optional<halo::Communicator> consumer_group,
-                                   std::optional<halo::Communicator> service_group
+                                   ,
+                                   halo::Communicator parent, halo::Communicator control, halo::Communicator data,
+                                   std::optional<halo::Communicator> producer_group, std::optional<halo::Communicator> writer_group,
+                                   std::optional<halo::Communicator> consumer_group, std::optional<halo::Communicator> service_group
 #endif
-                                   , std::shared_ptr<const RoleMap> role_map
-                                   )
-    : roles_(std::move(roles)), progress_(progress), rank_(rank), role_map_(std::move(role_map))
+                                   ,
+                                   std::shared_ptr<const RoleMap> role_map)
+    : roles_(std::move(roles)),
+      progress_(progress),
+      rank_(rank),
+      role_map_(std::move(role_map))
 #ifdef AMIO_HAS_MPI
-      , parent_(std::move(parent)), control_(std::move(control)), data_(std::move(data)),
-      producer_group_(std::move(producer_group)), writer_group_(std::move(writer_group))
-      , consumer_group_(std::move(consumer_group)), service_group_(std::move(service_group))
+      ,
+      parent_(std::move(parent)),
+      control_(std::move(control)),
+      data_(std::move(data)),
+      producer_group_(std::move(producer_group)),
+      writer_group_(std::move(writer_group)),
+      consumer_group_(std::move(consumer_group)),
+      service_group_(std::move(service_group))
 #endif
-{}
+{
+}
 
-const RoleMap &ExecutionContext::role_map() const noexcept { return *role_map_; }
+const RoleMap &ExecutionContext::role_map() const noexcept {
+    return *role_map_;
+}
 
-bool ExecutionContext::can_open_storage() const noexcept { return role_map_->can_open_storage(rank_); }
+bool ExecutionContext::can_open_storage() const noexcept {
+    return role_map_->can_open_storage(rank_);
+}
 
 std::uint32_t ExecutionContext::storage_root_rank() const noexcept {
     if (role_map_->writers().empty()) return 0;
@@ -179,11 +187,11 @@ std::uint32_t ExecutionContext::storage_root_rank() const noexcept {
 
 amio_status_t ExecutionContext::create(const RoleConfiguration &roles, ProgressPolicy progress, const std::string &canonical_configuration,
 #ifdef AMIO_HAS_MPI
-                                        MPI_Comm caller_communicator,
+                                       MPI_Comm caller_communicator,
 #else
-                                        int caller_communicator,
+                                       int caller_communicator,
 #endif
-                                        std::unique_ptr<ExecutionContext> &out_context) {
+                                       std::unique_ptr<ExecutionContext> &out_context) {
     out_context.reset();
 #ifdef AMIO_HAS_MPI
     int initialized = 0;
@@ -227,11 +235,13 @@ amio_status_t ExecutionContext::create(const RoleConfiguration &roles, ProgressP
     }
     std::string complete_configuration;
     local_code = AMIO_OK;
-    try { complete_configuration = full_configuration(roles, progress, canonical_configuration); }
-    catch (...) { local_code = AMIO_ERR_BACKEND_FAILURE; }
+    try {
+        complete_configuration = full_configuration(roles, progress, canonical_configuration);
+    } catch (...) {
+        local_code = AMIO_ERR_BACKEND_FAILURE;
+    }
     global_code = AMIO_OK;
-    if (MPI_Allreduce(&local_code, &global_code, 1, MPI_INT, MPI_MAX, caller_communicator) != MPI_SUCCESS)
-        return AMIO_ERR_COMM_SPLIT_FAILED;
+    if (MPI_Allreduce(&local_code, &global_code, 1, MPI_INT, MPI_MAX, caller_communicator) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
     if (global_code != AMIO_OK) return global_code;
     const amio_status_t agreement = agree_on_configuration(caller_communicator, complete_configuration);
     if (agreement != AMIO_OK) {
@@ -284,10 +294,9 @@ amio_status_t ExecutionContext::create(const RoleConfiguration &roles, ProgressP
             service_group.emplace(service_raw);
             service_raw = MPI_COMM_NULL;
         }
-        out_context.reset(new ExecutionContext(roles, progress, static_cast<std::uint32_t>(rank), std::move(*owned_duplicate),
-                                               std::move(control), std::move(data), std::move(producer_group),
-                                               std::move(writer_group), std::move(consumer_group), std::move(service_group),
-                                               std::move(role_map)));
+        out_context.reset(new ExecutionContext(roles, progress, static_cast<std::uint32_t>(rank), std::move(*owned_duplicate), std::move(control),
+                                               std::move(data), std::move(producer_group), std::move(writer_group), std::move(consumer_group),
+                                               std::move(service_group), std::move(role_map)));
     } catch (...) {
         return AMIO_ERR_COMM_SPLIT_FAILED;
     }
@@ -315,4 +324,4 @@ amio_status_t ExecutionContext::create(const RoleConfiguration &roles, ProgressP
 #endif
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

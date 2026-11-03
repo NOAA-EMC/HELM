@@ -1,11 +1,11 @@
-#include "staging/resource_budget.hpp"
-#include "schema/schema_wire_buffer.hpp"
-
 #include <array>
 #include <cassert>
 #include <cstddef>
 #include <limits>
 #include <stdexcept>
+
+#include "schema/schema_wire_buffer.hpp"
+#include "staging/resource_budget.hpp"
 
 namespace {
 
@@ -86,7 +86,7 @@ void test_schema_wire_reserves_before_allocation_and_releases() {
     assert(peak.control_bytes == 4 && peak.control_descriptors == 1 && peak.reservations == 1);
 }
 
-} // namespace
+}  // namespace
 
 int main() {
     test_data_capacity_respects_control_reserve();

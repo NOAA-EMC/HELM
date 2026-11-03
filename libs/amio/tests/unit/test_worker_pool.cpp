@@ -1132,7 +1132,13 @@ void test_backpressure_admission_timeout_rejects_write() {
     std::promise<void> started, release;
     auto gate = release.get_future().share();
     std::uint64_t seq = 0;
-    EXPECT_TRUE(pool.submit_write({1, 1}, [&] { started.set_value(); gate.wait(); }, &seq) == AMIO_OK,
+    EXPECT_TRUE(pool.submit_write(
+                    {1, 1},
+                    [&] {
+                        started.set_value();
+                        gate.wait();
+                    },
+                    &seq) == AMIO_OK,
                 "admit running write");
     started.get_future().wait();
     EXPECT_TRUE(pool.submit_write({1, 1}, [] {}, &seq) == AMIO_OK, "fill pending queue");

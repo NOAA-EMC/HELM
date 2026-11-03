@@ -65,7 +65,7 @@ typedef enum amio_err_e {
     AMIO_ERR_STREAM_DISCONNECTED = 25,   /**< Stream ended with an unmet delivery obligation */
     AMIO_ERR_INVALID_POLICY = 26,        /**< Execution or storage policy is incompatible */
     AMIO_ERR_BUDGET_EXCEEDED = 27,       /**< A configured finite resource ceiling was exceeded */
-    AMIO_ERR_OPERATION_PENDING = 28,    /**< Accepted operation remains active */
+    AMIO_ERR_OPERATION_PENDING = 28,     /**< Accepted operation remains active */
     AMIO_ERR_BUFFER_TOO_SMALL = 29       /**< Caller-provided result buffer cannot hold the requested page */
     /*
      * Extension space reserved.  Append future codes with the next

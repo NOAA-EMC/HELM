@@ -1,17 +1,17 @@
 #pragma once
 
-#include "result_writer.hpp"
-#include "catalog/collection_reader.hpp"
-#include "catalog/catalog_format.hpp"
-#include "schema/schema.hpp"
-#include "amio/amio_evolution.h"
-#include "c_boundary/amio_tool_api.hpp"
-
 #include <filesystem>
 #include <map>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "amio/amio_evolution.h"
+#include "c_boundary/amio_tool_api.hpp"
+#include "catalog/catalog_format.hpp"
+#include "catalog/collection_reader.hpp"
+#include "result_writer.hpp"
+#include "schema/schema.hpp"
 
 namespace amio::tools {
 
@@ -27,8 +27,7 @@ struct CollectionInfo {
     std::string uuid;
     std::filesystem::path root;
     amio::detail::CollectionReader reader;
-    explicit CollectionInfo(std::filesystem::path path, std::string id)
-        : uuid(std::move(id)), root(std::move(path)), reader(root, uuid) {}
+    explicit CollectionInfo(std::filesystem::path path, std::string id) : uuid(std::move(id)), root(std::move(path)), reader(root, uuid) {}
 };
 
 struct CliRuntime {
@@ -41,8 +40,8 @@ struct CliRuntime {
 [[nodiscard]] bool parse_options(int argc, char **argv, Options &options, std::string &error);
 [[nodiscard]] bool read_bounded_file(const std::filesystem::path &path, std::size_t limit, std::string &out);
 [[nodiscard]] amio_status_t open_collection(const std::filesystem::path &path, CollectionInfo &out);
-[[nodiscard]] bool load_schema(const CollectionInfo &collection, const std::string &digest,
-                               amio::detail::SchemaDocument &document, amio::detail::Schema &schema);
+[[nodiscard]] bool load_schema(const CollectionInfo &collection, const std::string &digest, amio::detail::SchemaDocument &document,
+                               amio::detail::Schema &schema);
 [[nodiscard]] amio_status_t open_cli_dataset(const std::filesystem::path &path, const Options &options, CliRuntime &runtime);
 [[nodiscard]] amio_status_t open_cli_context(const Options &options, CliRuntime &runtime);
 void finalize_cli_mpi();
@@ -59,4 +58,4 @@ void finalize_cli_mpi();
 [[nodiscard]] bool parse_field_list(const std::string &text, std::vector<std::string> &fields);
 [[nodiscard]] bool destination_is_available(const std::filesystem::path &path);
 
-} // namespace amio::tools
+}  // namespace amio::tools

@@ -1,13 +1,13 @@
 #ifndef AMIO_SRC_CATALOG_COLLECTION_CATALOG_HPP
 #define AMIO_SRC_CATALOG_COLLECTION_CATALOG_HPP
 
-#include "catalog/catalog_format.hpp"
-#include "catalog/posix_catalog.hpp"
-
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "catalog/catalog_format.hpp"
+#include "catalog/posix_catalog.hpp"
 
 namespace amio::detail {
 
@@ -16,14 +16,22 @@ enum class FailureMoment { BeforeWrite, AfterWrite };
 
 /** Small deterministic store used to exercise publication ordering and ambiguous acknowledgments. */
 class MemoryCatalogStore {
-public:
+   public:
     void fail_next(CatalogWrite write, FailureMoment moment);
-    void serve_stale_reads(bool stale) noexcept { stale_reads_ = stale; }
+    void serve_stale_reads(bool stale) noexcept {
+        stale_reads_ = stale;
+    }
     void inject_unreferenced_payload(std::string path);
-    [[nodiscard]] const std::vector<std::string> &write_order() const noexcept { return write_order_; }
-private:
+    [[nodiscard]] const std::vector<std::string> &write_order() const noexcept {
+        return write_order_;
+    }
+
+   private:
     friend class CollectionCatalog;
-    struct Failure { CatalogWrite write; FailureMoment moment; };
+    struct Failure {
+        CatalogWrite write;
+        FailureMoment moment;
+    };
     std::vector<Failure> failures_;
     std::vector<std::string> write_order_;
     std::map<std::string, std::string, std::less<>> commits_;
@@ -39,7 +47,7 @@ struct CollectionPublicationResult {
 };
 
 class CollectionCatalog {
-public:
+   public:
     CollectionCatalog(std::shared_ptr<MemoryCatalogStore> store, std::string root, std::string uuid, std::string owner);
     [[nodiscard]] amio_status_t create_exclusive();
     [[nodiscard]] CollectionPublicationResult publish(CompletionRecord record);
@@ -47,13 +55,14 @@ public:
     [[nodiscard]] CompletionRecord read_head() const;
     [[nodiscard]] std::vector<CompletionRecord> list_steps() const;
     [[nodiscard]] std::vector<std::string> list_orphans() const;
-private:
+
+   private:
     [[nodiscard]] bool fail(CatalogWrite write, FailureMoment moment);
     std::shared_ptr<MemoryCatalogStore> store_;
     std::string root_, uuid_, owner_;
     bool created_ = false;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

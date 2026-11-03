@@ -103,4 +103,4 @@ WaitOutcome OperationRecord::wait_for(OperationMilestone milestone, std::chrono:
     return reached_locked(milestone) ? WaitOutcome::Reached : WaitOutcome::Failed;
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

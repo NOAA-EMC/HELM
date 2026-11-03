@@ -1,10 +1,10 @@
-#include "execution/transport_protocol.hpp"
-
 #include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+
+#include "execution/transport_protocol.hpp"
 
 using namespace amio::detail;
 
@@ -202,13 +202,17 @@ void test_acknowledgments_match_full_request() {
     assert(acknowledgment_matches(request, ack));
     ack.schema_digest[0]++;
     assert(!acknowledgment_matches(request, ack));
-    ack = request; ack.field_id++;
+    ack = request;
+    ack.field_id++;
     assert(!acknowledgment_matches(request, ack));
-    ack = request; ack.fragment_count++;
+    ack = request;
+    ack.fragment_count++;
     assert(!acknowledgment_matches(request, ack));
-    ack = request; ack.offsets[0]++;
+    ack = request;
+    ack.offsets[0]++;
     assert(!acknowledgment_matches(request, ack));
-    ack = request; ack.payload_bytes--;
+    ack = request;
+    ack.payload_bytes--;
     assert(!acknowledgment_matches(request, ack));
 }
 

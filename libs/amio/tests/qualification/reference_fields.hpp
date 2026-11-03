@@ -63,8 +63,8 @@ inline bool verify_reference(std::istream &in, const ReferenceWorkload &expected
                     return false;
                 }
                 if (found_step != step || found_field != field || found_cell != cell || value != reference_value(step, field, cell)) {
-                    error = "reference payload differs at step " + std::to_string(step) + ", field " + std::to_string(field) +
-                            ", cell " + std::to_string(cell);
+                    error = "reference payload differs at step " + std::to_string(step) + ", field " + std::to_string(field) + ", cell " +
+                            std::to_string(cell);
                     return false;
                 }
             }
@@ -78,6 +78,6 @@ inline bool verify_reference(std::istream &in, const ReferenceWorkload &expected
     return true;
 }
 
-} // namespace amio::qualification
+}  // namespace amio::qualification
 
-#endif // AMIO_TESTS_QUALIFICATION_REFERENCE_FIELDS_HPP
+#endif  // AMIO_TESTS_QUALIFICATION_REFERENCE_FIELDS_HPP

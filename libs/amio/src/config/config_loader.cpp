@@ -22,14 +22,16 @@ namespace amio::detail {
 namespace {
 
 bool validate_evolution_keys(const conf::Config &manifest, ValidationError &error) {
-    static const std::set<std::string> root_keys{"amio_version", "execution", "layout", "destination", "membership", "budgets", "transfer", "worker_pool"};
+    static const std::set<std::string> root_keys{"amio_version", "execution", "layout",   "destination",
+                                                 "membership",   "budgets",   "transfer", "worker_pool"};
     static const std::map<std::string, std::set<std::string>> nested_keys{
         {"execution", {"mode", "progress"}},
         {"layout", {"kind"}},
         {"destination", {"backend", "path", "create_policy"}},
         {"membership", {"producers", "writers", "consumers"}},
-        {"budgets", {"total_bytes", "staging_bytes", "metadata_bytes", "transport_bytes", "view_bytes", "control_reserve_bytes",
-                      "total_descriptors", "control_reserve_descriptors"}},
+        {"budgets",
+         {"total_bytes", "staging_bytes", "metadata_bytes", "transport_bytes", "view_bytes", "control_reserve_bytes", "total_descriptors",
+          "control_reserve_descriptors"}},
         {"transfer", {"chunk_bytes", "credits_per_peer"}},
         {"worker_pool", {"threads", "cpu_cores", "numa_domain"}},
     };
@@ -177,7 +179,7 @@ void write_rank_list(std::ostringstream &out, std::string_view name, const std::
     for (const int rank : ranks) out << "    - " << rank << '\n';
 }
 
-} // namespace
+}  // namespace
 
 // ===================================================================
 // Static codec allow-list
@@ -216,11 +218,11 @@ amio_err_t ConfigLoader::validate(const Config &config, ValidationError &error_o
         if (evolution.progress_mode != "background" && evolution.progress_mode != "caller") {
             return fail("execution.progress", "progress must be background or caller");
         }
-        if (evolution.execution_mode == "persistent_aggregated" && evolution.progress_mode == "background" &&
-            config.worker_pool.threads == 0) {
+        if (evolution.execution_mode == "persistent_aggregated" && evolution.progress_mode == "background" && config.worker_pool.threads == 0) {
             return fail("worker_pool.threads", "background aggregation requires at least one writer worker");
         }
-        if (evolution.layout != "step_collection") return fail("layout.kind", "persistent datasets require layout: step_collection", AMIO_ERR_UNSUPPORTED);
+        if (evolution.layout != "step_collection")
+            return fail("layout.kind", "persistent datasets require layout: step_collection", AMIO_ERR_UNSUPPORTED);
         const bool stream = evolution.execution_mode == "mpi_stream";
         if (stream) {
             if (!evolution.destination_backend.empty() || !evolution.destination_path.empty()) {
@@ -230,8 +232,7 @@ amio_err_t ConfigLoader::validate(const Config &config, ValidationError &error_o
                 return fail("membership", "stream mode requires producer and consumer ranks and no writer ranks");
             }
         } else {
-            if (evolution.destination_backend != "netcdf4" && evolution.destination_backend != "zarr3" &&
-                evolution.destination_backend != "grib2") {
+            if (evolution.destination_backend != "netcdf4" && evolution.destination_backend != "zarr3" && evolution.destination_backend != "grib2") {
                 return fail("destination.backend", "persistent mode requires netcdf4, zarr3, or grib2");
             }
             if (evolution.destination_path.empty()) return fail("destination.path", "persistent mode requires an explicit destination path");
@@ -260,15 +261,17 @@ amio_err_t ConfigLoader::validate(const Config &config, ValidationError &error_o
 
         const auto &budget = evolution.budgets;
         if (budget.total_bytes == 0 || budget.total_descriptors == 0 || budget.staging_bytes == 0 || budget.metadata_bytes == 0 ||
-            budget.transport_bytes == 0 || budget.view_bytes == 0 || budget.control_reserve_bytes == 0 ||
-            budget.control_reserve_descriptors == 0 || budget.chunk_bytes == 0 || budget.credits_per_peer == 0) {
+            budget.transport_bytes == 0 || budget.view_bytes == 0 || budget.control_reserve_bytes == 0 || budget.control_reserve_descriptors == 0 ||
+            budget.chunk_bytes == 0 || budget.credits_per_peer == 0) {
             return fail("budgets", "all byte, descriptor, chunk, and credit ceilings must be finite and positive");
         }
         std::size_t remaining = budget.total_bytes;
-        for (const auto &[path, bytes] : std::vector<std::pair<const char *, std::size_t>>{
-                 {"budgets.staging_bytes", budget.staging_bytes}, {"budgets.metadata_bytes", budget.metadata_bytes},
-                 {"budgets.transport_bytes", budget.transport_bytes}, {"budgets.view_bytes", budget.view_bytes},
-                 {"budgets.control_reserve_bytes", budget.control_reserve_bytes}}) {
+        for (const auto &[path, bytes] :
+             std::vector<std::pair<const char *, std::size_t>>{{"budgets.staging_bytes", budget.staging_bytes},
+                                                               {"budgets.metadata_bytes", budget.metadata_bytes},
+                                                               {"budgets.transport_bytes", budget.transport_bytes},
+                                                               {"budgets.view_bytes", budget.view_bytes},
+                                                               {"budgets.control_reserve_bytes", budget.control_reserve_bytes}}) {
             if (bytes > remaining) return fail("budgets.total_bytes", "sum of reserved byte ceilings exceeds total_bytes");
             remaining -= bytes;
             (void)path;
@@ -352,8 +355,7 @@ amio_err_t ConfigLoader::validate(const Config &config, ValidationError &error_o
     }
     if (config.backpressure.prefetch_capacity == 0 || config.backpressure.prefetch_capacity > 1'000'000) {
         error_out.field_path = "backpressure.prefetch_capacity";
-        error_out.message = "prefetch_capacity must be in [1, 1000000], got " +
-                            std::to_string(config.backpressure.prefetch_capacity);
+        error_out.message = "prefetch_capacity must be in [1, 1000000], got " + std::to_string(config.backpressure.prefetch_capacity);
         return AMIO_ERR_MANIFEST_INVALID;
     }
 

@@ -1,15 +1,15 @@
 #ifndef AMIO_SRC_SCHEMA_SCHEMA_WIRE_BUFFER_HPP
 #define AMIO_SRC_SCHEMA_SCHEMA_WIRE_BUFFER_HPP
 
-#include "amio/amio_errors.h"
-#include "staging/resource_budget.hpp"
-
 #include <cstddef>
 #include <cstring>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string_view>
+
+#include "amio/amio_errors.h"
+#include "staging/resource_budget.hpp"
 
 namespace amio::detail {
 
@@ -18,11 +18,13 @@ namespace amio::detail {
  * The reservation covers wire bytes; a decoded schema needs its own budget.
  */
 class SchemaWireBuffer {
-public:
+   public:
     explicit SchemaWireBuffer(ResourceBudget &budget, std::size_t max_bytes) noexcept : budget_(&budget), max_bytes_(max_bytes) {}
     SchemaWireBuffer(const SchemaWireBuffer &) = delete;
     SchemaWireBuffer &operator=(const SchemaWireBuffer &) = delete;
-    ~SchemaWireBuffer() { reset(); }
+    ~SchemaWireBuffer() {
+        reset();
+    }
 
     /** Reserve before allocating; failed admission leaves the buffer empty. */
     [[nodiscard]] amio_status_t begin(std::size_t bytes) noexcept {
@@ -31,11 +33,17 @@ public:
             auto reservation = budget_->reserve(bytes, 1, ResourceBudget::Class::Control);
             if (!reservation) return AMIO_ERR_BUDGET_EXCEEDED;
             reservation_ = reservation;
-            try { bytes_ = std::make_unique<char[]>(bytes); }
-            catch (...) { reset(); return AMIO_ERR_BACKEND_FAILURE; }
+            try {
+                bytes_ = std::make_unique<char[]>(bytes);
+            } catch (...) {
+                reset();
+                return AMIO_ERR_BACKEND_FAILURE;
+            }
             capacity_ = bytes;
             return AMIO_OK;
-        } catch (...) { return AMIO_ERR_BACKEND_FAILURE; }
+        } catch (...) {
+            return AMIO_ERR_BACKEND_FAILURE;
+        }
     }
 
     /** Copy the next fragment without growing the reserved allocation. */
@@ -55,10 +63,13 @@ public:
     void reset() noexcept {
         bytes_.reset();
         capacity_ = size_ = 0;
-        if (reservation_) { (void)budget_->release(*reservation_); reservation_.reset(); }
+        if (reservation_) {
+            (void)budget_->release(*reservation_);
+            reservation_.reset();
+        }
     }
 
-private:
+   private:
     ResourceBudget *budget_;
     std::size_t max_bytes_;
     std::unique_ptr<char[]> bytes_;
@@ -67,6 +78,6 @@ private:
     std::optional<ResourceBudget::Reservation> reservation_;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

@@ -1,11 +1,11 @@
-#include "amio/amio.h"
-
 #include <mpi.h>
 
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <string>
+
+#include "amio/amio.h"
 
 int main(int argc, char **argv) {
     int provided = MPI_THREAD_SINGLE;
@@ -45,12 +45,14 @@ io_ranks:
             const auto open_status = amio_open_dataset_from_string(core, manifest, "yaml", AMIO_MODE_WRITE, &dataset);
             if (open_status != AMIO_ERR_INVALID_POLICY || dataset != nullptr) local_status = 1;
         } else {
-            const std::string dataset_manifest = std::string(manifest) +
-                "\npath: /tmp/amio-role-owned-output.nc\noutput_path: /tmp/amio-role-owned-output.nc\ndata_model: classic\n";
+            const std::string dataset_manifest =
+                std::string(manifest) + "\npath: /tmp/amio-role-owned-output.nc\noutput_path: /tmp/amio-role-owned-output.nc\ndata_model: classic\n";
             amio_dataset_handle dataset = nullptr;
             const auto open_status = amio_open_dataset_from_string(core, dataset_manifest.c_str(), "yaml", AMIO_MODE_WRITE, &dataset);
-            if (open_status != AMIO_OK || dataset == nullptr) local_status = 1;
-            else if (amio_close_dataset(dataset) != AMIO_OK) local_status = 1;
+            if (open_status != AMIO_OK || dataset == nullptr)
+                local_status = 1;
+            else if (amio_close_dataset(dataset) != AMIO_OK)
+                local_status = 1;
             std::remove("/tmp/amio-role-owned-output.nc");
         }
         MPI_Allreduce(&local_status, &global_status, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);

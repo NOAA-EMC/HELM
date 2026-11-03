@@ -293,8 +293,8 @@ void PrefetchQueue::schedule_fetch(std::int64_t timestep) {
         auto self = this;
         auto ts = timestep;
 
-        const amio_err_t submitted = workers_->try_submit_prefetch(
-            timestep, timestep, dataset_id_, [self, ts, sel]() { self->sync_fetch(ts, sel.has_value() ? &*sel : nullptr); });
+        const amio_err_t submitted = workers_->try_submit_prefetch(timestep, timestep, dataset_id_,
+                                                                   [self, ts, sel]() { self->sync_fetch(ts, sel.has_value() ? &*sel : nullptr); });
         if (submitted != AMIO_OK) mark_failed(timestep, submitted);
     } else {
         // Synchronous fallback: perform the fetch directly on the

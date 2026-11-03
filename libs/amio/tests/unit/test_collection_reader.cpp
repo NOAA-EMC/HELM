@@ -1,10 +1,11 @@
-#include "catalog/collection_reader.hpp"
-#include "catalog/posix_catalog.hpp"
+#include <unistd.h>
 
 #include <cassert>
 #include <filesystem>
 #include <string>
-#include <unistd.h>
+
+#include "catalog/collection_reader.hpp"
+#include "catalog/posix_catalog.hpp"
 
 using namespace amio::detail;
 

@@ -1,8 +1,9 @@
 #include "execution/stream_execution.hpp"
-#include "execution/role_map.hpp"
 
 #include <algorithm>
 #include <limits>
+
+#include "execution/role_map.hpp"
 
 namespace amio::detail {
 namespace {
@@ -16,27 +17,33 @@ std::string digest_name(const std::array<std::uint8_t, kSchemaDigestBytes> &dige
     }
     return result;
 }
-}
+}  // namespace
 
-StreamExecution::StreamExecution(const ExecutionContext &context, MpiTransport &transport, StreamRetention &retention,
-                                 std::uint64_t epoch, std::array<std::uint8_t, kDatasetUuidBytes> dataset_uuid,
-                                 std::size_t max_step_bytes)
-    : context_(&context), transport_(&transport), retention_(&retention), epoch_(epoch),
-      dataset_uuid_(dataset_uuid), max_step_bytes_(max_step_bytes), sent_sequences_(context.size(), 0),
-      received_sequences_(context.size()), control_sequences_(context.size()), release_sequences_(context.size(), 1) {}
+StreamExecution::StreamExecution(const ExecutionContext &context, MpiTransport &transport, StreamRetention &retention, std::uint64_t epoch,
+                                 std::array<std::uint8_t, kDatasetUuidBytes> dataset_uuid, std::size_t max_step_bytes)
+    : context_(&context),
+      transport_(&transport),
+      retention_(&retention),
+      epoch_(epoch),
+      dataset_uuid_(dataset_uuid),
+      max_step_bytes_(max_step_bytes),
+      sent_sequences_(context.size(), 0),
+      received_sequences_(context.size()),
+      control_sequences_(context.size()),
+      release_sequences_(context.size(), 1) {}
 
-amio_status_t StreamExecution::submit(TransportEnvelope frame, std::span<const std::byte> bytes,
-                                      std::size_t element_bytes) {
+amio_status_t StreamExecution::submit(TransportEnvelope frame, std::span<const std::byte> bytes, std::size_t element_bytes) {
     const auto rank = context_->rank();
     const auto destination = context_->role_map().writer_for(rank);
-    if (context_->role_map().role(rank) != RankRole::Producer || !destination || frame.producer_rank != rank ||
-        frame.context_epoch != epoch_ || frame.dataset_uuid != dataset_uuid_ || frame.kind != MessageKind::Chunk ||
-        frame.sequence == 0 || bytes.empty() || bytes.size() > max_step_bytes_ || element_bytes == 0 ||
-        frame.dimension_count > AMIO_MAX_RANK) return AMIO_ERR_INVALID_POLICY;
+    if (context_->role_map().role(rank) != RankRole::Producer || !destination || frame.producer_rank != rank || frame.context_epoch != epoch_ ||
+        frame.dataset_uuid != dataset_uuid_ || frame.kind != MessageKind::Chunk || frame.sequence == 0 || bytes.empty() ||
+        bytes.size() > max_step_bytes_ || element_bytes == 0 || frame.dimension_count > AMIO_MAX_RANK)
+        return AMIO_ERR_INVALID_POLICY;
     std::size_t elements = 1;
     for (std::size_t i = 0; i < frame.dimension_count; ++i) {
         if (frame.extents[i] == 0 || frame.extents[i] > std::numeric_limits<std::size_t>::max() ||
-            elements > std::numeric_limits<std::size_t>::max() / frame.extents[i]) return AMIO_ERR_PARTITION_INVALID;
+            elements > std::numeric_limits<std::size_t>::max() / frame.extents[i])
+            return AMIO_ERR_PARTITION_INVALID;
         elements *= static_cast<std::size_t>(frame.extents[i]);
     }
     if (elements > std::numeric_limits<std::size_t>::max() / element_bytes || elements * element_bytes != bytes.size())
@@ -64,14 +71,13 @@ amio_status_t StreamExecution::submit(TransportEnvelope frame, std::span<const s
     return transport_->send_payload(*destination, frame, bytes, element_bytes);
 }
 
-amio_status_t StreamExecution::receive_step(std::uint64_t step_id,
-    const std::array<std::uint8_t, kSchemaDigestBytes> &schema_digest,
-    const std::vector<std::string> &absent_optional_fields, std::uint32_t fields_per_producer,
-    std::uint64_t *received_bytes) {
+amio_status_t StreamExecution::receive_step(std::uint64_t step_id, const std::array<std::uint8_t, kSchemaDigestBytes> &schema_digest,
+                                            const std::vector<std::string> &absent_optional_fields, std::uint32_t fields_per_producer,
+                                            std::uint64_t *received_bytes) {
     if (received_bytes) *received_bytes = 0;
     const auto consumer_rank = context_->rank();
-    if (context_->role_map().role(consumer_rank) != RankRole::Consumer || fields_per_producer == 0 ||
-        fields_per_producer > 65536) return AMIO_ERR_INVALID_POLICY;
+    if (context_->role_map().role(consumer_rank) != RankRole::Consumer || fields_per_producer == 0 || fields_per_producer > 65536)
+        return AMIO_ERR_INVALID_POLICY;
     const auto fail = [this](amio_status_t status) {
         retention_->finish(status);
         return status;
@@ -95,46 +101,46 @@ amio_status_t StreamExecution::receive_step(std::uint64_t step_id,
         const auto destination = context_->role_map().writer_for(producer);
         if (!destination || *destination != consumer_rank) continue;
         for (std::uint32_t field_index = 0; field_index < fields_per_producer; ++field_index) {
-        std::vector<std::byte> contribution;
-        std::optional<TransportEnvelope> identity;
-        for (;;) {
-            TransportEnvelope frame;
-            CreditWindow::Ticket credit{};
-            std::vector<std::byte> fragment;
-            const auto status = transport_->receive_fragment(producer, validation, frame, fragment, &credit);
-            if (status != AMIO_OK) return fail(status);
-            if (!identity) {
-                identity = frame;
-                if (identity->contribution_bytes > max_step_bytes_) {
+            std::vector<std::byte> contribution;
+            std::optional<TransportEnvelope> identity;
+            for (;;) {
+                TransportEnvelope frame;
+                CreditWindow::Ticket credit{};
+                std::vector<std::byte> fragment;
+                const auto status = transport_->receive_fragment(producer, validation, frame, fragment, &credit);
+                if (status != AMIO_OK) return fail(status);
+                if (!identity) {
+                    identity = frame;
+                    if (identity->contribution_bytes > max_step_bytes_) {
+                        (void)transport_->release_receiver_credit(credit, fragment);
+                        return fail(AMIO_ERR_BUDGET_EXCEEDED);
+                    }
+                    contribution.reserve(static_cast<std::size_t>(identity->contribution_bytes));
+                } else if (frame.sequence != identity->sequence || frame.field_id != identity->field_id ||
+                           frame.fragment_count != identity->fragment_count || frame.fragment_index != identity->fragment_index + 1 ||
+                           frame.fragment_offset != contribution.size()) {
+                    (void)transport_->release_receiver_credit(credit, fragment);
+                    return fail(AMIO_ERR_INVALID_POLICY);
+                }
+                if (fragment.size() > max_step_bytes_ - step.payload_bytes - contribution.size()) {
                     (void)transport_->release_receiver_credit(credit, fragment);
                     return fail(AMIO_ERR_BUDGET_EXCEEDED);
                 }
-                contribution.reserve(static_cast<std::size_t>(identity->contribution_bytes));
-            } else if (frame.sequence != identity->sequence || frame.field_id != identity->field_id ||
-                       frame.fragment_count != identity->fragment_count || frame.fragment_index != identity->fragment_index + 1 ||
-                       frame.fragment_offset != contribution.size()) {
-                (void)transport_->release_receiver_credit(credit, fragment);
+                contribution.insert(contribution.end(), fragment.begin(), fragment.end());
+                const bool final_fragment = frame.fragment_index + 1 == frame.fragment_count;
+                const auto release_status = transport_->release_receiver_credit(credit, fragment);
+                if (release_status != AMIO_OK) return fail(release_status);
+                if (final_fragment) break;
+            }
+            if (!identity || contribution.size() != identity->contribution_bytes ||
+                received_sequences_.accept(producer, identity->sequence) != SequenceResult::Accepted)
                 return fail(AMIO_ERR_INVALID_POLICY);
-            }
-            if (fragment.size() > max_step_bytes_ - step.payload_bytes - contribution.size()) {
-                (void)transport_->release_receiver_credit(credit, fragment);
-                return fail(AMIO_ERR_BUDGET_EXCEEDED);
-            }
-            contribution.insert(contribution.end(), fragment.begin(), fragment.end());
-            const bool final_fragment = frame.fragment_index + 1 == frame.fragment_count;
-            const auto release_status = transport_->release_receiver_credit(credit, fragment);
-            if (release_status != AMIO_OK) return fail(release_status);
-            if (final_fragment) break;
-        }
-        if (!identity || contribution.size() != identity->contribution_bytes ||
-            received_sequences_.accept(producer, identity->sequence) != SequenceResult::Accepted)
-            return fail(AMIO_ERR_INVALID_POLICY);
-        const auto key = "field_" + std::to_string(identity->field_id) + "_producer_" + std::to_string(producer);
-        step.payload_bytes += contribution.size();
-        if (received_bytes) *received_bytes += contribution.size();
-        step.fields.emplace(key, std::move(contribution));
-        step.field_shapes[key].assign(identity->extents.begin(), identity->extents.begin() + identity->dimension_count);
-        step.field_offsets[key].assign(identity->offsets.begin(), identity->offsets.begin() + identity->dimension_count);
+            const auto key = "field_" + std::to_string(identity->field_id) + "_producer_" + std::to_string(producer);
+            step.payload_bytes += contribution.size();
+            if (received_bytes) *received_bytes += contribution.size();
+            step.fields.emplace(key, std::move(contribution));
+            step.field_shapes[key].assign(identity->extents.begin(), identity->extents.begin() + identity->dimension_count);
+            step.field_offsets[key].assign(identity->offsets.begin(), identity->offsets.begin() + identity->dimension_count);
         }
     }
     const auto status = retention_->publish(std::move(step));
@@ -144,30 +150,32 @@ amio_status_t StreamExecution::receive_step(std::uint64_t step_id,
 amio_status_t StreamExecution::finish_producer(bool graceful) {
     const auto rank = context_->rank();
     const auto destination = context_->role_map().writer_for(rank);
-    if (context_->role_map().role(rank) != RankRole::Producer || !destination || next_control_sequence_ == 0)
-        return AMIO_ERR_INVALID_POLICY;
+    if (context_->role_map().role(rank) != RankRole::Producer || !destination || next_control_sequence_ == 0) return AMIO_ERR_INVALID_POLICY;
     // A producer's retained snapshots are the ownership record for accepted
     // stream steps. Do not advertise EOS while any consumer release ACK is
     // still outstanding; callers may retry after the consumer drains them.
-    if (retention_->policy() == StreamRetentionPolicy::Reliable && retention_->snapshot().steps != 0)
-        return AMIO_ERR_OPERATION_PENDING;
+    if (retention_->policy() == StreamRetentionPolicy::Reliable && retention_->snapshot().steps != 0) return AMIO_ERR_OPERATION_PENDING;
     TransportEnvelope frame;
-    frame.context_epoch = epoch_; frame.dataset_uuid = dataset_uuid_;
+    frame.context_epoch = epoch_;
+    frame.dataset_uuid = dataset_uuid_;
     frame.kind = graceful ? MessageKind::EndOfStream : MessageKind::Close;
-    frame.producer_rank = rank; frame.writer_rank = *destination; frame.sequence = next_control_sequence_++;
+    frame.producer_rank = rank;
+    frame.writer_rank = *destination;
+    frame.sequence = next_control_sequence_++;
     return transport_->send_control(*destination, frame);
 }
 
 amio_status_t StreamExecution::cancel_producer() {
     const auto rank = context_->rank();
     const auto destination = context_->role_map().writer_for(rank);
-    if (context_->role_map().role(rank) != RankRole::Producer || !destination || next_control_sequence_ == 0)
-        return AMIO_ERR_INVALID_POLICY;
-    if (retention_->policy() == StreamRetentionPolicy::Reliable && retention_->snapshot().steps != 0)
-        return AMIO_ERR_OPERATION_PENDING;
+    if (context_->role_map().role(rank) != RankRole::Producer || !destination || next_control_sequence_ == 0) return AMIO_ERR_INVALID_POLICY;
+    if (retention_->policy() == StreamRetentionPolicy::Reliable && retention_->snapshot().steps != 0) return AMIO_ERR_OPERATION_PENDING;
     TransportEnvelope frame;
-    frame.context_epoch = epoch_; frame.dataset_uuid = dataset_uuid_;
-    frame.kind = MessageKind::Cancel; frame.producer_rank = rank; frame.writer_rank = *destination;
+    frame.context_epoch = epoch_;
+    frame.dataset_uuid = dataset_uuid_;
+    frame.kind = MessageKind::Cancel;
+    frame.producer_rank = rank;
+    frame.writer_rank = *destination;
     frame.sequence = next_control_sequence_++;
     return transport_->send_control(*destination, frame);
 }
@@ -182,8 +190,12 @@ amio_status_t StreamExecution::release_lease(std::uint64_t lease_id) {
         const auto producer = static_cast<std::uint32_t>(peer);
         if (context_->role_map().writer_for(producer) != consumer) continue;
         TransportEnvelope frame;
-        frame.context_epoch = epoch_; frame.dataset_uuid = dataset_uuid_; frame.step_id = *step_id;
-        frame.kind = MessageKind::Release; frame.producer_rank = producer; frame.writer_rank = consumer;
+        frame.context_epoch = epoch_;
+        frame.dataset_uuid = dataset_uuid_;
+        frame.step_id = *step_id;
+        frame.kind = MessageKind::Release;
+        frame.producer_rank = producer;
+        frame.writer_rank = consumer;
         frame.sequence = release_sequences_[producer];
         if (retention_->policy() == StreamRetentionPolicy::Reliable) {
             const auto status = transport_->send_release(producer, frame);
@@ -211,7 +223,8 @@ amio_status_t StreamExecution::finish_consumer() {
     const auto consumer_rank = context_->rank();
     if (context_->role_map().role(consumer_rank) != RankRole::Consumer) return AMIO_ERR_INVALID_POLICY;
     TransportValidationContext validation;
-    validation.expected_epoch = epoch_; validation.expected_dataset_uuid = dataset_uuid_;
+    validation.expected_epoch = epoch_;
+    validation.expected_dataset_uuid = dataset_uuid_;
     for (int rank : context_->roles().producers) validation.producer_ranks.push_back(static_cast<std::uint32_t>(rank));
     for (int rank : context_->roles().consumers) validation.writer_ranks.push_back(static_cast<std::uint32_t>(rank));
     bool disconnected = false;
@@ -221,15 +234,24 @@ amio_status_t StreamExecution::finish_consumer() {
         if (!destination || *destination != consumer_rank) continue;
         const auto status = transport_->receive_control(producer, validation, [&](const TransportEnvelope &frame) {
             if (control_sequences_.accept(producer, frame.sequence) != SequenceResult::Accepted) return AMIO_ERR_INVALID_POLICY;
-            if (frame.kind == MessageKind::Close) { disconnected = true; return AMIO_OK; }
-            if (frame.kind == MessageKind::Cancel) { cancelled = true; return AMIO_OK; }
+            if (frame.kind == MessageKind::Close) {
+                disconnected = true;
+                return AMIO_OK;
+            }
+            if (frame.kind == MessageKind::Cancel) {
+                cancelled = true;
+                return AMIO_OK;
+            }
             return frame.kind == MessageKind::EndOfStream ? AMIO_OK : AMIO_ERR_INVALID_POLICY;
         });
-        if (status != AMIO_OK) { retention_->finish(status); return status; }
+        if (status != AMIO_OK) {
+            retention_->finish(status);
+            return status;
+        }
     }
     const auto terminal = disconnected ? AMIO_ERR_STREAM_DISCONNECTED : (cancelled ? AMIO_ERR_STEP_FAILED : AMIO_OK);
     retention_->finish(terminal);
     return terminal;
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

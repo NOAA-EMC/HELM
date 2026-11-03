@@ -1,10 +1,9 @@
-#include "memory/memory_descriptor.hpp"
-
 #include <Kokkos_Core.hpp>
-
 #include <cassert>
 #include <cstddef>
 #include <vector>
+
+#include "memory/memory_descriptor.hpp"
 
 int main(int argc, char **argv) {
     amio::detail::MemoryDescriptor descriptor;
@@ -19,16 +18,14 @@ int main(int argc, char **argv) {
 
     std::vector<std::byte> snapshot;
     bool fallback = false;
-    assert(amio::detail::snapshot_memory_buffer(descriptor, reinterpret_cast<const void *>(1), 8,
-                                               snapshot, fallback) == AMIO_ERR_UNSUPPORTED);
+    assert(amio::detail::snapshot_memory_buffer(descriptor, reinterpret_cast<const void *>(1), 8, snapshot, fallback) == AMIO_ERR_UNSUPPORTED);
     assert(snapshot.empty());
 
     Kokkos::initialize(argc, argv);
     {
         Kokkos::View<std::byte *> source("amio_device_snapshot_source", 8);
-        Kokkos::parallel_for("initialize_amio_source", Kokkos::RangePolicy<>(0, 8), KOKKOS_LAMBDA(const int i) {
-            source(i) = static_cast<std::byte>(i + 1);
-        });
+        Kokkos::parallel_for(
+            "initialize_amio_source", Kokkos::RangePolicy<>(0, 8), KOKKOS_LAMBDA(const int i) { source(i) = static_cast<std::byte>(i + 1); });
         Kokkos::fence("producer writes complete");
 
         assert(amio::detail::snapshot_memory_buffer(descriptor, source.data(), 8, snapshot, fallback) == AMIO_OK);

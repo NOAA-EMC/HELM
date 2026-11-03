@@ -38,7 +38,7 @@ bool known_kind(MessageKind kind) noexcept {
     return value >= static_cast<std::uint8_t>(MessageKind::Config) && value <= static_cast<std::uint8_t>(MessageKind::Release);
 }
 
-} // namespace
+}  // namespace
 
 std::array<std::uint8_t, kTransportEnvelopeWireBytes> encode_envelope(const TransportEnvelope &envelope) noexcept {
     std::array<std::uint8_t, kTransportEnvelopeWireBytes> bytes{};
@@ -91,13 +91,11 @@ ProtocolError decode_envelope(std::span<const std::uint8_t> bytes, TransportEnve
 }
 
 bool acknowledgment_matches(const TransportEnvelope &request, const TransportEnvelope &ack) noexcept {
-    return ack.version == request.version && ack.context_epoch == request.context_epoch &&
-           ack.dataset_uuid == request.dataset_uuid && ack.step_id == request.step_id &&
-           ack.schema_digest == request.schema_digest && ack.field_id == request.field_id &&
-           ack.producer_rank == request.producer_rank && ack.writer_rank == request.writer_rank &&
-           ack.sequence == request.sequence && ack.fragment_index == request.fragment_index &&
-           ack.fragment_count == request.fragment_count && ack.dimension_count == request.dimension_count &&
-           ack.offsets == request.offsets && ack.extents == request.extents &&
+    return ack.version == request.version && ack.context_epoch == request.context_epoch && ack.dataset_uuid == request.dataset_uuid &&
+           ack.step_id == request.step_id && ack.schema_digest == request.schema_digest && ack.field_id == request.field_id &&
+           ack.producer_rank == request.producer_rank && ack.writer_rank == request.writer_rank && ack.sequence == request.sequence &&
+           ack.fragment_index == request.fragment_index && ack.fragment_count == request.fragment_count &&
+           ack.dimension_count == request.dimension_count && ack.offsets == request.offsets && ack.extents == request.extents &&
            ack.fragment_offset == request.fragment_offset && ack.contribution_bytes == request.contribution_bytes &&
            ack.payload_bytes == request.payload_bytes;
 }
@@ -114,8 +112,8 @@ ProtocolValidationResult validate_envelope(const TransportEnvelope &envelope, co
     if (producer == context.producer_ranks.end() || context.writer_ranks.empty()) return {ProtocolError::InvalidProducer, 0};
     const auto producer_index = static_cast<std::size_t>(producer - context.producer_ranks.begin());
     const auto expected_writer = context.writer_ranks[producer_index % context.writer_ranks.size()];
-    const bool writer_is_member = std::find(context.writer_ranks.begin(), context.writer_ranks.end(), envelope.writer_rank) !=
-                                  context.writer_ranks.end();
+    const bool writer_is_member =
+        std::find(context.writer_ranks.begin(), context.writer_ranks.end(), envelope.writer_rank) != context.writer_ranks.end();
     if (!writer_is_member || (envelope.kind == MessageKind::Chunk && envelope.writer_rank != expected_writer)) {
         return {ProtocolError::InvalidWriterMapping, 0};
     }
@@ -131,8 +129,8 @@ ProtocolValidationResult validate_envelope(const TransportEnvelope &envelope, co
             return {ProtocolError::InvalidRegion, 0};
         }
     }
-    if (envelope.fragment_offset > envelope.contribution_bytes ||
-        envelope.payload_bytes > envelope.contribution_bytes - envelope.fragment_offset) return {ProtocolError::InvalidSequence, 0};
+    if (envelope.fragment_offset > envelope.contribution_bytes || envelope.payload_bytes > envelope.contribution_bytes - envelope.fragment_offset)
+        return {ProtocolError::InvalidSequence, 0};
     if (envelope.kind == MessageKind::Chunk) {
         // Every nonempty fragment carries at least one byte.  Otherwise a peer
         // could advertise an arbitrarily long drain for a tiny contribution.
@@ -194,11 +192,15 @@ std::vector<PayloadFragment> make_fragments(std::uint64_t total_bytes, std::uint
 
 AckMilestone acknowledgment_milestone(MessageKind kind) noexcept {
     switch (kind) {
-        case MessageKind::Received: return AckMilestone::ReceiverOwnsPayload;
-        case MessageKind::PayloadResult: return AckMilestone::BackendCompleted;
-        case MessageKind::Published: return AckMilestone::ReaderCanDiscoverStep;
-        default: return AckMilestone::None;
+        case MessageKind::Received:
+            return AckMilestone::ReceiverOwnsPayload;
+        case MessageKind::PayloadResult:
+            return AckMilestone::BackendCompleted;
+        case MessageKind::Published:
+            return AckMilestone::ReaderCanDiscoverStep;
+        default:
+            return AckMilestone::None;
     }
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

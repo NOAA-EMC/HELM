@@ -59,17 +59,13 @@ endif()
 
 add_test(NAME amio_symbol_mangling COMMAND ${CMAKE_COMMAND} -DAMIO_NM_EXECUTABLE=${AMIO_NM_EXECUTABLE} -DAMIO_LIBRARY_FILE=$<TARGET_FILE:amio_core>
                                            -P ${_amio_scripts}/check_symbol_mangling.cmake)
-set_tests_properties(amio_symbol_mangling PROPERTIES LABELS "header_isolation;symbols;amio_compatibility" TIMEOUT 60 SKIP_REGULAR_EXPRESSION "SKIPPED:")
+set_tests_properties(amio_symbol_mangling PROPERTIES LABELS "header_isolation;symbols;amio_compatibility" TIMEOUT 60 SKIP_REGULAR_EXPRESSION
+                                                     "SKIPPED:")
 
-add_test(
-    NAME amio_legacy_abi_symbols
-    COMMAND ${CMAKE_COMMAND}
-            -DAMIO_NM_EXECUTABLE=${AMIO_NM_EXECUTABLE}
-            -DAMIO_LIBRARY_FILE=$<TARGET_FILE:amio_core>
-            -DAMIO_ABI_FIXTURE=${CMAKE_SOURCE_DIR}/tests/fixtures/legacy_abi.json
-            -P ${_amio_scripts}/check_legacy_abi_symbols.cmake)
-set_tests_properties(amio_legacy_abi_symbols PROPERTIES LABELS "header_isolation;amio_compatibility" TIMEOUT 60
-    SKIP_REGULAR_EXPRESSION "SKIPPED:")
+add_test(NAME amio_legacy_abi_symbols
+         COMMAND ${CMAKE_COMMAND} -DAMIO_NM_EXECUTABLE=${AMIO_NM_EXECUTABLE} -DAMIO_LIBRARY_FILE=$<TARGET_FILE:amio_core>
+                 -DAMIO_ABI_FIXTURE=${CMAKE_SOURCE_DIR}/tests/fixtures/legacy_abi.json -P ${_amio_scripts}/check_legacy_abi_symbols.cmake)
+set_tests_properties(amio_legacy_abi_symbols PROPERTIES LABELS "header_isolation;amio_compatibility" TIMEOUT 60 SKIP_REGULAR_EXPRESSION "SKIPPED:")
 
 # ####################################################################################################################################################
 # 1. No-Rust / Cargo / Go dependency closure check (R13.2)

@@ -38,18 +38,9 @@ typedef enum amio_execution_mode_e {
 typedef enum amio_progress_mode_e { AMIO_PROGRESS_CALLER = 1, AMIO_PROGRESS_BACKGROUND = 2 } amio_progress_mode_t;
 
 /** Effective local role reported by amio_query_context_role(). */
-typedef enum amio_rank_role_e {
-    AMIO_ROLE_INACTIVE = 0,
-    AMIO_ROLE_PRODUCER = 1,
-    AMIO_ROLE_WRITER = 2,
-    AMIO_ROLE_CONSUMER = 3
-} amio_rank_role_t;
+typedef enum amio_rank_role_e { AMIO_ROLE_INACTIVE = 0, AMIO_ROLE_PRODUCER = 1, AMIO_ROLE_WRITER = 2, AMIO_ROLE_CONSUMER = 3 } amio_rank_role_t;
 
-typedef enum amio_evolution_format_e {
-    AMIO_FORMAT_NETCDF4 = 1,
-    AMIO_FORMAT_ZARR3 = 2,
-    AMIO_FORMAT_GRIB2 = 3
-} amio_evolution_format_t;
+typedef enum amio_evolution_format_e { AMIO_FORMAT_NETCDF4 = 1, AMIO_FORMAT_ZARR3 = 2, AMIO_FORMAT_GRIB2 = 3 } amio_evolution_format_t;
 
 typedef enum amio_attribute_type_e {
     AMIO_ATTRIBUTE_BOOL = 1,
@@ -303,13 +294,7 @@ typedef struct amio_stream_read_descriptor_s {
     uint64_t reserved[2];
 } amio_stream_read_descriptor_t;
 
-enum {
-    AMIO_OPERATION_SOURCE_RELEASED = 1u,
-    AMIO_OPERATION_BACKEND_COMPLETE = 2u,
-    AMIO_OPERATION_READER_VISIBLE = 4u,
-    AMIO_OPERATION_DURABLE = 8u
-};
-
+enum { AMIO_OPERATION_SOURCE_RELEASED = 1u, AMIO_OPERATION_BACKEND_COMPLETE = 2u, AMIO_OPERATION_READER_VISIBLE = 4u, AMIO_OPERATION_DURABLE = 8u };
 
 typedef enum amio_validation_check_e {
     AMIO_VALIDATE_COMPLETION_CHAIN = 1,
@@ -350,9 +335,8 @@ typedef struct amio_validation_result_s {
  * individual PASS, FAIL, or UNSUPPORTED status. A zero-capacity/null results
  * pair queries the page size; unsupported checks never count as success.
  */
-AMIO_API amio_status_t amio_validate_dataset(amio_dataset_handle dataset, const amio_validation_request_t *request,
-                                             amio_validation_result_t *results, size_t result_capacity, size_t *out_result_count,
-                                             uint64_t *out_next_cursor);
+AMIO_API amio_status_t amio_validate_dataset(amio_dataset_handle dataset, const amio_validation_request_t *request, amio_validation_result_t *results,
+                                             size_t result_capacity, size_t *out_result_count, uint64_t *out_next_cursor);
 
 /** Collectively create a context and duplicate its caller-owned communicator.
  * All members must provide a complete descriptor and the same usable caller
@@ -362,12 +346,10 @@ AMIO_API amio_status_t amio_validate_dataset(amio_dataset_handle dataset, const 
 AMIO_API amio_status_t amio_init_ex(const amio_context_descriptor_t *descriptor, amio_context_handle *out_context);
 
 /** Query a stable JSON capability description using size-query then fill. */
-AMIO_API amio_status_t amio_query_capabilities(amio_context_handle context, char *buffer, size_t buffer_capacity,
-                                               size_t *out_required_bytes);
+AMIO_API amio_status_t amio_query_capabilities(amio_context_handle context, char *buffer, size_t buffer_capacity, size_t *out_required_bytes);
 
 /** Query this rank's effective role and rank within its role group; local operation, no MPI collective. */
-AMIO_API amio_status_t amio_query_context_role(amio_context_handle context, uint32_t *out_role,
-                                               uint32_t *out_group_rank);
+AMIO_API amio_status_t amio_query_context_role(amio_context_handle context, uint32_t *out_role, uint32_t *out_group_rank);
 
 /**
  * Query a bounded, process-local diagnostic snapshot as versioned JSON.
@@ -379,16 +361,14 @@ AMIO_API amio_status_t amio_query_context_role(amio_context_handle context, uint
  * the resource high-water values include retained step-read cache occupancy
  * under the prefetch-bytes dimension.
  */
-AMIO_API amio_status_t amio_query_diagnostics(amio_context_handle context, char *buffer, size_t buffer_capacity,
-                                              size_t *out_required_bytes);
+AMIO_API amio_status_t amio_query_diagnostics(amio_context_handle context, char *buffer, size_t buffer_capacity, size_t *out_required_bytes);
 
 /**
  * Collectively sum context-wide diagnostic counters and return version 2 JSON.
  * All members of the context communicator must call the fill operation in the
  * same order. A null/zero size query is local and does not enter MPI.
  */
-AMIO_API amio_status_t amio_reduce_diagnostics(amio_context_handle context, char *buffer, size_t buffer_capacity,
-                                               size_t *out_required_bytes);
+AMIO_API amio_status_t amio_reduce_diagnostics(amio_context_handle context, char *buffer, size_t buffer_capacity, size_t *out_required_bytes);
 
 /** Release a context handle and its duplicated communicator. */
 AMIO_API amio_status_t amio_release_context(amio_context_handle context);
@@ -398,23 +378,19 @@ AMIO_API amio_status_t amio_progress(amio_context_handle context, uint32_t max_c
 AMIO_API amio_status_t amio_run_service(amio_context_handle context);
 
 /** Submit one contiguous stream field contribution; producer bytes are retained until release acknowledgment. */
-AMIO_API amio_status_t amio_stream_submit(amio_context_handle context, const amio_stream_contribution_t *contribution,
-                                          const void *data, size_t data_bytes);
+AMIO_API amio_status_t amio_stream_submit(amio_context_handle context, const amio_stream_contribution_t *contribution, const void *data,
+                                          size_t data_bytes);
 /** Wait for the mapped consumer to release this step before producer reuse. */
 AMIO_API amio_status_t amio_stream_wait_release(amio_context_handle context, uint64_t step_id);
 /** Wait up to a bounded interval; OPERATION_PENDING preserves retained ownership for retry. */
-AMIO_API amio_status_t amio_stream_try_wait_release(amio_context_handle context, uint64_t step_id,
-                                                    uint64_t timeout_milliseconds);
+AMIO_API amio_status_t amio_stream_try_wait_release(amio_context_handle context, uint64_t step_id, uint64_t timeout_milliseconds);
 /** Receive the announced producer round and retain its completed step on a consumer rank. */
-AMIO_API amio_status_t amio_stream_receive_step(amio_context_handle context,
-                                                const amio_stream_receive_descriptor_t *descriptor);
+AMIO_API amio_status_t amio_stream_receive_step(amio_context_handle context, const amio_stream_receive_descriptor_t *descriptor);
 /** Acquire the next locally received stream step; timeout is bounded and local. */
-AMIO_API amio_status_t amio_stream_acquire(amio_context_handle context, uint64_t timeout_milliseconds,
-                                           amio_stream_acquire_result_t *out_result);
+AMIO_API amio_status_t amio_stream_acquire(amio_context_handle context, uint64_t timeout_milliseconds, amio_stream_acquire_result_t *out_result);
 /** Read a bounded region from a lease-backed stream field contribution. */
-AMIO_API amio_status_t amio_stream_read(amio_step_lease_handle lease,
-                                        const amio_stream_read_descriptor_t *descriptor,
-                                        void *buffer, size_t buffer_capacity, size_t *out_bytes);
+AMIO_API amio_status_t amio_stream_read(amio_step_lease_handle lease, const amio_stream_read_descriptor_t *descriptor, void *buffer,
+                                        size_t buffer_capacity, size_t *out_bytes);
 /** Release a stream view and acknowledge release to the statically mapped producers. */
 AMIO_API amio_status_t amio_stream_release(amio_step_lease_handle lease);
 /** Drain and send producer EOS/disconnect, or receive terminal consumer status. */
@@ -432,14 +408,12 @@ AMIO_API amio_status_t amio_open_dataset_ex(amio_context_handle context, const a
 /** Close an evolution dataset after all steps reach a terminal state. */
 AMIO_API amio_status_t amio_close_dataset_ex(amio_dataset_handle dataset);
 /** Copy, validate, and register an immutable typed schema on the dataset. */
-AMIO_API amio_status_t amio_define_schema(amio_dataset_handle dataset, const amio_schema_descriptor_t *descriptor,
-                                          amio_schema_handle *out_schema);
+AMIO_API amio_status_t amio_define_schema(amio_dataset_handle dataset, const amio_schema_descriptor_t *descriptor, amio_schema_handle *out_schema);
 /** Release the caller's schema handle; datasets retain registered schemas. */
 AMIO_API amio_status_t amio_release_schema(amio_schema_handle schema);
 
 /** Begin a step, copy a complete field snapshot, then publish it atomically. */
-AMIO_API amio_status_t amio_begin_step(amio_dataset_handle dataset, const amio_step_descriptor_t *descriptor,
-                                       amio_step_handle *out_step);
+AMIO_API amio_status_t amio_begin_step(amio_dataset_handle dataset, const amio_step_descriptor_t *descriptor, amio_step_handle *out_step);
 /**
  * Begin a multi-rank direct NetCDF step with exactly one rank-local box per
  * schema field. The call is collective. A box with any zero extent denotes
@@ -448,27 +422,25 @@ AMIO_API amio_status_t amio_begin_step(amio_dataset_handle dataset, const amio_s
  * Optional fields may be omitted by every rank.
  */
 AMIO_API amio_status_t amio_begin_step_partitioned(amio_dataset_handle dataset, const amio_step_descriptor_t *descriptor,
-                                                   const amio_field_partition_descriptor_t *partitions,
-                                                   size_t partition_count, amio_step_handle *out_step);
-AMIO_API amio_status_t amio_put_field(amio_step_handle step, const char *field, size_t field_bytes,
-                                      const void *data, size_t data_bytes, amio_operation_handle *out_operation);
+                                                   const amio_field_partition_descriptor_t *partitions, size_t partition_count,
+                                                   amio_step_handle *out_step);
+AMIO_API amio_status_t amio_put_field(amio_step_handle step, const char *field, size_t field_bytes, const void *data, size_t data_bytes,
+                                      amio_operation_handle *out_operation);
 /** Submit a contiguous synchronized host/device field using an owned snapshot. */
-AMIO_API amio_status_t amio_put_field_memory(amio_step_handle step, const char *field, size_t field_bytes,
-                                             const amio_memory_descriptor_t *memory, const void *data,
-                                             size_t data_bytes, amio_operation_handle *out_operation);
+AMIO_API amio_status_t amio_put_field_memory(amio_step_handle step, const char *field, size_t field_bytes, const amio_memory_descriptor_t *memory,
+                                             const void *data, size_t data_bytes, amio_operation_handle *out_operation);
 /** Cancel an open step before payload publication; distributed steps require every rank to call collectively. */
 AMIO_API amio_status_t amio_cancel_step(amio_step_handle step);
 AMIO_API amio_status_t amio_end_step(amio_step_handle step);
 AMIO_API amio_status_t amio_query_operation(amio_operation_handle operation, amio_operation_status_t *out_status);
 AMIO_API amio_status_t amio_wait_operation(amio_operation_handle operation, uint32_t milestone, uint64_t timeout_ms);
 AMIO_API amio_status_t amio_release_operation(amio_operation_handle operation);
-AMIO_API amio_status_t amio_list_steps(amio_dataset_handle dataset, const amio_catalog_cursor_t *cursor,
-                                       uint32_t max_results, amio_step_summary_t *results, size_t result_capacity,
-                                       size_t *out_result_count, amio_catalog_cursor_t *out_next_cursor, int *out_has_more);
+AMIO_API amio_status_t amio_list_steps(amio_dataset_handle dataset, const amio_catalog_cursor_t *cursor, uint32_t max_results,
+                                       amio_step_summary_t *results, size_t result_capacity, size_t *out_result_count,
+                                       amio_catalog_cursor_t *out_next_cursor, int *out_has_more);
 AMIO_API amio_status_t amio_describe_step(amio_dataset_handle dataset, uint64_t step_id, amio_step_summary_t *out_summary);
-AMIO_API amio_status_t amio_read_step_field(amio_dataset_handle dataset, uint64_t step_id, const char *field,
-                                            size_t field_bytes, const amio_step_selection_t *selection,
-                                            void *data, size_t data_capacity, size_t *out_required_bytes);
+AMIO_API amio_status_t amio_read_step_field(amio_dataset_handle dataset, uint64_t step_id, const char *field, size_t field_bytes,
+                                            const amio_step_selection_t *selection, void *data, size_t data_capacity, size_t *out_required_bytes);
 
 /** Begin, submit a complete field snapshot, and publish a logical step. */
 
@@ -476,8 +448,7 @@ AMIO_API amio_status_t amio_read_step_field(amio_dataset_handle dataset, uint64_
 AMIO_API amio_status_t amio_release_step_handle(amio_step_handle step);
 
 /** Acquire a process-local lease on a published persistent step. Reads copy into caller buffers. */
-AMIO_API amio_status_t amio_acquire_step_lease(amio_dataset_handle dataset, uint64_t step_id,
-                                               amio_step_lease_handle *out_lease);
+AMIO_API amio_status_t amio_acquire_step_lease(amio_dataset_handle dataset, uint64_t step_id, amio_step_lease_handle *out_lease);
 
 /** Release a consumer lease. Dataset close is rejected while any lease is active. */
 AMIO_API amio_status_t amio_release_step_lease(amio_step_lease_handle lease);

@@ -86,4 +86,4 @@ ResourceBudget::Snapshot ResourceBudget::high_water() const noexcept {
     return high_water_;
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

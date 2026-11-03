@@ -23,11 +23,15 @@ std::optional<CreditWindow::Ticket> CreditWindow::acquire(std::size_t peer, Cred
     auto &use = peers_[peer];
     const auto peer_bytes = owner == CreditOwner::Sender ? use.sender_bytes : use.receiver_bytes;
     const auto peer_descriptors = owner == CreditOwner::Sender ? use.sender_descriptors : use.receiver_descriptors;
-    if (peer_bytes > limits_.per_peer_bytes || bytes > limits_.per_peer_bytes - peer_bytes ||
-        peer_descriptors > limits_.per_peer_descriptors || descriptors > limits_.per_peer_descriptors - peer_descriptors) return std::nullopt;
+    if (peer_bytes > limits_.per_peer_bytes || bytes > limits_.per_peer_bytes - peer_bytes || peer_descriptors > limits_.per_peer_descriptors ||
+        descriptors > limits_.per_peer_descriptors - peer_descriptors)
+        return std::nullopt;
     const auto id = next_id_++;
-    try { live_.emplace(id, Record{peer, bytes, descriptors, owner}); }
-    catch (...) { return std::nullopt; }
+    try {
+        live_.emplace(id, Record{peer, bytes, descriptors, owner});
+    } catch (...) {
+        return std::nullopt;
+    }
     if (owner == CreditOwner::Sender) {
         use.sender_bytes += bytes;
         use.sender_descriptors += descriptors;
@@ -58,8 +62,11 @@ std::optional<CreditWindow::Ticket> CreditWindow::acquire_control(std::size_t by
         return std::nullopt;
     }
     const auto id = next_id_++;
-    try { live_.emplace(id, Record{0, bytes, descriptors, CreditOwner::Control}); }
-    catch (...) { return std::nullopt; }
+    try {
+        live_.emplace(id, Record{0, bytes, descriptors, CreditOwner::Control});
+    } catch (...) {
+        return std::nullopt;
+    }
     usage_.control_bytes += bytes;
     usage_.control_descriptors += descriptors;
     high_water_.control_bytes = std::max(high_water_.control_bytes, usage_.control_bytes);
@@ -72,8 +79,8 @@ bool CreditWindow::release(const Ticket &ticket) noexcept {
     const auto found = live_.find(ticket.id);
     if (found == live_.end()) return false;
     const auto record = found->second;
-    if (ticket.peer != record.peer || ticket.owner != record.owner || ticket.bytes != record.bytes ||
-        ticket.descriptors != record.descriptors) return false;
+    if (ticket.peer != record.peer || ticket.owner != record.owner || ticket.bytes != record.bytes || ticket.descriptors != record.descriptors)
+        return false;
     live_.erase(found);
     if (record.owner == CreditOwner::Control) {
         usage_.control_bytes -= record.bytes;
@@ -107,4 +114,4 @@ CreditWindow::Snapshot CreditWindow::high_water() const noexcept {
     return high_water_;
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

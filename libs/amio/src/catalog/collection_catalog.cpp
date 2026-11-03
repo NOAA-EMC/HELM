@@ -21,16 +21,21 @@ bool safe_path(const std::string &path) {
     }
     return true;
 }
-}
+}  // namespace
 
-void MemoryCatalogStore::fail_next(CatalogWrite write, FailureMoment moment) { failures_.push_back({write, moment}); }
-void MemoryCatalogStore::inject_unreferenced_payload(std::string path) { payloads_.push_back(std::move(path)); }
+void MemoryCatalogStore::fail_next(CatalogWrite write, FailureMoment moment) {
+    failures_.push_back({write, moment});
+}
+void MemoryCatalogStore::inject_unreferenced_payload(std::string path) {
+    payloads_.push_back(std::move(path));
+}
 
 CollectionCatalog::CollectionCatalog(std::shared_ptr<MemoryCatalogStore> store, std::string root, std::string uuid, std::string owner)
     : store_(std::move(store)), root_(std::move(root)), uuid_(std::move(uuid)), owner_(std::move(owner)) {}
 
 bool CollectionCatalog::fail(CatalogWrite write, FailureMoment moment) {
-    const auto found = std::find_if(store_->failures_.begin(), store_->failures_.end(), [=](const auto &f) { return f.write == write && f.moment == moment; });
+    const auto found =
+        std::find_if(store_->failures_.begin(), store_->failures_.end(), [=](const auto &f) { return f.write == write && f.moment == moment; });
     if (found == store_->failures_.end()) return false;
     store_->failures_.erase(found);
     return true;
@@ -47,15 +52,18 @@ amio_status_t CollectionCatalog::create_exclusive() {
 
 CollectionPublicationResult CollectionCatalog::publish(CompletionRecord record) {
     if (!created_ || record.dataset_uuid != uuid_) return {AMIO_ERR_INVALID_POLICY, PublicationState::Failed, {}};
-    for (const auto &payload : record.payloads) if (!safe_path(payload.relative_path) || !payload.relative_path.starts_with("payloads/"))
-        return {AMIO_ERR_INVALID_INPUT, PublicationState::Failed, {}};
+    for (const auto &payload : record.payloads)
+        if (!safe_path(payload.relative_path) || !payload.relative_path.starts_with("payloads/"))
+            return {AMIO_ERR_INVALID_INPUT, PublicationState::Failed, {}};
     if (!record.previous_commit.empty() && (!safe_path(record.previous_commit) || !record.previous_commit.starts_with("commits/")))
         return {AMIO_ERR_INVALID_INPUT, PublicationState::Failed, {}};
 
     store_->write_order_.push_back("payload");
     if (fail(CatalogWrite::Payload, FailureMoment::BeforeWrite)) return {AMIO_ERR_BACKEND_FAILURE, PublicationState::Failed, {}};
-    if (record.payloads.empty()) store_->payloads_.push_back("payloads/step-" + std::to_string(record.step_id) + "/metadata");
-    else for (const auto &payload : record.payloads) store_->payloads_.push_back(payload.relative_path);
+    if (record.payloads.empty())
+        store_->payloads_.push_back("payloads/step-" + std::to_string(record.step_id) + "/metadata");
+    else
+        for (const auto &payload : record.payloads) store_->payloads_.push_back(payload.relative_path);
     if (fail(CatalogWrite::Payload, FailureMoment::AfterWrite)) return {AMIO_ERR_BACKEND_FAILURE, PublicationState::Failed, {}};
 
     const auto id = "commits/" + std::to_string(record.step_id) + ".json";
@@ -75,7 +83,8 @@ CollectionPublicationResult CollectionCatalog::publish(CompletionRecord record) 
 }
 
 CollectionPublicationResult CollectionCatalog::reconcile(const std::string &commit_id) const {
-    if (!created_ || !safe_path(commit_id) || !commit_id.starts_with("commits/")) return {AMIO_ERR_INVALID_INPUT, PublicationState::Failed, commit_id};
+    if (!created_ || !safe_path(commit_id) || !commit_id.starts_with("commits/"))
+        return {AMIO_ERR_INVALID_INPUT, PublicationState::Failed, commit_id};
     if (store_->stale_reads_) return {AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, commit_id};
     std::string current = store_->head_;
     std::set<std::string> seen;
@@ -126,8 +135,9 @@ std::vector<std::string> CollectionCatalog::list_orphans() const {
         }
     }
     std::vector<std::string> orphaned;
-    for (const auto &payload : store_->payloads_) if (!referenced.contains(payload)) orphaned.push_back(payload);
+    for (const auto &payload : store_->payloads_)
+        if (!referenced.contains(payload)) orphaned.push_back(payload);
     return orphaned;
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

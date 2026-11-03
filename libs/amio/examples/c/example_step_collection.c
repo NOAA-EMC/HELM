@@ -1,6 +1,5 @@
 #define _XOPEN_SOURCE 700
 #include <amio/amio_evolution.h>
-
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,8 +30,7 @@ int main(void) {
     int argc = 0;
     char **argv = NULL;
     int provided = MPI_THREAD_SINGLE;
-    if (MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided) != MPI_SUCCESS || provided < MPI_THREAD_FUNNELED)
-        return EXIT_FAILURE;
+    if (MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided) != MPI_SUCCESS || provided < MPI_THREAD_FUNNELED) return EXIT_FAILURE;
 #endif
     if (mkdtemp(temporary_dir) == NULL) {
         perror("mkdtemp");
@@ -123,8 +121,7 @@ int main(void) {
     status = amio_release_step_lease(lease);
     if (fail(status, "amio_release_step_lease")) goto done;
     lease = NULL;
-    printf("Published step %" PRIu64 " with %u field(s) at %s\n", summary.step_id,
-           summary.present_field_count, collection);
+    printf("Published step %" PRIu64 " with %u field(s) at %s\n", summary.step_id, summary.present_field_count, collection);
     result = EXIT_SUCCESS;
 
 done:

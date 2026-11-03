@@ -18,15 +18,50 @@ inline constexpr std::size_t kDiagnosticHistogramCount = 9;
 inline constexpr std::size_t kDiagnosticHistogramBins = 32;
 inline constexpr std::size_t kDiagnosticResourceCount = 12;
 
-enum class DiagnosticCounter : std::size_t { Accepted, Rejected, Completed, Failed, BytesAccepted, BytesWritten, BytesPublished,
-                                              SourceReleasedBytes, TransportReceivedBytes, TransportPublishedBytes, ViewBytes,
-                                              StreamSkips, StreamDeliveredBytes, StreamReleasedBytes, StreamDisconnects,
-                                              OperatorInputBytes, OperatorOutputBytes };
-enum class DiagnosticHistogram : std::size_t { AdmissionNs, SnapshotNs, OperatorNs, TransportNs, BackendNs, PublicationNs,
-                                                EndToEndNs, WaitNs, SourceReleaseNs };
-enum class DiagnosticResource : std::size_t { QueueDescriptors, StagingRetainedBytes, StagingDescriptors, TransportBytes,
-                                               TransportDescriptors, MetadataBytes, PrefetchBytes, ViewBytes, OperatorScratchBytes,
-                                               ExceptionHistoryBytes, EventHistoryBytes, ActiveOperations };
+enum class DiagnosticCounter : std::size_t {
+    Accepted,
+    Rejected,
+    Completed,
+    Failed,
+    BytesAccepted,
+    BytesWritten,
+    BytesPublished,
+    SourceReleasedBytes,
+    TransportReceivedBytes,
+    TransportPublishedBytes,
+    ViewBytes,
+    StreamSkips,
+    StreamDeliveredBytes,
+    StreamReleasedBytes,
+    StreamDisconnects,
+    OperatorInputBytes,
+    OperatorOutputBytes
+};
+enum class DiagnosticHistogram : std::size_t {
+    AdmissionNs,
+    SnapshotNs,
+    OperatorNs,
+    TransportNs,
+    BackendNs,
+    PublicationNs,
+    EndToEndNs,
+    WaitNs,
+    SourceReleaseNs
+};
+enum class DiagnosticResource : std::size_t {
+    QueueDescriptors,
+    StagingRetainedBytes,
+    StagingDescriptors,
+    TransportBytes,
+    TransportDescriptors,
+    MetadataBytes,
+    PrefetchBytes,
+    ViewBytes,
+    OperatorScratchBytes,
+    ExceptionHistoryBytes,
+    EventHistoryBytes,
+    ActiveOperations
+};
 enum class DiagnosticRole : std::uint8_t { Unknown, Producer, Writer, Consumer, Service };
 enum class DiagnosticEventKind : std::uint8_t { Admission, Snapshot, Payload, Publication, Failure, Progress, Resource };
 
@@ -40,8 +75,15 @@ struct DiagnosticScope {
     bool operator<(const DiagnosticScope &other) const noexcept;
 };
 
-struct DiagnosticError { std::int32_t status = 0; std::string message; };
-struct DiagnosticEvent { DiagnosticScope scope; DiagnosticEventKind kind = DiagnosticEventKind::Progress; std::string message; };
+struct DiagnosticError {
+    std::int32_t status = 0;
+    std::string message;
+};
+struct DiagnosticEvent {
+    DiagnosticScope scope;
+    DiagnosticEventKind kind = DiagnosticEventKind::Progress;
+    std::string message;
+};
 
 struct DiagnosticScopeSnapshot {
     std::array<std::uint64_t, kDiagnosticCounterCount> counters{};
@@ -68,9 +110,14 @@ struct DiagnosticSnapshot {
 };
 
 class DiagnosticStore {
-public:
+   public:
     /** Hard limits for retained scopes, event bytes, event count, and message size. */
-    struct Limits { std::size_t max_scopes; std::size_t event_bytes; std::size_t max_events; std::size_t max_event_message_bytes; };
+    struct Limits {
+        std::size_t max_scopes;
+        std::size_t event_bytes;
+        std::size_t max_events;
+        std::size_t max_event_message_bytes;
+    };
     /** Create a bounded local diagnostics store; every limit must be finite and positive. */
     explicit DiagnosticStore(Limits limits);
     /** Add a counter sample to its retained scope and lifetime cumulative totals. */
@@ -87,8 +134,12 @@ public:
     [[nodiscard]] DiagnosticSnapshot snapshot() const;
     /** Return one retained scope snapshot, or empty if it was never retained/was evicted. */
     [[nodiscard]] std::optional<DiagnosticScopeSnapshot> scope_snapshot(const DiagnosticScope &scope) const;
-private:
-    struct Entry { DiagnosticScopeSnapshot value; std::uint64_t last_touch = 0; };
+
+   private:
+    struct Entry {
+        DiagnosticScopeSnapshot value;
+        std::uint64_t last_touch = 0;
+    };
     DiagnosticScopeSnapshot &touch_scope(const DiagnosticScope &scope);
     void evict_oldest();
     void update_event_resource(const DiagnosticScope &scope);
@@ -107,6 +158,6 @@ private:
     DiagnosticError first_error_;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
 #endif

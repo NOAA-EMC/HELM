@@ -1188,9 +1188,8 @@ std::vector<std::int64_t> GRIB2_Driver::build_drs_template(GRIB2_DRT drt, const 
 // write -- encode a GRIB2 record (R9.3, R9.4, R9.5, R9.6, R9.7, R9.8)
 // ---------------------------------------------------------------
 
-std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta,
-                                                              std::size_t encoded_buffer_budget,
-                                                              std::size_t codec_scratch_budget) {
+std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta, std::size_t encoded_buffer_budget,
+                                                             std::size_t codec_scratch_budget) {
     require_complete_grib2_message(meta.write_region.rank == 0);
     if (meta.dtype != AMIO_DTYPE_F32) throw std::runtime_error("GRIB2 step messages require F32 fields");
     const auto elements = total_elements(meta.shape);
@@ -1203,17 +1202,13 @@ std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer
     return message;
 }
 
-std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta,
-                                                              std::size_t encoded_buffer_budget,
-                                                              std::size_t codec_scratch_budget,
-                                                              const Grib2Settings &settings) {
+std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta, std::size_t encoded_buffer_budget,
+                                                             std::size_t codec_scratch_budget, const Grib2Settings &settings) {
     return encode_step_message(src, meta, encoded_buffer_budget, codec_scratch_budget, settings, active_drt_);
 }
 
-std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta,
-                                                              std::size_t encoded_buffer_budget,
-                                                              std::size_t codec_scratch_budget,
-                                                              const Grib2Settings &settings, GRIB2_DRT drt) {
+std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta, std::size_t encoded_buffer_budget,
+                                                             std::size_t codec_scratch_budget, const Grib2Settings &settings, GRIB2_DRT drt) {
     const auto saved = settings_;
     settings_ = settings;
     try {
@@ -1266,8 +1261,7 @@ std::vector<unsigned char> GRIB2_Driver::encode_message(const StagingBuffer &src
     return encode_message_with_drt(src, meta, active_drt_);
 }
 
-std::vector<unsigned char> GRIB2_Driver::encode_message_with_drt(const StagingBuffer &src, const VarMeta &meta,
-                                                                  GRIB2_DRT selected_drt) {
+std::vector<unsigned char> GRIB2_Driver::encode_message_with_drt(const StagingBuffer &src, const VarMeta &meta, GRIB2_DRT selected_drt) {
     std::lock_guard<std::mutex> codec_lock(g2c_mutex);
     if (!initialized_ || read_mode_ || meta.write_region.rank) {
         throw std::runtime_error("GRIB2_Driver::write called before successful initialization");

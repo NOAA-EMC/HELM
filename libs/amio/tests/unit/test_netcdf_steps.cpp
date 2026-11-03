@@ -1,9 +1,9 @@
-#include "drivers/netcdf/netcdf_steps.hpp"
-#include "schema/schema.hpp"
-
 #include <cassert>
 #include <filesystem>
 #include <string>
+
+#include "drivers/netcdf/netcdf_steps.hpp"
+#include "schema/schema.hpp"
 
 #ifdef AMIO_HAS_MPI
 #include <mpi.h>

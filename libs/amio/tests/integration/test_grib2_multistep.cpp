@@ -23,9 +23,9 @@
 //
 // This test exercises the serial driver variant without MPI initialization.
 
-#include <conf/config.hpp>
 #include <algorithm>
 #include <array>
+#include <conf/config.hpp>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -152,8 +152,7 @@ int main() {
                 if (!input) throw std::runtime_error("cannot read GRIB indicator section");
                 std::uint64_t length = 0;
                 for (std::size_t i = 8; i < 16; ++i) length = (length << 8) | buffer[i];
-                if (!streamed.begin_message(0, 0, length, error) ||
-                    !streamed.append_chunk(0, std::as_bytes(std::span(buffer.data(), 16)), error))
+                if (!streamed.begin_message(0, 0, length, error) || !streamed.append_chunk(0, std::as_bytes(std::span(buffer.data(), 16)), error))
                     throw std::runtime_error(error);
                 std::uint64_t offset = 16;
                 while (offset < length) {

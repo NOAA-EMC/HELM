@@ -1,16 +1,16 @@
-#include "catalog/kvstore_catalog.hpp"
-
 #include <cassert>
 #include <map>
 #include <string>
 #include <string_view>
+
+#include "catalog/kvstore_catalog.hpp"
 
 using namespace amio::detail;
 
 namespace {
 
 class MemoryKvStore final : public KvStore {
-public:
+   public:
     KvWriteOutcome write(std::string_view key, std::string_view value, KvWriteCondition condition) override {
         auto found = values.find(std::string(key));
         if (condition == KvWriteCondition::CreateOnly && found != values.end()) return KvWriteOutcome::AlreadyExists;
@@ -37,7 +37,9 @@ public:
         return result;
     }
 
-    bool sync(std::string_view) override { return false; }
+    bool sync(std::string_view) override {
+        return false;
+    }
 
     std::map<std::string, std::string, std::less<>> values;
     std::string unknown_after_write;
@@ -110,7 +112,7 @@ void test_requested_sync_is_not_inferred_from_generic_store() {
     assert(catalog.certify(PosixSyncLevel::DirectorySync) == AMIO_ERR_UNSUPPORTED);
 }
 
-} // namespace
+}  // namespace
 
 int main() {
     test_uncertified_capabilities_and_external_owner_gate();

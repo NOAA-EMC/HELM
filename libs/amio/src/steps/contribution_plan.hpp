@@ -1,14 +1,14 @@
 #ifndef AMIO_SRC_STEPS_CONTRIBUTION_PLAN_HPP
 #define AMIO_SRC_STEPS_CONTRIBUTION_PLAN_HPP
 
-#include "amio/amio_errors.h"
-#include "schema/schema.hpp"
-
 #include <cstddef>
 #include <map>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "amio/amio_errors.h"
+#include "schema/schema.hpp"
 
 namespace amio::detail {
 
@@ -28,9 +28,8 @@ struct ContributionDeclaration {
 /** Immutable per-step admission plan, built before any source buffer is read. */
 class ContributionPlan {
    public:
-    [[nodiscard]] amio_status_t configure(const Schema &schema, const std::vector<ContributionDeclaration> &declarations,
-                                          std::size_t reserved_bytes, bool empty_contributor,
-                                          bool defer_required_field_validation = false);
+    [[nodiscard]] amio_status_t configure(const Schema &schema, const std::vector<ContributionDeclaration> &declarations, std::size_t reserved_bytes,
+                                          bool empty_contributor, bool defer_required_field_validation = false);
     [[nodiscard]] std::optional<std::size_t> expected_bytes(const std::string &variable) const noexcept;
     [[nodiscard]] const RegionSelection *region(const std::string &variable) const noexcept;
     [[nodiscard]] bool explicitly_absent(const std::string &variable) const noexcept;
@@ -51,6 +50,6 @@ class ContributionPlan {
     bool defer_required_field_validation_ = false;
 };
 
-} // namespace amio::detail
+}  // namespace amio::detail
 
-#endif // AMIO_SRC_STEPS_CONTRIBUTION_PLAN_HPP
+#endif  // AMIO_SRC_STEPS_CONTRIBUTION_PLAN_HPP

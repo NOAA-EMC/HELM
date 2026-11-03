@@ -106,8 +106,7 @@ amio_status_t init_from_config(const Config &cfg, amio_core_handle *out_core) {
     // Legacy initialization has no collective participation contract.  In
     // particular, a parse failure on one rank must not strand a peer in an
     // evolution role collective.  Aggregation uses the collective context API.
-    if (cfg.evolution.enabled && cfg.evolution.execution_mode == "persistent_aggregated")
-        return AMIO_ERR_UNSUPPORTED;
+    if (cfg.evolution.enabled && cfg.evolution.execution_mode == "persistent_aggregated") return AMIO_ERR_UNSUPPORTED;
     // ---- Step 2: Construct the runtime pools (Req 1.1, 1.2) ----
     auto core = std::make_unique<AMIO_Core>();
     try {
@@ -121,7 +120,8 @@ amio_status_t init_from_config(const Config &cfg, amio_core_handle *out_core) {
             return AMIO_ERR_COMM_SPLIT_FAILED;
         if (mpi_initialized) {
             if (MPI_Comm_size(g_amio_parent_comm, &comm_config.world_size) != MPI_SUCCESS ||
-                MPI_Comm_rank(g_amio_parent_comm, &local_rank) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+                MPI_Comm_rank(g_amio_parent_comm, &local_rank) != MPI_SUCCESS)
+                return AMIO_ERR_COMM_SPLIT_FAILED;
         } else if (!comm_config.io_ranks.empty()) {
             return AMIO_ERR_COMM_SPLIT_FAILED;
         }
@@ -134,13 +134,11 @@ amio_status_t init_from_config(const Config &cfg, amio_core_handle *out_core) {
         thread_config.numa_domain = cfg.worker_pool.numa_domain.value_or(-1);
         if (validate_thread_config(thread_config) != AMIO_OK) return AMIO_ERR_INVALID_BINDING;
 
-        const auto staging_budget = cfg.evolution.enabled ? cfg.evolution.budgets.staging_bytes
-                                                           : static_cast<std::size_t>(-1);
+        const auto staging_budget = cfg.evolution.enabled ? cfg.evolution.budgets.staging_bytes : static_cast<std::size_t>(-1);
         const auto staging_capacity = std::min(cfg.staging_pool.buffer_capacity_bytes, staging_budget);
-        core->staging_pool = std::make_unique<StagingPool>(cfg.staging_pool.buffer_count, staging_capacity,
-                                                           static_cast<std::int64_t>(cfg.staging_timeout_ms), cfg.staging_pool.max_buffer_count,
-                                                           StagingPool::GrowMode::Grow,
-                                                           staging_budget);
+        core->staging_pool =
+            std::make_unique<StagingPool>(cfg.staging_pool.buffer_count, staging_capacity, static_cast<std::int64_t>(cfg.staging_timeout_ms),
+                                          cfg.staging_pool.max_buffer_count, StagingPool::GrowMode::Grow, staging_budget);
 
         if (cfg.worker_pool.threads > 0) {
             WorkerPoolConfig wp{};
@@ -369,8 +367,8 @@ amio_status_t open_dataset_from_config(void *core_payload, const Config &config,
     // A configured I/O split assigns storage ownership to its I/O group.
     // Reject model-only ranks before driver construction or communicator use;
     // they must not accidentally open independent output files.
-    if (mode == AMIO_MODE_WRITE && core != nullptr && core->io_communicator.valid &&
-        !core->io_communicator.is_io_rank) return AMIO_ERR_INVALID_POLICY;
+    if (mode == AMIO_MODE_WRITE && core != nullptr && core->io_communicator.valid && !core->io_communicator.is_io_rank)
+        return AMIO_ERR_INVALID_POLICY;
 
     // Extract backend key from configuration.
     const std::string &backend_key = config.backend;

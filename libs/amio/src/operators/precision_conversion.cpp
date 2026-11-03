@@ -8,12 +8,11 @@
 
 namespace amio::detail {
 
-amio_status_t convert_f64_to_f32(std::span<const double> input, const PrecisionConversionPolicy &policy,
-                                 PrecisionConversionResult &result) {
-    if (!std::isfinite(policy.absolute_tolerance) || !std::isfinite(policy.relative_tolerance) ||
-        policy.absolute_tolerance < 0.0 || policy.relative_tolerance < 0.0 ||
-        ((policy.absolute_tolerance == 0.0) == (policy.relative_tolerance == 0.0)) ||
-        (policy.missing_sentinel && !std::isfinite(*policy.missing_sentinel))) return AMIO_ERR_INVALID_INPUT;
+amio_status_t convert_f64_to_f32(std::span<const double> input, const PrecisionConversionPolicy &policy, PrecisionConversionResult &result) {
+    if (!std::isfinite(policy.absolute_tolerance) || !std::isfinite(policy.relative_tolerance) || policy.absolute_tolerance < 0.0 ||
+        policy.relative_tolerance < 0.0 || ((policy.absolute_tolerance == 0.0) == (policy.relative_tolerance == 0.0)) ||
+        (policy.missing_sentinel && !std::isfinite(*policy.missing_sentinel)))
+        return AMIO_ERR_INVALID_INPUT;
     PrecisionConversionResult converted;
     converted.input_bytes = static_cast<std::uint64_t>(input.size()) * sizeof(double);
     converted.output_bytes = static_cast<std::uint64_t>(input.size()) * sizeof(float);
@@ -39,9 +38,7 @@ amio_status_t convert_f64_to_f32(std::span<const double> input, const PrecisionC
         if (!std::isfinite(narrowed)) return AMIO_ERR_INVALID_INPUT;
         if (original == 0.0 && std::signbit(original) != std::signbit(narrowed)) return AMIO_ERR_INVALID_INPUT;
         const double error = std::abs(static_cast<double>(narrowed) - original);
-        const double allowed = policy.absolute_tolerance > 0.0
-                                   ? policy.absolute_tolerance
-                                   : policy.relative_tolerance * std::abs(original);
+        const double allowed = policy.absolute_tolerance > 0.0 ? policy.absolute_tolerance : policy.relative_tolerance * std::abs(original);
         if (error > allowed) return AMIO_ERR_INVALID_INPUT;
         if (original != 0.0 && narrowed == 0.0f && policy.absolute_tolerance == 0.0) return AMIO_ERR_INVALID_INPUT;
         converted.maximum_absolute_error = std::max(converted.maximum_absolute_error, error);
@@ -51,4 +48,4 @@ amio_status_t convert_f64_to_f32(std::span<const double> input, const PrecisionC
     return AMIO_OK;
 }
 
-} // namespace amio::detail
+}  // namespace amio::detail

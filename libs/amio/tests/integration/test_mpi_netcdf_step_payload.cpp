@@ -1,5 +1,5 @@
-#include "drivers/netcdf/netcdf_driver.hpp"
-#include "schema/schema.hpp"
+#include <mpi.h>
+#include <netcdf.h>
 
 #include <array>
 #include <cassert>
@@ -8,8 +8,8 @@
 #include <map>
 #include <string>
 
-#include <mpi.h>
-#include <netcdf.h>
+#include "drivers/netcdf/netcdf_driver.hpp"
+#include "schema/schema.hpp"
 
 using namespace amio::detail;
 

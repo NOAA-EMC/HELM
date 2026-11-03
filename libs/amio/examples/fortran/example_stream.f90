@@ -1,6 +1,6 @@
 program example_stream
     use, intrinsic :: iso_c_binding, only: c_ptr, c_null_ptr, c_sizeof, c_int32_t, c_int64_t, c_int8_t, &
-        c_float, c_char, c_loc, c_associated, c_size_t
+                                                                              c_float, c_char, c_loc, c_associated, c_size_t
     use mpi
     use amio_mod
     implicit none

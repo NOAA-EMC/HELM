@@ -1,8 +1,8 @@
-#include "diagnostics/diagnostic_store.hpp"
-
 #include <cassert>
 #include <cstdint>
 #include <string>
+
+#include "diagnostics/diagnostic_store.hpp"
 
 using namespace amio::detail;
 
@@ -73,7 +73,7 @@ void test_histograms_and_retained_resource_high_water_are_fixed_and_bounded() {
     assert(item->resource_ceilings[static_cast<std::size_t>(DiagnosticResource::StagingRetainedBytes)] == 128);
 }
 
-} // namespace
+}  // namespace
 
 int main() {
     test_scope_limit_evicts_detail_into_cumulative_totals();

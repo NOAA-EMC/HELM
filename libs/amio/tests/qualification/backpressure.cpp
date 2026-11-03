@@ -1,11 +1,8 @@
 #include "backpressure.hpp"
 
-#include "staging/resource_budget.hpp"
-#include "workers/worker_pool.hpp"
-
-#include <chrono>
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -16,6 +13,9 @@
 #include <string_view>
 #include <thread>
 #include <vector>
+
+#include "staging/resource_budget.hpp"
+#include "workers/worker_pool.hpp"
 
 namespace {
 using namespace amio::detail;
@@ -29,7 +29,9 @@ bool parse_unsigned(const char *text, std::uint64_t &value) {
         if (used != std::string_view(text).size()) return false;
         value = parsed;
         return true;
-    } catch (...) { return false; }
+    } catch (...) {
+        return false;
+    }
 }
 
 struct MeasuredHighWater {
@@ -55,12 +57,15 @@ bool run_policy(bool wait_policy, std::chrono::seconds delay, MeasuredHighWater 
         if (!reservation) return AMIO_ERR_QUEUE_FULL;
         auto payload = std::make_shared<std::vector<std::byte>>(kPayloadBytes, std::byte{static_cast<unsigned char>(id)});
         std::uint64_t sequence = 0;
-        const auto status = pool.submit_write({1, id}, [&, id, payload = std::move(payload), ticket = *reservation, task_delay, block]() mutable {
-            if (id == 0) first_started.store(true, std::memory_order_release);
-            if (block) std::this_thread::sleep_for(task_delay);
-            (void)payload;
-            budget.release(ticket);
-        }, &sequence);
+        const auto status = pool.submit_write(
+            {1, id},
+            [&, id, payload = std::move(payload), ticket = *reservation, task_delay, block]() mutable {
+                if (id == 0) first_started.store(true, std::memory_order_release);
+                if (block) std::this_thread::sleep_for(task_delay);
+                (void)payload;
+                budget.release(ticket);
+            },
+            &sequence);
         if (status != AMIO_OK) budget.release(*reservation);
         const auto peak = budget.high_water();
         high.data_bytes = std::max(high.data_bytes, peak.data_bytes);
@@ -71,16 +76,27 @@ bool run_policy(bool wait_policy, std::chrono::seconds delay, MeasuredHighWater 
     };
 
     const auto held_for = std::max(std::chrono::milliseconds(200), std::chrono::duration_cast<std::chrono::milliseconds>(delay));
-    if (submit_payload(0, held_for, true) != AMIO_OK) { std::cerr << "first admission failed\n"; return false; }
+    if (submit_payload(0, held_for, true) != AMIO_OK) {
+        std::cerr << "first admission failed\n";
+        return false;
+    }
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (!first_started.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline)
-        std::this_thread::yield();
-    if (!first_started.load(std::memory_order_acquire)) { std::cerr << "worker did not start first task\n"; return false; }
-    if (submit_payload(1, std::chrono::milliseconds(0), false) != AMIO_OK) { std::cerr << "second admission failed\n"; return false; }
+    while (!first_started.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+    if (!first_started.load(std::memory_order_acquire)) {
+        std::cerr << "worker did not start first task\n";
+        return false;
+    }
+    if (submit_payload(1, std::chrono::milliseconds(0), false) != AMIO_OK) {
+        std::cerr << "second admission failed\n";
+        return false;
+    }
 
     const auto third = submit_payload(2, std::chrono::milliseconds(0), false);
     if (wait_policy) {
-        if (third != AMIO_OK) { std::cerr << "wait policy third admission status=" << third << '\n'; return false; }
+        if (third != AMIO_OK) {
+            std::cerr << "wait policy third admission status=" << third << '\n';
+            return false;
+        }
     } else if (third != AMIO_ERR_QUEUE_FULL) {
         std::cerr << "reject policy third admission status=" << third << '\n';
         return false;
@@ -98,14 +114,14 @@ bool run_policy(bool wait_policy, std::chrono::seconds delay, MeasuredHighWater 
     }
     return true;
 }
-} // namespace
+}  // namespace
 
 int run_backpressure_fixture(int argc, char **argv) {
     std::uint64_t delay_seconds = 600;
     std::uint64_t budget_mib = 64;
     if (argc != 8 || std::string_view(argv[2]) != "--delay-seconds" || std::string_view(argv[4]) != "--budget-mib" ||
-        std::string_view(argv[6]) != "--output" || !parse_unsigned(argv[3], delay_seconds) ||
-        !parse_unsigned(argv[5], budget_mib) || budget_mib != 64 || delay_seconds > 86400 || argv[7][0] == '\0') {
+        std::string_view(argv[6]) != "--output" || !parse_unsigned(argv[3], delay_seconds) || !parse_unsigned(argv[5], budget_mib) ||
+        budget_mib != 64 || delay_seconds > 86400 || argv[7][0] == '\0') {
         std::cerr << "Usage: amio_qualify backpressure --delay-seconds N --budget-mib 64 --output DIR\n";
         return 2;
     }
@@ -121,8 +137,7 @@ int run_backpressure_fixture(int argc, char **argv) {
         return 1;
     }
     std::cout << "bounded backpressure fixture passed; reject_bytes_high_water=" << reject_high.data_bytes
-              << " wait_bytes_high_water=" << wait_high.data_bytes
-              << " byte_limit=" << kBudgetBytes << " delay_seconds=" << delay_seconds
+              << " wait_bytes_high_water=" << wait_high.data_bytes << " byte_limit=" << kBudgetBytes << " delay_seconds=" << delay_seconds
               << " policies=reject,wait\n";
     std::error_code ec;
     const std::filesystem::path output(argv[7]);
@@ -131,17 +146,12 @@ int run_backpressure_fixture(int argc, char **argv) {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
     std::ofstream report(output / ("backpressure-" + std::to_string(stamp) + ".json"), std::ios::out | std::ios::binary);
     if (!report) return 5;
-    report << "{\"schema_version\":1,\"status\":\"PASS\",\"delay_seconds\":" << delay_seconds
-           << ",\"budget_bytes\":" << kBudgetBytes
+    report << "{\"schema_version\":1,\"status\":\"PASS\",\"delay_seconds\":" << delay_seconds << ",\"budget_bytes\":" << kBudgetBytes
            << ",\"policies\":{\"reject\":{\"data_bytes_high_water\":" << reject_high.data_bytes
-           << ",\"data_descriptors_high_water\":" << reject_high.data_descriptors
-           << ",\"control_bytes_high_water\":" << reject_high.control_bytes
-           << ",\"write_queue_high_water\":" << reject_high.queued_writes
-           << ",\"accepted_writes_drained\":" << reject_high.completed_writes
-           << "},\"wait\":{\"data_bytes_high_water\":" << wait_high.data_bytes
-           << ",\"data_descriptors_high_water\":" << wait_high.data_descriptors
-           << ",\"control_bytes_high_water\":" << wait_high.control_bytes
-           << ",\"write_queue_high_water\":" << wait_high.queued_writes
+           << ",\"data_descriptors_high_water\":" << reject_high.data_descriptors << ",\"control_bytes_high_water\":" << reject_high.control_bytes
+           << ",\"write_queue_high_water\":" << reject_high.queued_writes << ",\"accepted_writes_drained\":" << reject_high.completed_writes
+           << "},\"wait\":{\"data_bytes_high_water\":" << wait_high.data_bytes << ",\"data_descriptors_high_water\":" << wait_high.data_descriptors
+           << ",\"control_bytes_high_water\":" << wait_high.control_bytes << ",\"write_queue_high_water\":" << wait_high.queued_writes
            << ",\"accepted_writes_drained\":" << wait_high.completed_writes << "}}}\n";
     if (!report) return 5;
     return 0;
