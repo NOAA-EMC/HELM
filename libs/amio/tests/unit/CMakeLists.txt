@@ -1031,6 +1031,7 @@ endif()
 # ####################################################################################################################################################
 if(g2c_FOUND)
     add_executable(test_read_grib2 test_read_grib2.cpp ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
+                                   ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp
                                    ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/staging/staging_pool.cpp)
 
     target_include_directories(test_read_grib2 PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -1069,6 +1070,7 @@ if(netCDF_FOUND AND g2c_FOUND AND MPI_C_FOUND)
         test_read_mixed_format.cpp
         ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_driver.cpp
         ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
+        ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp
         ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp
         ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp
         ${CMAKE_SOURCE_DIR}/src/staging/staging_pool.cpp
