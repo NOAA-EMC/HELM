@@ -694,6 +694,12 @@ int main(int argc, char **argv) {
         require(ExecutionContext::create(sparse_roles, ProgressPolicy::Caller, "sparse-writer-round", MPI_COMM_WORLD,
                                          sparse_context) == AMIO_OK,
                 "context with zero-count writers");
+        WorkerPoolConfig sparse_workers;
+        const auto sparse_binding = bind_writer_worker_config(*sparse_context, sparse_workers);
+        if (rank == 0) require(sparse_binding == AMIO_ERR_INVALID_POLICY, "producer cannot bind writer workers");
+        else require(sparse_binding == AMIO_OK && sparse_workers.io_comm.size() == 3 &&
+                         sparse_workers.io_comm.rank() == rank - 1,
+                     "all writers, including idle writers, bind the full writer group");
         CreditWindow sparse_credits({2, 16, 2, 64, 4, 4 * kTransportEnvelopeWireBytes, 4});
         MpiTransport sparse_transport(*sparse_context, sparse_credits, 4);
         AggregatedExecution sparse_aggregation(*sparse_context, sparse_transport);

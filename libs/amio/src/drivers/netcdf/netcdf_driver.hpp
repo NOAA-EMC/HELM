@@ -139,6 +139,8 @@ class NetCDF_Driver : public Backend_Driver {
     /** Independently read a selected region from a closed step payload. */
     static void read_step_region(const std::string &path, const std::string &variable,
                                  const RegionSelection &region, void *data);
+    /** Read the required scalar model-time attribute from a closed step payload. */
+    static bool read_step_model_time(const std::string &path, double &model_time) noexcept;
 
    public:
     // ----- Static utility methods (public for testability) -----

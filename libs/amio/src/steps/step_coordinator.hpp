@@ -4,6 +4,7 @@
 #include "amio/amio_errors.h"
 #include "c_boundary/operation_record.hpp"
 #include "memory/host_snapshot.hpp"
+#include "memory/memory_descriptor.hpp"
 #include "schema/schema.hpp"
 #include "steps/contribution_plan.hpp"
 #include "staging/resource_budget.hpp"
@@ -36,6 +37,7 @@ struct StepPutResult {
     std::uint64_t handle = 0;
     bool source_released = false;
     bool payload_complete = false;
+    bool used_fallback = false;
 };
 
 struct StepContributionSnapshot {
@@ -55,6 +57,8 @@ class StepCoordinator {
     [[nodiscard]] amio_status_t register_schema(std::shared_ptr<const Schema> schema);
     [[nodiscard]] amio_status_t begin_step(const StepBeginRequest &request);
     [[nodiscard]] StepPutResult put(const std::string &variable, const void *source, std::size_t bytes);
+    [[nodiscard]] StepPutResult put_memory(const std::string &variable, const MemoryDescriptor &descriptor,
+                                          const void *source, std::size_t bytes);
     [[nodiscard]] amio_status_t end_step();
     [[nodiscard]] amio_status_t mark_payload_complete();
     [[nodiscard]] amio_status_t mark_publishing();
@@ -76,6 +80,8 @@ class StepCoordinator {
 
    private:
     [[nodiscard]] amio_status_t fail_step(amio_status_t error) noexcept;
+    [[nodiscard]] amio_status_t validate_put(const std::string &variable, std::size_t bytes);
+    [[nodiscard]] StepPutResult put_snapshot(const std::string &variable, std::vector<std::byte> &&snapshot);
     void release_reservation() noexcept;
     [[nodiscard]] std::uint64_t add_operation();
 

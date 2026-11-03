@@ -262,6 +262,10 @@ class GRIB2_Driver : public Backend_Driver {
                                                                   std::size_t encoded_buffer_budget,
                                                                   std::size_t codec_scratch_budget,
                                                                   const Grib2Settings &settings);
+    [[nodiscard]] std::vector<unsigned char> encode_step_message(const StagingBuffer &src, const VarMeta &meta,
+                                                                  std::size_t encoded_buffer_budget,
+                                                                  std::size_t codec_scratch_budget,
+                                                                  const Grib2Settings &settings, GRIB2_DRT drt);
     /** @brief Encode a complete field and commit one GRIB2 message.
      * @param src Immutable staged F32 field, retained through write completion.
      * @param meta Complete-field shape and type; no partial-region destination.
@@ -306,6 +310,7 @@ class GRIB2_Driver : public Backend_Driver {
      * @note Serializes process-local g2c calls without holding a lock over MPI.
      */
     std::vector<unsigned char> encode_message(const StagingBuffer &src, const VarMeta &meta);
+    std::vector<unsigned char> encode_message_with_drt(const StagingBuffer &src, const VarMeta &meta, GRIB2_DRT drt);
 
 #ifdef AMIO_HAS_MPI
     /** @brief Propagate a local error to all writers and poison further appends.

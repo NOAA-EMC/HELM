@@ -68,6 +68,7 @@ include(CMakePackageConfigHelpers)
 
 option(AMIO_BUILD_TESTING "Build AMIO unit and property-based tests" OFF)
 option(AMIO_BUILD_QUALIFICATION "Build AMIO reference-data qualification tools" OFF)
+option(AMIO_BUILD_BENCHMARKS "Build matched AMIO output benchmark" OFF)
 option(AMIO_BUILD_TOOLS "Build the installed AMIO command-line utilities" OFF)
 # When AMIO is consumed as a subproject (e.g. CECE's top-level build), only the property-based test suite can be built cleanly -- the
 # unit/integration/ci subdirectories assume the standalone AMIO configure environment.  This option adds ONLY tests/pbt so a parent project can
@@ -119,6 +120,12 @@ endif()
 
 # kokkos/mdspan - reference implementation of std::experimental::mdspan used for Memory_View.  Header-only; PRIVATE to amio_core.
 find_package(mdspan CONFIG QUIET)
+
+# Accelerator runtime discovery is independent of mdspan discovery. Kokkos is
+# optional and remains a private implementation dependency; device submission
+# stays disabled until an adapter is compiled and qualified for the runtime.
+include(AMIOMemoryBackend)
+amio_discover_memory_backend()
 
 # MPI - required for parallel I/O paths (NetCDF-4 Parallel HDF5, HALO communicator splits).
 find_package(MPI QUIET COMPONENTS C CXX Fortran)
@@ -464,6 +471,7 @@ add_library(
     src/workers/mpi_threading.cpp
     src/prefetch/prefetch_queue.cpp
     src/prefetch/step_read_queue.cpp
+    src/prefetch/stream_read_queue.cpp
     src/config/config_loader.cpp
     src/factory/backend_factory.cpp
     src/drivers/common/var_attributes.cpp)
@@ -516,6 +524,13 @@ target_include_directories(amio_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # PUBLIC link to the public-headers target so that downstream consumers transitively pick up the C99 include path.  Every other dependency is PRIVATE
 # so its headers do not leak (R13.6).
 target_link_libraries(amio_core PUBLIC amio_public_headers PRIVATE driver_netcdf driver_zarr driver_grib2)
+if(AMIO_MEMORY_BACKEND_TARGET)
+    target_link_libraries(amio_core PRIVATE ${AMIO_MEMORY_BACKEND_TARGET})
+    target_compile_definitions(amio_core PRIVATE AMIO_HAS_KOKKOS_RUNTIME=1)
+    if(AMIO_HAS_KOKKOS_DEVICE)
+        target_compile_definitions(amio_core PRIVATE AMIO_HAS_KOKKOS_DEVICE=1)
+    endif()
+endif()
 
 # Compile the concrete catalog bridge in feature-enabled builds. TensorStore
 # remains a private dependency; a host-only/NCZarr build never parses its
@@ -533,6 +548,29 @@ endif()
 
 # HELM micro-libraries — PRIVATE so no header/symbol leaks to consumers (R7.2, R7.3, R7.4, R7.5, R7.6).
 target_link_libraries(amio_core PRIVATE HELM::CONF HELM::HALO HELM::LOGS)
+# The shared library has runtime/link-time dependencies on HELM and the
+# selected backend runtimes. Export them as LINK_ONLY requirements so
+# downstream consumers resolve the installed DSO closure without inheriting
+# private compile include directories or definitions.
+target_link_libraries(amio_core INTERFACE
+    "$<LINK_ONLY:HELM::CONF>"
+    "$<LINK_ONLY:HELM::HALO>"
+    "$<LINK_ONLY:HELM::LOGS>")
+if(MPI_CXX_FOUND)
+    target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:MPI::MPI_CXX>")
+endif()
+if(TARGET netCDF::netcdf)
+    target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:netCDF::netcdf>")
+endif()
+if(g2c_FOUND AND TARGET g2c::g2c)
+    target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:g2c::g2c>")
+endif()
+if(AMIO_MEMORY_BACKEND_TARGET)
+    target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:${AMIO_MEMORY_BACKEND_TARGET}>")
+endif()
+if(AMIO_HAS_TENSORSTORE AND TARGET TensorStore::tensorstore)
+    target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:TensorStore::tensorstore>")
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(amio_core PRIVATE "-Wl,--exclude-libs,ALL")
@@ -615,6 +653,10 @@ endif()
 
 if(AMIO_BUILD_QUALIFICATION AND NOT AMIO_BUILD_TESTING)
     add_subdirectory(tests/qualification)
+endif()
+
+if(AMIO_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
 endif()
 
 if(AMIO_BUILD_TOOLS)
@@ -723,6 +765,7 @@ message(STATUS "  C++ standard          : C++${CMAKE_CXX_STANDARD}")
 message(STATUS "  C   standard          : C${CMAKE_C_STANDARD}")
 message(STATUS "  Build testing         : ${AMIO_BUILD_TESTING}")
 message(STATUS "  Build qualification   : ${AMIO_BUILD_QUALIFICATION}")
+message(STATUS "  Build benchmarks      : ${AMIO_BUILD_BENCHMARKS}")
 message(STATUS "  Build tools           : ${AMIO_BUILD_TOOLS}")
 message(STATUS "  Build documentation   : ${AMIO_BUILD_DOCS}")
 message(STATUS "  Build examples        : ${AMIO_BUILD_EXAMPLES}")

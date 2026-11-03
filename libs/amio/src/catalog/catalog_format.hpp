@@ -35,6 +35,16 @@ struct PayloadDescriptor {
     std::vector<std::uint64_t> offsets;
     std::vector<std::uint64_t> extents;
     bool array_container = false;
+    /** Optional SHA-256 of the canonical stored logical field/region bytes. */
+    std::string integrity_sha256;
+    /** Identity of the compiled field pipeline used to produce this payload. */
+    std::string operator_pipeline;
+    struct IntegrityRegion {
+        std::vector<std::uint64_t> offsets;
+        std::vector<std::uint64_t> extents;
+        std::string digest;
+    };
+    std::vector<IntegrityRegion> integrity_regions;
     struct MessageRange {
         std::uint64_t offset = 0;
         std::uint64_t length = 0;

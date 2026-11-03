@@ -1,6 +1,9 @@
 #include "execution/mpi_transport.hpp"
+#include "execution/role_map.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 #include <climits>
 #include <limits>
 #include <stdexcept>
@@ -20,7 +23,7 @@ constexpr int kServiceAcknowledgmentTag = 205;
 bool is_service_control(MessageKind kind) noexcept {
     return kind == MessageKind::Config || kind == MessageKind::Begin || kind == MessageKind::Contribute ||
            kind == MessageKind::Seal || kind == MessageKind::Cancel || kind == MessageKind::Close ||
-           kind == MessageKind::EndOfStream;
+           kind == MessageKind::EndOfStream || kind == MessageKind::Release;
 }
 
 #ifdef AMIO_HAS_MPI
@@ -128,10 +131,11 @@ amio_status_t MpiTransport::send_payload(std::uint32_t destination_rank, Transpo
 amio_status_t MpiTransport::send_control(std::uint32_t writer_rank, const TransportEnvelope &envelope) const noexcept {
 #ifdef AMIO_HAS_MPI
     const auto &roles = context_->roles();
+    const auto &destinations = roles.mode == ExecutionMode::Stream ? roles.consumers : roles.writers;
     if (!is_service_control(envelope.kind) || envelope.producer_rank != context_->rank() ||
         envelope.writer_rank != writer_rank || writer_rank >= context_->size() ||
         std::find(roles.producers.begin(), roles.producers.end(), static_cast<int>(context_->rank())) == roles.producers.end() ||
-        std::find(roles.writers.begin(), roles.writers.end(), static_cast<int>(writer_rank)) == roles.writers.end() ||
+        std::find(destinations.begin(), destinations.end(), static_cast<int>(writer_rank)) == destinations.end() ||
         envelope.dimension_count != 0 || envelope.fragment_count != 1 || envelope.fragment_index != 0 ||
         envelope.fragment_offset != 0 || envelope.contribution_bytes != 0 || envelope.payload_bytes != 0)
         return AMIO_ERR_INVALID_INPUT;
@@ -159,6 +163,100 @@ amio_status_t MpiTransport::send_control(std::uint32_t writer_rank, const Transp
     return result;
 #else
     (void)writer_rank; (void)envelope;
+    return AMIO_ERR_UNSUPPORTED;
+#endif
+}
+
+amio_status_t MpiTransport::send_release(std::uint32_t producer_rank, const TransportEnvelope &envelope) const noexcept {
+#ifdef AMIO_HAS_MPI
+    const auto &roles = context_->roles();
+    const auto consumer = static_cast<int>(context_->rank());
+    if (envelope.kind != MessageKind::Release || envelope.producer_rank != producer_rank ||
+        envelope.writer_rank != context_->rank() || envelope.sequence == 0 || envelope.dimension_count != 0 ||
+        envelope.fragment_count != 1 || envelope.fragment_index != 0 || envelope.fragment_offset != 0 ||
+        envelope.contribution_bytes != 0 || envelope.payload_bytes != 0 || producer_rank >= context_->size() ||
+        std::find(roles.consumers.begin(), roles.consumers.end(), consumer) == roles.consumers.end() ||
+        std::find(roles.producers.begin(), roles.producers.end(), static_cast<int>(producer_rank)) == roles.producers.end() ||
+        context_->role_map().writer_for(producer_rank) != context_->rank()) return AMIO_ERR_INVALID_INPUT;
+    auto credit = credits_->acquire_control(2 * kTransportEnvelopeWireBytes, 2);
+    if (!credit) return AMIO_ERR_QUEUE_FULL;
+    const auto wire = encode_envelope(envelope);
+    amio_status_t result = AMIO_ERR_COMM_SPLIT_FAILED;
+    if (MPI_Send(wire.data(), static_cast<int>(wire.size()), MPI_BYTE, static_cast<int>(producer_rank), kServiceControlTag,
+                 context_->control_communicator()) == MPI_SUCCESS) {
+        std::array<std::uint8_t, kTransportEnvelopeWireBytes> ack_wire{};
+        MPI_Status status{}; int count = 0;
+        if (MPI_Recv(ack_wire.data(), static_cast<int>(ack_wire.size()), MPI_BYTE, static_cast<int>(producer_rank),
+                     kServiceAcknowledgmentTag, context_->control_communicator(), &status) == MPI_SUCCESS &&
+            MPI_Get_count(&status, MPI_BYTE, &count) == MPI_SUCCESS && count == static_cast<int>(ack_wire.size())) {
+            TransportEnvelope ack;
+            if (decode_envelope(ack_wire, ack) == ProtocolError::None && acknowledgment_matches(envelope, ack))
+                result = ack.kind == MessageKind::Received ? AMIO_OK : AMIO_ERR_INVALID_POLICY;
+            else result = AMIO_ERR_INVALID_POLICY;
+        }
+    }
+    (void)credits_->release(*credit);
+    return result;
+#else
+    (void)producer_rank; (void)envelope;
+    return AMIO_ERR_UNSUPPORTED;
+#endif
+}
+
+amio_status_t MpiTransport::receive_release(std::uint32_t consumer_rank, std::uint64_t epoch,
+    const std::array<std::uint8_t, kDatasetUuidBytes> &dataset_uuid, std::uint64_t step_id,
+    TransportEnvelope &received, std::chrono::milliseconds timeout) const noexcept {
+#ifdef AMIO_HAS_MPI
+    const auto producer = static_cast<std::uint32_t>(context_->rank());
+    const auto &roles = context_->roles();
+    if (consumer_rank >= context_->size() || context_->role_map().role(producer) != RankRole::Producer ||
+        context_->role_map().writer_for(producer) != consumer_rank) return AMIO_ERR_INVALID_POLICY;
+    auto credit = credits_->acquire_control(2 * kTransportEnvelopeWireBytes, 2);
+    if (!credit) return AMIO_ERR_QUEUE_FULL;
+    std::array<std::uint8_t, kTransportEnvelopeWireBytes> wire{};
+    const bool infinite = timeout == std::chrono::milliseconds::max();
+    const auto deadline = infinite ? std::chrono::steady_clock::time_point::max()
+                                   : std::chrono::steady_clock::now() + std::max(timeout, std::chrono::milliseconds::zero());
+    int available = 0;
+    while (!available) {
+        if (MPI_Iprobe(static_cast<int>(consumer_rank), kServiceControlTag, context_->control_communicator(),
+                       &available, MPI_STATUS_IGNORE) != MPI_SUCCESS) {
+            (void)credits_->release(*credit);
+            return AMIO_ERR_COMM_SPLIT_FAILED;
+        }
+        if (available) break;
+        if (!infinite && std::chrono::steady_clock::now() >= deadline) {
+            (void)credits_->release(*credit);
+            return AMIO_ERR_OPERATION_PENDING;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    MPI_Status status{}; int count = 0;
+    if (MPI_Recv(wire.data(), static_cast<int>(wire.size()), MPI_BYTE, static_cast<int>(consumer_rank),
+                 kServiceControlTag, context_->control_communicator(), &status) != MPI_SUCCESS ||
+        MPI_Get_count(&status, MPI_BYTE, &count) != MPI_SUCCESS || count != static_cast<int>(wire.size())) {
+        (void)credits_->release(*credit);
+        return AMIO_ERR_COMM_SPLIT_FAILED;
+    }
+    TransportEnvelope frame;
+    auto result = decode_envelope(wire, frame) == ProtocolError::None ? AMIO_OK : AMIO_ERR_INVALID_POLICY;
+    if (result == AMIO_OK && (frame.kind != MessageKind::Release || frame.context_epoch != epoch ||
+        frame.dataset_uuid != dataset_uuid || frame.step_id != step_id || frame.producer_rank != producer ||
+        frame.writer_rank != consumer_rank || frame.sequence == 0 || frame.dimension_count != 0 ||
+        frame.fragment_count != 1 || frame.fragment_index != 0 || frame.fragment_offset != 0 ||
+        frame.contribution_bytes != 0 || frame.payload_bytes != 0 ||
+        std::find(roles.consumers.begin(), roles.consumers.end(), static_cast<int>(consumer_rank)) == roles.consumers.end()))
+        result = AMIO_ERR_INVALID_POLICY;
+    auto ack = frame;
+    ack.kind = result == AMIO_OK ? MessageKind::Received : MessageKind::Error;
+    const auto ack_wire = encode_envelope(ack);
+    if (MPI_Send(ack_wire.data(), static_cast<int>(ack_wire.size()), MPI_BYTE, static_cast<int>(consumer_rank),
+                 kServiceAcknowledgmentTag, context_->control_communicator()) != MPI_SUCCESS) result = AMIO_ERR_COMM_SPLIT_FAILED;
+    else if (result == AMIO_OK) received = frame;
+    (void)credits_->release(*credit);
+    return result;
+#else
+    (void)consumer_rank; (void)epoch; (void)dataset_uuid; (void)step_id; (void)received; (void)timeout;
     return AMIO_ERR_UNSUPPORTED;
 #endif
 }

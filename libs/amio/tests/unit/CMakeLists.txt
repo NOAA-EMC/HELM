@@ -40,6 +40,17 @@ endif()
 
 add_test(NAME unit.amio_strerror COMMAND test_amio_strerror)
 
+add_executable(test_memory_submission test_memory_submission.cpp
+    ${CMAKE_SOURCE_DIR}/src/memory/memory_provider.cpp
+    ${CMAKE_SOURCE_DIR}/src/memory/host_snapshot.cpp
+    ${CMAKE_SOURCE_DIR}/src/memory/kokkos_snapshot.cpp)
+target_include_directories(test_memory_submission PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include)
+if(AMIO_HAS_KOKKOS_RUNTIME)
+    target_link_libraries(test_memory_submission PRIVATE ${AMIO_MEMORY_BACKEND_TARGET})
+    target_compile_definitions(test_memory_submission PRIVATE AMIO_HAS_KOKKOS_RUNTIME=1 AMIO_TEST_HAS_KOKKOS_RUNTIME=1)
+endif()
+add_test(NAME unit.memory_submission COMMAND test_memory_submission)
+
 add_executable(test_evolution_contract test_evolution_contract.cpp)
 target_link_libraries(test_evolution_contract PRIVATE AMIO::amio_core)
 target_include_directories(test_evolution_contract PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -80,10 +91,31 @@ target_link_libraries(test_credit_window PRIVATE AMIO::public_headers Threads::T
 add_test(NAME unit.credit_window COMMAND test_credit_window)
 set_tests_properties(unit.credit_window PROPERTIES LABELS "unit;transport;credits" TIMEOUT 30)
 
+add_executable(test_progress_engine test_progress_engine.cpp ${CMAKE_SOURCE_DIR}/src/execution/progress_engine.cpp)
+target_include_directories(test_progress_engine PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_progress_engine PRIVATE AMIO::public_headers Threads::Threads)
+add_test(NAME unit.progress_engine COMMAND test_progress_engine)
+set_tests_properties(unit.progress_engine PROPERTIES LABELS "unit;progress;aggregation" TIMEOUT 30)
+
+add_executable(test_stream_retention test_stream_retention.cpp ${CMAKE_SOURCE_DIR}/src/execution/stream_retention.cpp)
+target_include_directories(test_stream_retention PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_stream_retention PRIVATE AMIO::public_headers Threads::Threads)
+add_test(NAME unit.stream_retention COMMAND test_stream_retention)
+set_tests_properties(unit.stream_retention PROPERTIES LABELS "unit;stream;retention" TIMEOUT 30)
+
+add_executable(test_stream_read_queue test_stream_read_queue.cpp
+    ${CMAKE_SOURCE_DIR}/src/prefetch/stream_read_queue.cpp
+    ${CMAKE_SOURCE_DIR}/src/execution/stream_retention.cpp)
+target_include_directories(test_stream_read_queue PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_stream_read_queue PRIVATE AMIO::public_headers Threads::Threads)
+add_test(NAME unit.stream_read_queue COMMAND test_stream_read_queue)
+set_tests_properties(unit.stream_read_queue PROPERTIES LABELS "unit;stream;prefetch;read" TIMEOUT 30)
+
 add_executable(test_step_coordinator test_step_coordinator.cpp
     ${CMAKE_SOURCE_DIR}/src/execution/direct_execution.cpp
     ${CMAKE_SOURCE_DIR}/src/steps/step_coordinator.cpp
     ${CMAKE_SOURCE_DIR}/src/steps/contribution_plan.cpp
+    ${CMAKE_SOURCE_DIR}/src/memory/memory_provider.cpp
     ${CMAKE_SOURCE_DIR}/src/memory/host_snapshot.cpp
     ${CMAKE_SOURCE_DIR}/src/schema/schema.cpp
     ${CMAKE_SOURCE_DIR}/src/staging/resource_budget.cpp
@@ -98,6 +130,42 @@ if(Threads_FOUND)
 endif()
 add_test(NAME unit.step_coordinator COMMAND test_step_coordinator)
 set_tests_properties(unit.step_coordinator PROPERTIES LABELS "unit;steps;coordinator" TIMEOUT 30)
+
+add_executable(test_operator_policy test_operator_policy.cpp ${CMAKE_SOURCE_DIR}/src/operators/operator_policy.cpp)
+target_include_directories(test_operator_policy PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_operator_policy PRIVATE AMIO::public_headers)
+add_test(NAME unit.operator_policy COMMAND test_operator_policy)
+set_tests_properties(unit.operator_policy PROPERTIES LABELS "unit;operators" TIMEOUT 30)
+
+add_executable(test_payload_integrity test_payload_integrity.cpp ${CMAKE_SOURCE_DIR}/src/operators/payload_integrity.cpp)
+target_include_directories(test_payload_integrity PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_payload_integrity PRIVATE AMIO::public_headers)
+add_test(NAME unit.payload_integrity COMMAND test_payload_integrity)
+set_tests_properties(unit.payload_integrity PROPERTIES LABELS "unit;operators;integrity" TIMEOUT 30)
+
+add_executable(test_integrity_reader test_integrity_reader.cpp
+    ${CMAKE_SOURCE_DIR}/src/operators/integrity_reader.cpp
+    ${CMAKE_SOURCE_DIR}/src/operators/payload_integrity.cpp)
+target_include_directories(test_integrity_reader PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_integrity_reader PRIVATE AMIO::public_headers)
+add_test(NAME unit.integrity_reader COMMAND test_integrity_reader)
+set_tests_properties(unit.integrity_reader PROPERTIES LABELS "unit;operators;integrity" TIMEOUT 30)
+
+add_executable(test_operator_executor test_operator_executor.cpp
+    ${CMAKE_SOURCE_DIR}/src/operators/operator_executor.cpp
+    ${CMAKE_SOURCE_DIR}/src/operators/operator_policy.cpp
+    ${CMAKE_SOURCE_DIR}/src/operators/payload_integrity.cpp
+    ${CMAKE_SOURCE_DIR}/src/operators/precision_conversion.cpp)
+target_include_directories(test_operator_executor PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_operator_executor PRIVATE AMIO::public_headers)
+add_test(NAME unit.operator_executor COMMAND test_operator_executor)
+set_tests_properties(unit.operator_executor PROPERTIES LABELS "unit;operators;conversion;integrity" TIMEOUT 30)
+
+add_executable(test_precision_conversion test_precision_conversion.cpp ${CMAKE_SOURCE_DIR}/src/operators/precision_conversion.cpp)
+target_include_directories(test_precision_conversion PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_precision_conversion PRIVATE AMIO::public_headers)
+add_test(NAME unit.precision_conversion COMMAND test_precision_conversion)
+set_tests_properties(unit.precision_conversion PROPERTIES LABELS "unit;operators;conversion" TIMEOUT 30)
 
 add_executable(test_collection_catalog
     test_collection_catalog.cpp

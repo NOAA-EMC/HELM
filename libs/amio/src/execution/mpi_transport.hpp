@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <chrono>
 #include <functional>
 #include <span>
 #include <vector>
@@ -41,6 +42,14 @@ public:
 
     /** Send a payload-free producer service command using reserved control credits. */
     [[nodiscard]] amio_status_t send_control(std::uint32_t writer_rank, const TransportEnvelope &envelope) const noexcept;
+
+    /** Consumer-to-producer release acknowledgment over reserved control credits. */
+    [[nodiscard]] amio_status_t send_release(std::uint32_t producer_rank, const TransportEnvelope &envelope) const noexcept;
+    /** Producer receives the release acknowledgment for one retained step. */
+    [[nodiscard]] amio_status_t receive_release(std::uint32_t consumer_rank, std::uint64_t epoch,
+                                                 const std::array<std::uint8_t, kDatasetUuidBytes> &dataset_uuid,
+                                                 std::uint64_t step_id, TransportEnvelope &received,
+                                                 std::chrono::milliseconds timeout = std::chrono::milliseconds::max()) const noexcept;
 
     /** Receive and handle a producer service command using no data credits.
      * The handler is invoked only after identity, routing and size validation.

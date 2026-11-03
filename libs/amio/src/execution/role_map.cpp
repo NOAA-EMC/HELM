@@ -32,6 +32,9 @@ amio_status_t RoleMap::create(const RoleConfiguration &configuration, RoleMap &o
             } else if (candidate.mode_ == ExecutionMode::Aggregated) {
                 const auto writer = static_cast<std::uint32_t>(candidate.writers_[i % candidate.writers_.size()]);
                 candidate.writer_by_rank_[rank] = static_cast<int>(writer);
+            } else if (candidate.mode_ == ExecutionMode::Stream) {
+                const auto consumer = static_cast<std::uint32_t>(configuration.consumers[i % configuration.consumers.size()]);
+                candidate.writer_by_rank_[rank] = static_cast<int>(consumer);
             }
         }
         if (candidate.mode_ == ExecutionMode::Aggregated) {

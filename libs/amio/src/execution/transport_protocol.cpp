@@ -35,7 +35,7 @@ void get_array(std::span<const std::uint8_t> wire, std::size_t &offset, std::uin
 
 bool known_kind(MessageKind kind) noexcept {
     const auto value = static_cast<std::uint8_t>(kind);
-    return value >= static_cast<std::uint8_t>(MessageKind::Config) && value <= static_cast<std::uint8_t>(MessageKind::EndOfStream);
+    return value >= static_cast<std::uint8_t>(MessageKind::Config) && value <= static_cast<std::uint8_t>(MessageKind::Release);
 }
 
 } // namespace

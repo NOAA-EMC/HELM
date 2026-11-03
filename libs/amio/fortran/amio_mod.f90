@@ -19,7 +19,7 @@
 !------------------------------------------------------------------
 module amio_mod
     use, intrinsic :: iso_c_binding, only: &
-        c_ptr, c_int, c_int32_t, c_int64_t, c_size_t, &
+        c_ptr, c_int, c_int8_t, c_int32_t, c_int64_t, c_size_t, &
         c_char, c_bool, c_float, c_double, c_loc
     implicit none
     private
@@ -51,6 +51,8 @@ module amio_mod
     public :: AMIO_ERR_INVALID_INPUT
     public :: AMIO_ERR_INVALID_POLICY
     public :: AMIO_ERR_UNSUPPORTED, AMIO_ERR_BUFFER_TOO_SMALL
+    public :: AMIO_ERR_SCHEMA_MISMATCH, AMIO_ERR_STEP_FAILED
+    public :: AMIO_EVOLUTION_DESCRIPTOR_VERSION_1
     public :: AMIO_VALIDATE_COMPLETION_CHAIN, AMIO_VALIDATE_REQUIRED_FIELDS
     public :: AMIO_VALIDATE_PAYLOAD_PRESENCE, AMIO_VALIDATE_INTEGRITY, AMIO_VALIDATE_ORPHAN_OBJECTS
     public :: AMIO_VALIDATION_PASS, AMIO_VALIDATION_FAIL, AMIO_VALIDATION_UNSUPPORTED
@@ -90,6 +92,17 @@ module amio_mod
     public :: amio_acquire_step_lease
     public :: amio_context_descriptor_t, amio_init_ex, amio_query_capabilities, amio_query_diagnostics
     public :: amio_query_context_role, amio_reduce_diagnostics, amio_release_context
+    public :: amio_progress
+    public :: amio_run_service
+    public :: amio_stream_contribution_t, amio_stream_receive_descriptor_t, amio_stream_acquire_result_t
+    public :: amio_stream_read_descriptor_t, amio_stream_submit, amio_stream_wait_release
+    public :: amio_stream_try_wait_release
+    public :: amio_stream_receive_step, amio_stream_acquire, amio_stream_read, amio_stream_release, amio_stream_finish
+    public :: amio_stream_cancel
+    public :: AMIO_STREAM_AVAILABLE, AMIO_STREAM_SKIPPED, AMIO_STREAM_TIMEOUT
+    public :: AMIO_STREAM_END_OF_STREAM, AMIO_STREAM_FAILED
+    integer(c_int32_t), parameter :: AMIO_STREAM_AVAILABLE = 0, AMIO_STREAM_SKIPPED = 1
+    integer(c_int32_t), parameter :: AMIO_STREAM_TIMEOUT = 2, AMIO_STREAM_END_OF_STREAM = 3, AMIO_STREAM_FAILED = 4
     public :: AMIO_ROLE_INACTIVE, AMIO_ROLE_PRODUCER, AMIO_ROLE_WRITER, AMIO_ROLE_CONSUMER
     integer(c_int32_t), parameter :: AMIO_ROLE_INACTIVE = 0, AMIO_ROLE_PRODUCER = 1
     integer(c_int32_t), parameter :: AMIO_ROLE_WRITER = 2, AMIO_ROLE_CONSUMER = 3
@@ -100,6 +113,7 @@ module amio_mod
     public :: AMIO_OPERATION_READER_VISIBLE, AMIO_OPERATION_DURABLE
     public :: amio_dataset_descriptor_t, amio_dimension_descriptor_t, amio_attribute_descriptor_t
     public :: amio_variable_descriptor_t, amio_schema_descriptor_t, amio_step_descriptor_t
+    public :: amio_memory_descriptor_t, amio_put_field_memory
     public :: amio_operation_status_t, amio_catalog_cursor_t, amio_step_summary_t, amio_step_selection_t
     public :: amio_open_dataset_ex, amio_close_dataset_ex, amio_define_schema, amio_release_schema
     public :: amio_begin_step, amio_put_field, amio_cancel_step, amio_end_step, amio_query_operation, amio_wait_operation
@@ -157,6 +171,9 @@ module amio_mod
     integer(c_int32_t), parameter :: AMIO_ERR_INVALID_POLICY = 26
     integer(c_int32_t), parameter :: AMIO_ERR_UNSUPPORTED = 18
     integer(c_int32_t), parameter :: AMIO_ERR_BUFFER_TOO_SMALL = 29
+    integer(c_int32_t), parameter :: AMIO_ERR_SCHEMA_MISMATCH = 20
+    integer(c_int32_t), parameter :: AMIO_ERR_STEP_FAILED = 23
+    integer(c_int32_t), parameter :: AMIO_EVOLUTION_DESCRIPTOR_VERSION_1 = 1
     integer(c_int32_t), parameter :: AMIO_VALIDATE_COMPLETION_CHAIN = 1
     integer(c_int32_t), parameter :: AMIO_VALIDATE_REQUIRED_FIELDS = 2
     integer(c_int32_t), parameter :: AMIO_VALIDATE_PAYLOAD_PRESENCE = 3
@@ -296,6 +313,13 @@ module amio_mod
         integer(c_int64_t) :: reserved(2)
     end type amio_step_descriptor_t
 
+    type, bind(C) :: amio_memory_descriptor_t
+        integer(c_int32_t) :: struct_size, version, memory_kind, ownership
+        integer(c_int32_t) :: device_id, rank, producer_writes_synchronized, reserved32
+        integer(c_int64_t) :: element_bytes
+        integer(c_int64_t) :: extents(7), strides(7), reserved(2)
+    end type amio_memory_descriptor_t
+
     type, bind(C) :: amio_operation_status_t
         integer(c_int32_t) :: struct_size, version, outcome, milestones, terminal_status, reserved32
     end type amio_operation_status_t
@@ -318,6 +342,38 @@ module amio_mod
         integer(c_int32_t) :: struct_size, version, rank, reserved32
         integer(c_int64_t) :: offsets(7), extents(7), strides(7), reserved(2)
     end type amio_step_selection_t
+
+    type, bind(C) :: amio_stream_contribution_t
+        integer(c_int32_t) :: struct_size, version
+        integer(c_int64_t) :: step_id, sequence
+        integer(c_int32_t) :: field_id, rank
+        integer(c_int64_t) :: element_bytes
+        integer(c_int8_t) :: schema_digest(32)
+        integer(c_int64_t) :: offsets(7), extents(7), reserved(2)
+    end type amio_stream_contribution_t
+
+    type, bind(C) :: amio_stream_receive_descriptor_t
+        integer(c_int32_t) :: struct_size, version
+        integer(c_int64_t) :: step_id
+        integer(c_int8_t) :: schema_digest(32)
+        integer(c_int32_t) :: absent_optional_count, fields_per_producer
+        type(c_ptr) :: absent_optional_names, absent_optional_name_bytes
+        integer(c_int64_t) :: reserved(2)
+    end type amio_stream_receive_descriptor_t
+
+    type, bind(C) :: amio_stream_acquire_result_t
+        integer(c_int32_t) :: struct_size, version, state, failure_status
+        integer(c_int64_t) :: skipped_first, skipped_last
+        type(c_ptr) :: lease
+        integer(c_int64_t) :: reserved(2)
+    end type amio_stream_acquire_result_t
+
+    type, bind(C) :: amio_stream_read_descriptor_t
+        integer(c_int32_t) :: struct_size, version, producer_rank, field_id, rank, reserved32
+        integer(c_int64_t) :: element_bytes, offsets(7), extents(7)
+        type(c_ptr) :: logical_field_name
+        integer(c_int64_t) :: logical_field_name_bytes, reserved(2)
+    end type amio_stream_read_descriptor_t
 
     ! ---------------------------------------------------------------
     ! Interface blocks for AMIO_C_API entry points
@@ -369,6 +425,16 @@ module amio_mod
             type(c_ptr), intent(out) :: out_operation
             integer(c_int32_t) :: status
         end function amio_put_field
+
+        function amio_put_field_memory(step, field, field_bytes, memory, data, data_bytes, out_operation) result(status) &
+            bind(C, name="amio_put_field_memory")
+            import :: c_ptr, c_size_t, c_int32_t, amio_memory_descriptor_t
+            type(c_ptr), value, intent(in) :: step, field, data
+            integer(c_size_t), value, intent(in) :: field_bytes, data_bytes
+            type(amio_memory_descriptor_t), intent(in) :: memory
+            type(c_ptr), intent(out) :: out_operation
+            integer(c_int32_t) :: status
+        end function amio_put_field_memory
 
         function amio_cancel_step(step) result(status) bind(C, name="amio_cancel_step")
             import :: c_ptr, c_int32_t
@@ -480,6 +546,91 @@ module amio_mod
             integer(c_size_t), intent(out) :: out_required_bytes
             integer(c_int32_t) :: status
         end function amio_reduce_diagnostics
+
+        !> Run a bounded quantum of caller-driven progress on this rank only.
+        function amio_progress(context, max_callbacks, out_completed) result(status) bind(C, name="amio_progress")
+            import :: c_ptr, c_int32_t
+            type(c_ptr), value, intent(in) :: context
+            integer(c_int32_t), value, intent(in) :: max_callbacks
+            integer(c_int32_t), intent(out) :: out_completed
+            integer(c_int32_t) :: status
+        end function amio_progress
+
+        !> Enter the dedicated service operation on a configured aggregation writer.
+        function amio_run_service(context) result(status) bind(C, name="amio_run_service")
+            import :: c_ptr, c_int32_t
+            type(c_ptr), value, intent(in) :: context
+            integer(c_int32_t) :: status
+        end function amio_run_service
+
+        function amio_stream_submit(context, contribution, data, data_bytes) result(status) &
+            bind(C, name="amio_stream_submit")
+            import :: c_ptr, c_size_t, c_int32_t, amio_stream_contribution_t
+            type(c_ptr), value, intent(in) :: context, data
+            type(amio_stream_contribution_t), intent(in) :: contribution
+            integer(c_size_t), value, intent(in) :: data_bytes
+            integer(c_int32_t) :: status
+        end function amio_stream_submit
+
+        function amio_stream_wait_release(context, step_id) result(status) bind(C, name="amio_stream_wait_release")
+            import :: c_ptr, c_int64_t, c_int32_t
+            type(c_ptr), value, intent(in) :: context
+            integer(c_int64_t), value, intent(in) :: step_id
+            integer(c_int32_t) :: status
+        end function amio_stream_wait_release
+
+        function amio_stream_try_wait_release(context, step_id, timeout_milliseconds) result(status) &
+            bind(C, name="amio_stream_try_wait_release")
+            import :: c_ptr, c_int64_t, c_int32_t
+            type(c_ptr), value, intent(in) :: context
+            integer(c_int64_t), value, intent(in) :: step_id, timeout_milliseconds
+            integer(c_int32_t) :: status
+        end function amio_stream_try_wait_release
+
+        function amio_stream_receive_step(context, descriptor) result(status) bind(C, name="amio_stream_receive_step")
+            import :: c_ptr, c_int32_t, amio_stream_receive_descriptor_t
+            type(c_ptr), value, intent(in) :: context
+            type(amio_stream_receive_descriptor_t), intent(in) :: descriptor
+            integer(c_int32_t) :: status
+        end function amio_stream_receive_step
+
+        function amio_stream_acquire(context, timeout_milliseconds, out_result) result(status) &
+            bind(C, name="amio_stream_acquire")
+            import :: c_ptr, c_int64_t, c_int32_t, amio_stream_acquire_result_t
+            type(c_ptr), value, intent(in) :: context
+            integer(c_int64_t), value, intent(in) :: timeout_milliseconds
+            type(amio_stream_acquire_result_t), intent(out) :: out_result
+            integer(c_int32_t) :: status
+        end function amio_stream_acquire
+
+        function amio_stream_read(lease, descriptor, buffer, buffer_capacity, out_bytes) result(status) &
+            bind(C, name="amio_stream_read")
+            import :: c_ptr, c_size_t, c_int32_t, amio_stream_read_descriptor_t
+            type(c_ptr), value, intent(in) :: lease, buffer
+            type(amio_stream_read_descriptor_t), intent(in) :: descriptor
+            integer(c_size_t), value, intent(in) :: buffer_capacity
+            integer(c_size_t), intent(out) :: out_bytes
+            integer(c_int32_t) :: status
+        end function amio_stream_read
+
+        function amio_stream_release(lease) result(status) bind(C, name="amio_stream_release")
+            import :: c_ptr, c_int32_t
+            type(c_ptr), value, intent(in) :: lease
+            integer(c_int32_t) :: status
+        end function amio_stream_release
+
+        function amio_stream_finish(context, graceful) result(status) bind(C, name="amio_stream_finish")
+            import :: c_ptr, c_int32_t
+            type(c_ptr), value, intent(in) :: context
+            integer(c_int32_t), value, intent(in) :: graceful
+            integer(c_int32_t) :: status
+        end function amio_stream_finish
+
+        function amio_stream_cancel(context) result(status) bind(C, name="amio_stream_cancel")
+            import :: c_ptr, c_int32_t
+            type(c_ptr), value, intent(in) :: context
+            integer(c_int32_t) :: status
+        end function amio_stream_cancel
 
         function amio_release_context(context) result(status) bind(C, name="amio_release_context")
             import :: c_ptr, c_int32_t

@@ -77,6 +77,9 @@ void test_catalog_persists_grib2_message_ranges_and_rejects_invalid_ranges() {
     payload.bytes = 12;
     payload.producer = 3;
     payload.message_ranges = {{0, 4}, {4, 8}};
+    payload.operator_pipeline = "f64_to_f32_absolute|sha256-logical-v1|native";
+    payload.integrity_regions.push_back({{0}, {2}, "sha256-logical-v1:f766ba187f3c364260c2514311bda61b82bed83c6c86ee4edd3ad18b9b0e0569"});
+    payload.integrity_regions.push_back({{2}, {2}, "sha256-logical-v1:f766ba187f3c364260c2514311bda61b82bed83c6c86ee4edd3ad18b9b0e0569"});
     value.payloads.push_back(payload);
 
     std::string encoded;
@@ -89,6 +92,10 @@ void test_catalog_persists_grib2_message_ranges_and_rejects_invalid_ranges() {
     assert(decoded.payloads[0].message_ranges[0].length == 4);
     assert(decoded.payloads[0].message_ranges[1].offset == 4);
     assert(decoded.payloads[0].message_ranges[1].length == 8);
+    assert(decoded.payloads[0].integrity_regions.size() == 2);
+    assert(decoded.payloads[0].integrity_regions[1].offsets == std::vector<std::uint64_t>{2});
+    assert(decoded.payloads[0].integrity_regions[1].extents == std::vector<std::uint64_t>{2});
+    assert(decoded.payloads[0].operator_pipeline == payload.operator_pipeline);
 
     value.payloads[0].message_ranges[1] = {8, 8};
     assert(encode_commit_document(value, encoded) == AMIO_ERR_INVALID_INPUT);

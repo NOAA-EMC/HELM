@@ -26,6 +26,14 @@ bool validate_netcdf_step_schema(const Schema &schema, std::string &error) {
     if (!schema.sealed()) { error = "NetCDF step schema must be sealed before payload creation"; return false; }
     std::map<std::string, std::uint64_t, std::less<>> dimensions;
     for (const auto &[name, variable] : schema.variables()) {
+        const auto codec = variable.attributes.find("amio.codec");
+        if (codec != variable.attributes.end()) {
+            const auto *selected = std::get_if<std::string>(&codec->second.value);
+            if (selected == nullptr || (*selected != "none" && *selected != "deflate")) {
+                error = "NetCDF step fields support only the native lossless deflate codec: " + name;
+                return false;
+            }
+        }
         if (name.empty() || name.size() > 255 || variable.dimensions.empty()) {
             error = "NetCDF step fields require a legal variable name and at least one dimension"; return false;
         }
@@ -120,6 +128,12 @@ bool define_netcdf_step_schema(int ncid, const Schema &schema, double model_time
             std::vector<int> ids; ids.reserve(var.dimensions.size());
             for (const auto &dim : var.dimensions) ids.push_back(dimids.at(dim.name));
             int id=-1; check_nc(nc_def_var(ncid,name.c_str(),nc_type(var.stored_dtype),ids.size(),ids.data(),&id),"define variable " + name);
+            const auto codec = var.attributes.find("amio.codec");
+            if (codec != var.attributes.end()) {
+                const auto *selected = std::get_if<std::string>(&codec->second.value);
+                if (selected != nullptr && *selected == "deflate")
+                    check_nc(nc_def_var_deflate(ncid, id, 0, 1, 1), "enable native deflate for " + name);
+            }
             for (const auto &[key,value] : var.attributes) put_attribute(ncid,id,key,value);
         }
         check_nc(nc_enddef(ncid), "finish NetCDF step definition");

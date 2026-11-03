@@ -198,3 +198,14 @@ public API reports durability as unsupported until a sync guarantee is
 certified. Aggregated submission, public GRIB2 collection publication/native
 encoding, shared-shard Zarr output, and durable-storage guarantees remain open;
 keep production on the established legacy calls until M1 is qualified.
+
+## Evolution API qualification boundary
+
+The evolution collection API is additive and has a separate capability
+surface from the legacy shared-dataset and `amio_write_region` path above.
+The current supported matrix and qualification evidence are maintained in the
+[AMIO evolution configuration guide](../libs/amio/docs/site/user-guide/configuration.md)
+and [feature acceptance evidence](../specs/001-evolve-amio-engine/evidence/acceptance.md).
+In particular, an MPI transport test does not establish persistent aggregated
+output, and legacy parallel NetCDF support does not establish certified
+object-store durability or shared Zarr guarantees.

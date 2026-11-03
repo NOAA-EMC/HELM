@@ -6,6 +6,7 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 
 #ifdef AMIO_HAS_TENSORSTORE
 #include <tensorstore/context.h>
@@ -73,6 +74,14 @@ bool validate_zarr_step_schema(const Schema &schema, std::string &error) {
         return false;
     }
     for (const auto &[name, variable] : schema.variables()) {
+        const auto codec = variable.attributes.find("amio.codec");
+        if (codec != variable.attributes.end()) {
+            const auto *selected = std::get_if<std::string>(&codec->second.value);
+            if (selected == nullptr || (*selected != "none" && *selected != "zstandard" && *selected != "zstd")) {
+                error = "Zarr step fields support only the native lossless zstandard codec: " + name;
+                return false;
+            }
+        }
         if (name.empty() || variable.dimensions.empty()) {
             error = "Zarr step fields require a name and at least one dimension";
             return false;
@@ -247,14 +256,20 @@ bool create_zarr_step(const std::string &collection_root, const std::string &dat
         }
     };
     auto create_array = [&](const std::string &path, const std::vector<std::uint64_t> &shape,
-                            const char *dtype, const std::vector<std::uint64_t> *shard_shape) {
+                            const char *dtype, const std::vector<std::uint64_t> *shard_shape,
+                            std::string_view codec) {
         nlohmann::json spec = {{"driver", "zarr3"}, {"kvstore", {{"driver", "file"}, {"path", path}}}};
         nlohmann::json codecs;
+        auto value_codecs = nlohmann::json::array({{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}});
+        if (codec == "zstandard" || codec == "zstd")
+            value_codecs.push_back({{"name", "zstd"}, {"configuration", {{"level", 0}}}});
+        else if (!codec.empty() && codec != "none")
+            throw std::runtime_error("Unsupported native Zarr codec: " + std::string(codec));
         if (shard_shape == nullptr) {
             spec["metadata"] = {{"shape", shape}, {"data_type", dtype},
                                 {"chunk_grid", {{"name", "regular"}, {"configuration", {{"chunk_shape", shape}}}}},
                                 {"chunk_key_encoding", {{"name", "default"}}},
-                                {"codecs", nlohmann::json::array({{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}})}};
+                                {"codecs", value_codecs}};
         } else {
             std::vector<std::uint64_t> inner_chunks;
             inner_chunks.reserve(shard_shape->size());
@@ -265,7 +280,7 @@ bool create_zarr_step(const std::string &collection_root, const std::string &dat
             }
             codecs = nlohmann::json::array({{{"name", "sharding_indexed"},
                 {"configuration", {{"chunk_shape", inner_chunks},
-                    {"codecs", nlohmann::json::array({{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}})},
+                    {"codecs", value_codecs},
                     {"index_codecs", nlohmann::json::array({{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}})},
                     {"index_location", "end"}}}}});
             spec["metadata"] = {{"shape", shape}, {"data_type", dtype},
@@ -288,7 +303,7 @@ bool create_zarr_step(const std::string &collection_root, const std::string &dat
         if (encode_schema_document(document, json) != AMIO_OK) { error = "Unable to encode step schema metadata"; return false; }
         std::vector<std::byte> schema_bytes(json.size());
         std::memcpy(schema_bytes.data(), json.data(), json.size());
-        create_array(layout.schema_path, {static_cast<std::uint64_t>(schema_bytes.size())}, "uint8", nullptr);
+        create_array(layout.schema_path, {static_cast<std::uint64_t>(schema_bytes.size())}, "uint8", nullptr, "");
         auto schema_spec = tensorstore::Spec::FromJson(nlohmann::json{{"driver", "zarr3"}, {"kvstore", {{"driver", "file"}, {"path", layout.schema_path}}}});
         if (!schema_spec.ok()) throw std::runtime_error(std::string(schema_spec.status().message()));
         auto schema_open = tensorstore::Open(schema_spec.value(), tensorstore::Context::Default(), tensorstore::OpenMode::open,
@@ -309,7 +324,14 @@ bool create_zarr_step(const std::string &collection_root, const std::string &dat
                 throw std::runtime_error("Invalid Zarr dtype or shard shape for field: " + name);
             std::vector<std::uint64_t> shape;
             for (const auto &dimension : variable.dimensions) shape.push_back(dimension.extent);
-            create_array(layout.array_paths.at(path_index++), shape, dtype, &shard->second);
+            std::string_view codec;
+            const auto codec_attribute = variable.attributes.find("amio.codec");
+            if (codec_attribute != variable.attributes.end()) {
+                const auto *selected = std::get_if<std::string>(&codec_attribute->second.value);
+                if (selected == nullptr) throw std::runtime_error("Zarr codec metadata must be UTF-8: " + name);
+                codec = *selected;
+            }
+            create_array(layout.array_paths.at(path_index++), shape, dtype, &shard->second, codec);
         }
     } catch (const std::exception &e) { error = e.what(); return false; }
     return true;

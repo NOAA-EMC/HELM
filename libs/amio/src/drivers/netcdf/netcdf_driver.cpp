@@ -31,6 +31,7 @@ extern MPI_Comm g_amio_parent_comm;
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cstring>
 #include <iostream>
@@ -981,6 +982,20 @@ void NetCDF_Driver::read_step_region(const std::string &path, const std::string 
     (void)region;
     (void)data;
     throw std::runtime_error("NetCDF_Driver::read_step_region: AMIO built without netCDF support");
+#endif
+}
+
+bool NetCDF_Driver::read_step_model_time(const std::string &path, double &model_time) noexcept {
+#ifdef AMIO_HAS_NETCDF
+    int ncid=-1;
+    if(nc_open(path.c_str(),NC_NOWRITE,&ncid)!=NC_NOERR)return false;
+    double value=0.0;
+    const int read_status=nc_get_att_double(ncid,NC_GLOBAL,"amio_model_time",&value);
+    const int close_status=nc_close(ncid);
+    if(read_status!=NC_NOERR||close_status!=NC_NOERR||!std::isfinite(value))return false;
+    model_time=value;return true;
+#else
+    (void)path;(void)model_time;return false;
 #endif
 }
 

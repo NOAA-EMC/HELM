@@ -274,5 +274,20 @@ See [LICENSE](LICENSE) and [DISCLAIMER](DISCLAIMER).
 
 This project is part of the NOAA-EMC ecosystem.
 
+## Evolution API support status
+
+The additive evolution API and `amio` utility are available alongside the
+legacy manifest API. The supported combinations and limits are backend- and
+build-dependent: collection publication is qualified for NetCDF-4, while
+NCZarr rejects collection output; TensorStore Zarr qualification is recorded
+separately. GRIB2 collection helpers do not yet provide public collection
+publication. Aggregated transport has MPI component qualification, but public
+aggregated persistent output and certified shared-object-store durability are
+not qualified. Accelerator snapshot execution requires a Kokkos device build
+and an actual supported device. See the
+[evolution quickstart](docs/site/getting-started/quickstart.md) and
+[configuration limits](docs/site/user-guide/configuration.md) before selecting
+a deployment mode.
+
 Shared MPI output and the region-write API are documented in
 [AMIO parallel writes](../../docs/AMIO-parallel-writes.md).

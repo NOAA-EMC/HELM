@@ -177,6 +177,23 @@ typedef struct amio_field_partition_descriptor_s {
     uint64_t reserved[2];
 } amio_field_partition_descriptor_t;
 
+/** Versioned memory description for an owned field snapshot. Device pointers are
+ * accepted only by builds with an initialized compatible private runtime. */
+typedef struct amio_memory_descriptor_s {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t memory_kind; /* 0 host, 1 device */
+    uint32_t ownership;   /* 0 copy, 1 borrowed (currently unsupported) */
+    uint32_t device_id;
+    uint32_t rank;
+    uint32_t producer_writes_synchronized;
+    uint32_t reserved32;
+    uint64_t element_bytes;
+    uint64_t extents[AMIO_MAX_RANK];
+    uint64_t strides[AMIO_MAX_RANK];
+    uint64_t reserved[2];
+} amio_memory_descriptor_t;
+
 typedef enum amio_operation_outcome_e {
     AMIO_OPERATION_PENDING = 0,
     AMIO_OPERATION_SUCCEEDED = 1,
@@ -223,6 +240,68 @@ typedef struct amio_step_selection_s {
     int64_t strides[AMIO_MAX_RANK];
     uint64_t reserved[2];
 } amio_step_selection_t;
+
+/** One contiguous producer contribution for a statically configured stream. */
+typedef struct amio_stream_contribution_s {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t step_id;
+    uint64_t sequence;
+    uint32_t field_id;
+    uint32_t rank;
+    uint64_t element_bytes;
+    uint8_t schema_digest[32];
+    uint64_t offsets[AMIO_MAX_RANK];
+    uint64_t extents[AMIO_MAX_RANK];
+    uint64_t reserved[2];
+} amio_stream_contribution_t;
+
+/** Consumer supplies the announced step/schema before bounded receive allocation. */
+typedef struct amio_stream_receive_descriptor_s {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t step_id;
+    uint8_t schema_digest[32];
+    uint32_t absent_optional_count;
+    uint32_t fields_per_producer;
+    const char *const *absent_optional_names;
+    const uint64_t *absent_optional_name_bytes;
+    uint64_t reserved[2];
+} amio_stream_receive_descriptor_t;
+
+typedef enum amio_stream_acquire_state_e {
+    AMIO_STREAM_AVAILABLE = 0,
+    AMIO_STREAM_SKIPPED = 1,
+    AMIO_STREAM_TIMEOUT = 2,
+    AMIO_STREAM_END_OF_STREAM = 3,
+    AMIO_STREAM_FAILED = 4
+} amio_stream_acquire_state_t;
+
+typedef struct amio_stream_acquire_result_s {
+    uint32_t struct_size;
+    uint32_t version;
+    int32_t state;
+    int32_t failure_status;
+    uint64_t skipped_first;
+    uint64_t skipped_last;
+    amio_step_lease_handle lease;
+    uint64_t reserved[2];
+} amio_stream_acquire_result_t;
+
+typedef struct amio_stream_read_descriptor_s {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t producer_rank;
+    uint32_t field_id;
+    uint32_t rank;
+    uint32_t reserved32;
+    uint64_t element_bytes;
+    uint64_t offsets[AMIO_MAX_RANK];
+    uint64_t extents[AMIO_MAX_RANK];
+    const char *logical_field_name;
+    uint64_t logical_field_name_bytes;
+    uint64_t reserved[2];
+} amio_stream_read_descriptor_t;
 
 enum {
     AMIO_OPERATION_SOURCE_RELEASED = 1u,
@@ -313,6 +392,35 @@ AMIO_API amio_status_t amio_reduce_diagnostics(amio_context_handle context, char
 
 /** Release a context handle and its duplicated communicator. */
 AMIO_API amio_status_t amio_release_context(amio_context_handle context);
+/** Execute up to max_callbacks of caller-driven service/progress work locally. */
+AMIO_API amio_status_t amio_progress(amio_context_handle context, uint32_t max_callbacks, uint32_t *out_completed);
+/** Run the dedicated aggregation service loop on a writer context. */
+AMIO_API amio_status_t amio_run_service(amio_context_handle context);
+
+/** Submit one contiguous stream field contribution; producer bytes are retained until release acknowledgment. */
+AMIO_API amio_status_t amio_stream_submit(amio_context_handle context, const amio_stream_contribution_t *contribution,
+                                          const void *data, size_t data_bytes);
+/** Wait for the mapped consumer to release this step before producer reuse. */
+AMIO_API amio_status_t amio_stream_wait_release(amio_context_handle context, uint64_t step_id);
+/** Wait up to a bounded interval; OPERATION_PENDING preserves retained ownership for retry. */
+AMIO_API amio_status_t amio_stream_try_wait_release(amio_context_handle context, uint64_t step_id,
+                                                    uint64_t timeout_milliseconds);
+/** Receive the announced producer round and retain its completed step on a consumer rank. */
+AMIO_API amio_status_t amio_stream_receive_step(amio_context_handle context,
+                                                const amio_stream_receive_descriptor_t *descriptor);
+/** Acquire the next locally received stream step; timeout is bounded and local. */
+AMIO_API amio_status_t amio_stream_acquire(amio_context_handle context, uint64_t timeout_milliseconds,
+                                           amio_stream_acquire_result_t *out_result);
+/** Read a bounded region from a lease-backed stream field contribution. */
+AMIO_API amio_status_t amio_stream_read(amio_step_lease_handle lease,
+                                        const amio_stream_read_descriptor_t *descriptor,
+                                        void *buffer, size_t buffer_capacity, size_t *out_bytes);
+/** Release a stream view and acknowledge release to the statically mapped producers. */
+AMIO_API amio_status_t amio_stream_release(amio_step_lease_handle lease);
+/** Drain and send producer EOS/disconnect, or receive terminal consumer status. */
+AMIO_API amio_status_t amio_stream_finish(amio_context_handle context, int32_t graceful);
+/** Cancel a drained producer stream; consumers observe a FAILED terminal outcome. */
+AMIO_API amio_status_t amio_stream_cancel(amio_context_handle context);
 
 /**
  * Open a new exclusive persistent collection. NetCDF-4 direct mode supports
@@ -344,6 +452,10 @@ AMIO_API amio_status_t amio_begin_step_partitioned(amio_dataset_handle dataset, 
                                                    size_t partition_count, amio_step_handle *out_step);
 AMIO_API amio_status_t amio_put_field(amio_step_handle step, const char *field, size_t field_bytes,
                                       const void *data, size_t data_bytes, amio_operation_handle *out_operation);
+/** Submit a contiguous synchronized host/device field using an owned snapshot. */
+AMIO_API amio_status_t amio_put_field_memory(amio_step_handle step, const char *field, size_t field_bytes,
+                                             const amio_memory_descriptor_t *memory, const void *data,
+                                             size_t data_bytes, amio_operation_handle *out_operation);
 /** Cancel an open step before payload publication; distributed steps require every rank to call collectively. */
 AMIO_API amio_status_t amio_cancel_step(amio_step_handle step);
 AMIO_API amio_status_t amio_end_step(amio_step_handle step);

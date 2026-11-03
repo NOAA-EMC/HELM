@@ -1,4 +1,9 @@
 #include "reference_fields.hpp"
+#include "backpressure.hpp"
+#ifdef AMIO_QUALIFY_HAS_MPI
+#include "aggregation.hpp"
+#include "stream.hpp"
+#endif
 
 #include <charconv>
 #include <filesystem>
@@ -40,7 +45,10 @@ void usage(std::ostream &out) {
     out << "Usage:\n"
            "  amio_qualify --self-test\n"
            "  amio_qualify generate --output FILE --steps N --fields N --cells N\n"
-           "  amio_qualify verify --input FILE --steps N --fields N --cells N\n";
+           "  amio_qualify verify --input FILE --steps N --fields N --cells N\n"
+           "  amio_qualify backpressure --delay-seconds N --budget-mib 64 --output DIR\n"
+           "  amio_qualify aggregate --writers N --backend netcdf4 --output DIR (MPI builds)\n"
+           "  amio_qualify stream --policy reliable|latest [--slow-consumer-ms N] (MPI builds)\n";
 }
 
 } // namespace
@@ -55,6 +63,11 @@ int main(int argc, char **argv) {
     }
 
     const std::string_view command(argv[1]);
+    if (command == "backpressure") return run_backpressure_fixture(argc, argv);
+#ifdef AMIO_QUALIFY_HAS_MPI
+    if (command == "aggregate") return run_aggregation_fixture(argc, argv);
+    if (command == "stream") return run_stream_qualification(argc, argv);
+#endif
     const bool generate = command == "generate";
     const bool verify = command == "verify";
     if (!generate && !verify) {

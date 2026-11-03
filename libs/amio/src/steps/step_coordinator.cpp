@@ -91,32 +91,69 @@ amio_status_t StepCoordinator::begin_step(const StepBeginRequest &request) {
 }
 
 StepPutResult StepCoordinator::put(const std::string &variable_name, const void *source, std::size_t bytes) {
-    if (state_ != StepState::Open) return {state_ == StepState::Failed ? AMIO_ERR_STEP_FAILED : AMIO_ERR_INVALID_POLICY};
+    const auto valid = validate_put(variable_name, bytes);
+    if (valid != AMIO_OK) return {valid};
+    if (source == nullptr) return {AMIO_ERR_INVALID_INPUT};
+    try {
+        auto snapshot = snapshot_host_buffer(source, bytes);
+        if (snapshot.status != AMIO_OK) return {fail_step(snapshot.status)};
+        return put_snapshot(variable_name, std::move(snapshot.bytes));
+    } catch (const std::bad_alloc &) {
+        return {fail_step(AMIO_ERR_BACKEND_FAILURE)};
+    } catch (...) {
+        return {fail_step(AMIO_ERR_BACKEND_FAILURE)};
+    }
+}
+
+StepPutResult StepCoordinator::put_memory(const std::string &variable_name, const MemoryDescriptor &descriptor,
+                                          const void *source, std::size_t bytes) {
+    const auto descriptor_status = validate_memory_descriptor(descriptor, bytes);
+    if (descriptor_status != AMIO_OK) return {descriptor_status};
+    const auto valid = validate_put(variable_name, bytes);
+    if (valid != AMIO_OK) return {valid};
+    try {
+        std::vector<std::byte> snapshot;
+        bool used_fallback = false;
+        const auto status = snapshot_memory_buffer(descriptor, source, bytes, snapshot, used_fallback);
+        if (status != AMIO_OK) return {status};
+        auto result = put_snapshot(variable_name, std::move(snapshot));
+        result.used_fallback = used_fallback;
+        return result;
+    } catch (const std::bad_alloc &) {
+        return {fail_step(AMIO_ERR_BACKEND_FAILURE)};
+    } catch (...) {
+        return {fail_step(AMIO_ERR_BACKEND_FAILURE)};
+    }
+}
+
+amio_status_t StepCoordinator::validate_put(const std::string &variable_name, std::size_t bytes) {
+    if (state_ != StepState::Open) return state_ == StepState::Failed ? AMIO_ERR_STEP_FAILED : AMIO_ERR_INVALID_POLICY;
     const auto schema = schemas_.find(active_schema_digest_);
-    if (schema == schemas_.end()) return {fail_step(AMIO_ERR_SCHEMA_MISMATCH)};
+    if (schema == schemas_.end()) return fail_step(AMIO_ERR_SCHEMA_MISMATCH);
     const auto variable = schema->second->variables().find(variable_name);
-    if (variable == schema->second->variables().end()) return {AMIO_ERR_INVALID_INPUT};
-    if (contributions_.find(variable_name) != contributions_.end()) return {AMIO_ERR_INVALID_POLICY};
+    if (variable == schema->second->variables().end()) return AMIO_ERR_INVALID_INPUT;
+    if (contributions_.find(variable_name) != contributions_.end()) return AMIO_ERR_INVALID_POLICY;
     const auto expected = plan_.expected_bytes(variable_name);
-    if (!expected) return {AMIO_ERR_INVALID_POLICY};
-    if (source == nullptr || bytes == 0 || bytes != *expected) return {AMIO_ERR_INVALID_INPUT};
+    if (!expected) return AMIO_ERR_INVALID_POLICY;
+    if (bytes == 0 || bytes != *expected) return AMIO_ERR_INVALID_INPUT;
 
     std::size_t already_admitted = 0;
     for (const auto &[name, contribution] : contributions_) {
         (void)name;
-        if (contribution.bytes.size() > std::numeric_limits<std::size_t>::max() - already_admitted) return {fail_step(AMIO_ERR_INVALID_INPUT)};
+        if (contribution.bytes.size() > std::numeric_limits<std::size_t>::max() - already_admitted) return fail_step(AMIO_ERR_INVALID_INPUT);
         already_admitted += contribution.bytes.size();
     }
     if (!reservation_ || already_admitted > reservation_->bytes || bytes > reservation_->bytes - already_admitted) {
-        return {fail_step(AMIO_ERR_BUDGET_EXCEEDED)};
+        return fail_step(AMIO_ERR_BUDGET_EXCEEDED);
     }
+    return AMIO_OK;
+}
 
+StepPutResult StepCoordinator::put_snapshot(const std::string &variable_name, std::vector<std::byte> &&snapshot) {
     try {
-        auto snapshot = snapshot_host_buffer(source, bytes);
-        if (snapshot.status != AMIO_OK) return {fail_step(snapshot.status)};
         if (!plan_.mark_present(variable_name)) return {AMIO_ERR_INVALID_POLICY};
         StepContributionSnapshot contribution;
-        contribution.bytes = std::move(snapshot.bytes);
+        contribution.bytes = std::move(snapshot);
         if (const auto *region = plan_.region(variable_name)) contribution.region = *region;
         contribution.operation_id = add_operation();
         if (contribution.operation_id == 0) return {fail_step(AMIO_ERR_BACKEND_FAILURE)};

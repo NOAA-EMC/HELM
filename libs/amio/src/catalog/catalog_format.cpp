@@ -307,6 +307,31 @@ amio_status_t encode_commit_document(const CompletionRecord &record, std::string
         key("extents", out, pf); encode_u64s(p.extents, out);
         if (!p.message_ranges.empty()) { key("message_ranges", out, pf); encode_message_ranges(p.message_ranges, out); }
         if (p.array_container) { key("array_container", out, pf); out += "true"; }
+        if (!p.integrity_sha256.empty()) {
+            if (!p.integrity_sha256.starts_with("sha256-logical-v1:") || p.integrity_sha256.size() != 82)
+                return AMIO_ERR_INVALID_INPUT;
+            key("integrity_sha256", out, pf); quote(p.integrity_sha256, out);
+        }
+        if (!p.operator_pipeline.empty()) {
+            if (p.operator_pipeline.size() > limits.string_bytes) return AMIO_ERR_INVALID_INPUT;
+            key("operator_pipeline", out, pf); quote(p.operator_pipeline, out);
+        }
+        if (!p.integrity_regions.empty()) {
+            if (p.integrity_regions.size() > limits.payloads) return AMIO_ERR_BUDGET_EXCEEDED;
+            key("integrity_regions", out, pf); out.push_back('[');
+            for (std::size_t region_index=0; region_index<p.integrity_regions.size(); ++region_index) {
+                const auto &region=p.integrity_regions[region_index];
+                if (region.offsets.size()!=region.extents.size() || region.offsets.size()>limits.dimensions ||
+                    region.digest.size()!=82 || !region.digest.starts_with("sha256-logical-v1:")) return AMIO_ERR_INVALID_INPUT;
+                if (region_index) out.push_back(',');
+                out.push_back('{'); bool rf=true;
+                key("offsets",out,rf); encode_u64s(region.offsets,out);
+                key("extents",out,rf); encode_u64s(region.extents,out);
+                key("digest",out,rf); quote(region.digest,out);
+                out.push_back('}');
+            }
+            out.push_back(']');
+        }
         out.push_back('}');
     }
     out += "]}";
@@ -333,7 +358,7 @@ amio_status_t parse_commit_document(std::string_view json, CompletionRecord &rec
     std::set<std::string> present(parsed.present_fields.begin(), parsed.present_fields.end());
     for (const auto &field : parsed.required_fields) if (!present.contains(field)) return AMIO_ERR_FIELD_NOT_PRESENT;
     for (const auto &item : payloads->array) {
-        if (item.kind != Json::Kind::Object || item.object.size() < 6 || item.object.size() > 8) return AMIO_ERR_INVALID_INPUT;
+        if (item.kind != Json::Kind::Object || item.object.size() < 6 || item.object.size() > 11) return AMIO_ERR_INVALID_INPUT;
         PayloadDescriptor p; std::uint64_t producer = 0;
         if (!string_value(member(item, "field"), p.field) || !string_value(member(item, "path"), p.relative_path) ||
             !uint_value(member(item, "bytes"), p.bytes) || !uint_value(member(item, "producer"), producer) || producer > UINT32_MAX ||
@@ -342,12 +367,35 @@ amio_status_t parse_commit_document(std::string_view json, CompletionRecord &rec
             p.relative_path.size() > limits.string_bytes || !present.contains(p.field) || !safe_relative(p.relative_path)) return AMIO_ERR_INVALID_INPUT;
         const auto *ranges = member(item, "message_ranges");
         const auto *array_container = member(item, "array_container");
+        const auto *integrity = member(item, "integrity_sha256");
+        const auto *integrity_regions = member(item, "integrity_regions");
+        const auto *operator_pipeline = member(item, "operator_pipeline");
         if ((ranges != nullptr) != (item.object.contains("message_ranges")) ||
             (array_container != nullptr && array_container->kind != Json::Kind::Boolean) ||
-            item.object.size() != 6 + (ranges != nullptr ? 1 : 0) + (array_container != nullptr ? 1 : 0))
+            (integrity != nullptr && (!string_value(integrity, p.integrity_sha256) ||
+              !p.integrity_sha256.starts_with("sha256-logical-v1:") || p.integrity_sha256.size() != 82)) ||
+            item.object.size() != 6 + (ranges != nullptr ? 1 : 0) + (array_container != nullptr ? 1 : 0) +
+                (integrity != nullptr ? 1 : 0) + (integrity_regions != nullptr ? 1 : 0) +
+                (operator_pipeline != nullptr ? 1 : 0))
             return AMIO_ERR_INVALID_INPUT;
+        if (operator_pipeline != nullptr && (!string_value(operator_pipeline, p.operator_pipeline) ||
+            p.operator_pipeline.size() > limits.string_bytes)) return AMIO_ERR_INVALID_INPUT;
         if (ranges != nullptr) {
             if (!array_message_ranges(ranges, p.message_ranges, limits.payloads, p.bytes)) return AMIO_ERR_INVALID_INPUT;
+        }
+        if (integrity_regions != nullptr) {
+            if (integrity_regions->kind != Json::Kind::Array || integrity_regions->array.empty() ||
+                integrity_regions->array.size() > limits.payloads) return AMIO_ERR_INVALID_INPUT;
+            for (const auto &region_json : integrity_regions->array) {
+                if (region_json.kind != Json::Kind::Object || region_json.object.size()!=3) return AMIO_ERR_INVALID_INPUT;
+                PayloadDescriptor::IntegrityRegion region;
+                if (!array_u64(member(region_json,"offsets"),region.offsets,limits.dimensions) ||
+                    !array_u64(member(region_json,"extents"),region.extents,limits.dimensions) ||
+                    !string_value(member(region_json,"digest"),region.digest) ||
+                    region.offsets.size()!=region.extents.size() || region.digest.size()!=82 ||
+                    !region.digest.starts_with("sha256-logical-v1:")) return AMIO_ERR_INVALID_INPUT;
+                p.integrity_regions.push_back(std::move(region));
+            }
         }
         p.array_container = array_container != nullptr && array_container->scalar == "true";
         p.producer = static_cast<std::uint32_t>(producer); parsed.payloads.push_back(std::move(p));

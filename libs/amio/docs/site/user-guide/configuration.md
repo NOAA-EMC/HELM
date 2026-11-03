@@ -78,6 +78,35 @@ to 1–1,000,000 queued read-ahead operations. The finite prefetch setting bound
 queued descriptors; staging payload capacity is governed separately by the
 staging pool budget.
 
+## Evolution Diagnostics
+
+`amio_init_ex` enables bounded standard diagnostics by default. Qualification
+and carefully controlled deployments can disable instrumentation with
+`diagnostics.enabled: false` in the canonical configuration. When disabled,
+local and collective diagnostic queries return `AMIO_ERR_UNSUPPORTED` and the
+runtime skips diagnostic counters and histograms. Keep diagnostics enabled for
+normal operation when failure attribution and resource high-water reporting
+are needed.
+
+```yaml
+diagnostics:
+  enabled: true
+```
+
+## Evolution API qualification limits
+
+The evolution entry points are additive and do not change the legacy
+`amio_init` behavior. Use the capability query before selecting an evolution
+mode. In the NCZarr fallback build, collection output is unsupported; public
+GRIB2 collection publication is not connected; and MPI aggregation fixtures
+qualify bounded transport, not persistent aggregated output. Device snapshot
+execution requires a Kokkos device backend and an actual supported device.
+Catalog durability and object enumeration are destination-specific; an
+`UNSUPPORTED` result does not establish shared-object-store durability or a
+complete orphan scan. See the
+[release acceptance matrix](../../../../../specs/001-evolve-amio-engine/evidence/acceptance.md)
+for current qualification results and remaining platform gates.
+
 ## Backend: NetCDF-4
 
 ```yaml

@@ -21,7 +21,7 @@ inline constexpr std::size_t kTransportEnvelopeWireBytes = 2 + 8 + kDatasetUuidB
 
 /** Version 1 control and payload messages exchanged by an AMIO context. */
 enum class MessageKind : std::uint8_t {
-    Config = 1, Begin, Contribute, Credit, Chunk, Received, Seal, PayloadResult, Published, Cancel, Close, Error, EndOfStream
+    Config = 1, Begin, Contribute, Credit, Chunk, Received, Seal, PayloadResult, Published, Cancel, Close, Error, EndOfStream, Release
 };
 
 enum class ProtocolError : std::uint8_t {

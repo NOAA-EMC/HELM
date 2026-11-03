@@ -13,13 +13,15 @@
 
 namespace amio::detail {
 
-inline constexpr std::size_t kDiagnosticCounterCount = 12;
+inline constexpr std::size_t kDiagnosticCounterCount = 17;
 inline constexpr std::size_t kDiagnosticHistogramCount = 9;
 inline constexpr std::size_t kDiagnosticHistogramBins = 32;
 inline constexpr std::size_t kDiagnosticResourceCount = 12;
 
 enum class DiagnosticCounter : std::size_t { Accepted, Rejected, Completed, Failed, BytesAccepted, BytesWritten, BytesPublished,
-                                              SourceReleasedBytes, TransportReceivedBytes, TransportPublishedBytes, ViewBytes, StreamSkips };
+                                              SourceReleasedBytes, TransportReceivedBytes, TransportPublishedBytes, ViewBytes,
+                                              StreamSkips, StreamDeliveredBytes, StreamReleasedBytes, StreamDisconnects,
+                                              OperatorInputBytes, OperatorOutputBytes };
 enum class DiagnosticHistogram : std::size_t { AdmissionNs, SnapshotNs, OperatorNs, TransportNs, BackendNs, PublicationNs,
                                                 EndToEndNs, WaitNs, SourceReleaseNs };
 enum class DiagnosticResource : std::size_t { QueueDescriptors, StagingRetainedBytes, StagingDescriptors, TransportBytes,

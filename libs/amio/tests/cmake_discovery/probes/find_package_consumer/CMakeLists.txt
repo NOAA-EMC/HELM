@@ -13,7 +13,7 @@
 # ####################################################################################################################################################
 
 cmake_minimum_required(VERSION 3.20)
-project(amio_find_package_consumer LANGUAGES C)
+project(amio_find_package_consumer LANGUAGES C CXX Fortran)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -35,6 +35,9 @@ endif()
 
 add_executable(amio_consumer_check consumer.c)
 target_link_libraries(amio_consumer_check PRIVATE AMIO::amio_core)
+
+add_executable(amio_fortran_consumer_check consumer.f90)
+target_link_libraries(amio_fortran_consumer_check PRIVATE AMIO::amio_fortran)
 
 # Final positive signal the test driver greps for.
 message(STATUS "CONSUMER_RESOLVED_AMIO=OK")

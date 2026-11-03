@@ -5,6 +5,8 @@
 #include <array>
 #include <cstdint>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace {
 void require(bool ok, const char *message) {
@@ -69,6 +71,29 @@ int main(int argc, char **argv) {
         require(role == (rank < 3 ? AMIO_ROLE_PRODUCER : AMIO_ROLE_WRITER) &&
                     group_rank == static_cast<uint32_t>(rank < 3 ? rank : 0),
                 "public API reports correct role and role-local rank");
+        uint32_t progressed = UINT32_MAX;
+        require(amio_progress(context, 4, &progressed) == AMIO_OK && progressed == 0,
+                "caller-driven progress is exposed through the public context API");
+        require(amio_run_service(context) == (rank == 3 ? AMIO_ERR_UNSUPPORTED : AMIO_ERR_INVALID_POLICY),
+                "service entry validates writer-only use and reports unavailable dispatch without hanging");
+        size_t diagnostics_bytes = 0;
+        require(amio_query_diagnostics(context, nullptr, 0, &diagnostics_bytes) == AMIO_OK && diagnostics_bytes > 1,
+                "local diagnostic snapshot supports a non-collective size query");
+        std::vector<char> diagnostics(diagnostics_bytes);
+        require(amio_query_diagnostics(context, diagnostics.data(), diagnostics.size(), &diagnostics_bytes) == AMIO_OK,
+                "local diagnostic snapshot fills the caller buffer");
+        const std::string diagnostics_json(diagnostics.data());
+        require(diagnostics_json.find("persistent_aggregated") != std::string::npos &&
+                    diagnostics_json.find("\"rank\":" + std::to_string(rank)) != std::string::npos,
+                "diagnostics expose effective execution mode and this rank's topology locally");
+        size_t reduced_bytes = 0;
+        require(amio_reduce_diagnostics(context, nullptr, 0, &reduced_bytes) == AMIO_OK,
+                "reduced diagnostic size query remains local");
+        std::vector<char> reduced_diagnostics(reduced_bytes);
+        require(amio_reduce_diagnostics(context, reduced_diagnostics.data(), reduced_diagnostics.size(), &reduced_bytes) == AMIO_OK,
+                "explicit context reduction succeeds when every context rank calls it");
+        require(std::string(reduced_diagnostics.data()).find("\"scope\":\"context\"") != std::string::npos,
+                "reduced diagnostics identify their explicit collective scope");
         // Until aggregated dataset integration exists, every role must reject
         // the open without returning a dataset handle.
         constexpr char location[] = "/tmp/amio-unimplemented-aggregated-collection";
@@ -124,6 +149,8 @@ int main(int argc, char **argv) {
                     role == (rank < 2 ? AMIO_ROLE_PRODUCER : AMIO_ROLE_CONSUMER) &&
                     group_rank == static_cast<uint32_t>(rank < 2 ? rank : rank - 2),
                 "public API reports producer and consumer local ranks");
+        require(amio_run_service(context) == AMIO_ERR_INVALID_POLICY,
+                "stream participants cannot enter the persistent aggregation service operation");
         require(amio_release_context(context) == AMIO_OK, "producer and consumer roles release their context");
         MPI_Barrier(MPI_COMM_WORLD);
     } catch (...) {

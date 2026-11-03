@@ -1,0 +1,23 @@
+include_guard(GLOBAL)
+
+# Kokkos is a runtime provider; mdspan alone is only a view utility and never
+# enables device-pointer submission. Keep the target private to libamio.
+function(amio_discover_memory_backend)
+    find_package(Kokkos CONFIG QUIET)
+    if(Kokkos_FOUND AND TARGET Kokkos::kokkos)
+        set(AMIO_MEMORY_BACKEND_TARGET Kokkos::kokkos PARENT_SCOPE)
+        set(AMIO_HAS_KOKKOS_RUNTIME TRUE PARENT_SCOPE)
+        if(Kokkos_DEVICES MATCHES "CUDA|HIP|SYCL")
+            set(AMIO_HAS_KOKKOS_DEVICE TRUE PARENT_SCOPE)
+            message(STATUS "AMIO memory runtime: Kokkos accelerator adapter enabled (${Kokkos_DEVICES})")
+        else()
+            set(AMIO_HAS_KOKKOS_DEVICE FALSE PARENT_SCOPE)
+            message(STATUS "AMIO memory runtime: Kokkos host spaces only (${Kokkos_DEVICES})")
+        endif()
+    else()
+        set(AMIO_MEMORY_BACKEND_TARGET "" PARENT_SCOPE)
+        set(AMIO_HAS_KOKKOS_RUNTIME FALSE PARENT_SCOPE)
+        set(AMIO_HAS_KOKKOS_DEVICE FALSE PARENT_SCOPE)
+        message(STATUS "AMIO memory runtime: host snapshots only")
+    endif()
+endfunction()

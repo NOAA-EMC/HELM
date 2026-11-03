@@ -9,6 +9,53 @@
 
 find_package(Threads QUIET)
 
+add_executable(test_cli_contract test_cli_contract.cpp ${CMAKE_SOURCE_DIR}/tools/result_writer.cpp)
+target_include_directories(test_cli_contract PRIVATE ${CMAKE_SOURCE_DIR}/tools)
+add_test(NAME integration.cli_contract COMMAND test_cli_contract)
+add_executable(test_cli_conversion test_cli_conversion.cpp ${CMAKE_SOURCE_DIR}/tools/selection_parse.cpp)
+target_include_directories(test_cli_conversion PRIVATE ${CMAKE_SOURCE_DIR}/tools ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME integration.cli_conversion COMMAND test_cli_conversion)
+add_executable(test_cli_copy test_cli_copy.cpp ${CMAKE_SOURCE_DIR}/tests/qualification/utility_fixtures.cpp
+    ${CMAKE_SOURCE_DIR}/tools/result_writer.cpp
+    ${CMAKE_SOURCE_DIR}/tools/result_helpers.cpp
+    ${CMAKE_SOURCE_DIR}/tools/selection_parse.cpp
+    ${CMAKE_SOURCE_DIR}/tools/inspect.cpp
+    ${CMAKE_SOURCE_DIR}/tools/validate.cpp
+    ${CMAKE_SOURCE_DIR}/tools/copy.cpp
+    ${CMAKE_SOURCE_DIR}/tools/diagnostics.cpp
+    ${CMAKE_SOURCE_DIR}/src/catalog/catalog_format.cpp
+    ${CMAKE_SOURCE_DIR}/src/catalog/collection_reader.cpp
+    ${CMAKE_SOURCE_DIR}/src/schema/schema.cpp)
+target_include_directories(test_cli_copy PRIVATE ${CMAKE_SOURCE_DIR}/tools ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/tests/qualification)
+target_link_libraries(test_cli_copy PRIVATE AMIO::amio_core)
+if(MPI_CXX_FOUND)
+    target_compile_definitions(test_cli_copy PRIVATE AMIO_TOOLS_HAS_MPI=1 AMIO_CLI_TEST_HAS_MPI=1)
+    target_link_libraries(test_cli_copy PRIVATE MPI::MPI_CXX)
+endif()
+add_test(NAME integration.amio_utilities COMMAND test_cli_copy)
+set_tests_properties(integration.amio_utilities PROPERTIES LABELS "integration;utilities;amio_step" TIMEOUT 60 RUN_SERIAL TRUE)
+
+# Host-only accelerator qualification: unsupported device/ownership descriptors
+# and malformed layouts must be rejected without reading their payloads.
+if(TARGET test_memory_submission)
+    add_test(NAME integration.accelerator_host_rejections COMMAND test_memory_submission)
+    set_tests_properties(integration.accelerator_host_rejections PROPERTIES
+        LABELS "integration;amio_accelerator;host_only" TIMEOUT 30)
+endif()
+
+if(AMIO_HAS_KOKKOS_RUNTIME)
+    add_executable(test_device_snapshot test_device_snapshot.cpp
+        ${CMAKE_SOURCE_DIR}/src/memory/memory_provider.cpp
+        ${CMAKE_SOURCE_DIR}/src/memory/host_snapshot.cpp
+        ${CMAKE_SOURCE_DIR}/src/memory/kokkos_snapshot.cpp)
+    target_include_directories(test_device_snapshot PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include)
+    target_compile_definitions(test_device_snapshot PRIVATE AMIO_HAS_KOKKOS_RUNTIME=1)
+    target_link_libraries(test_device_snapshot PRIVATE ${AMIO_MEMORY_BACKEND_TARGET})
+    add_test(NAME integration.device_snapshot COMMAND test_device_snapshot)
+    set_tests_properties(integration.device_snapshot PROPERTIES
+        LABELS "integration;amio_accelerator;kokkos_snapshot" TIMEOUT 60)
+endif()
+
 # Integration fixtures use assert() for checks and setup calls; keep them
 # active in Release builds so MPI ranks execute identical fixture operations.
 add_compile_options("$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-UNDEBUG>")
@@ -23,7 +70,56 @@ add_test(NAME integration.catalog_guarantees COMMAND test_catalog_guarantees)
 set_tests_properties(integration.catalog_guarantees PROPERTIES
     LABELS "integration;catalog;amio_step" TIMEOUT 60 RUN_SERIAL TRUE)
 
+if(MPI_CXX_FOUND AND AMIO_NETCDF_PAR_LIB)
+    add_executable(test_operator_roundtrip test_operator_roundtrip.cpp)
+    target_link_libraries(test_operator_roundtrip PRIVATE AMIO::amio_core MPI::MPI_CXX)
+    if(AMIO_NETCDF_PAR_LIB)
+        target_link_libraries(test_operator_roundtrip PRIVATE ${AMIO_NETCDF_PAR_LIB})
+        if(AMIO_NETCDF_MPI_INCLUDE_DIR)
+            target_include_directories(test_operator_roundtrip BEFORE PRIVATE ${AMIO_NETCDF_MPI_INCLUDE_DIR})
+        endif()
+    else()
+        target_link_libraries(test_operator_roundtrip PRIVATE netCDF::netcdf)
+    endif()
+    add_test(NAME integration.operator_roundtrip
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                $<TARGET_FILE:test_operator_roundtrip> ${MPIEXEC_POSTFLAGS})
+    set_tests_properties(integration.operator_roundtrip PROPERTIES
+        LABELS "integration;mpi;operators;integrity;amio_operators" TIMEOUT 120 RUN_SERIAL TRUE
+        ENVIRONMENT "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
+endif()
+
+if(MPI_CXX_FOUND AND g2c_FOUND)
+    add_executable(test_operator_grib2 test_operator_grib2.cpp)
+    target_link_libraries(test_operator_grib2 PRIVATE AMIO::amio_core MPI::MPI_CXX)
+    add_test(NAME integration.operator_grib2
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}
+                $<TARGET_FILE:test_operator_grib2> ${MPIEXEC_POSTFLAGS})
+    set_tests_properties(integration.operator_grib2 PROPERTIES
+        LABELS "integration;mpi;operators;amio_operators;grib2" TIMEOUT 120 RUN_SERIAL TRUE
+        ENVIRONMENT "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
+endif()
+
 if(MPI_CXX_FOUND)
+    add_executable(test_mpi_stream test_mpi_stream.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/stream_execution.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/stream_retention.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/context.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/role_map.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/transport_protocol.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/mpi_transport.cpp
+        ${CMAKE_SOURCE_DIR}/src/execution/credit_window.cpp
+        ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp)
+    target_include_directories(test_mpi_stream PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(test_mpi_stream PRIVATE AMIO_HAS_MPI=1)
+    target_link_libraries(test_mpi_stream PRIVATE AMIO::amio_core AMIO::public_headers MPI::MPI_CXX HELM::HALO Threads::Threads)
+    add_test(NAME integration.mpi_stream
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 6 ${MPIEXEC_PREFLAGS}
+                $<TARGET_FILE:test_mpi_stream> ${MPIEXEC_POSTFLAGS})
+    set_tests_properties(integration.mpi_stream PROPERTIES
+        LABELS "integration;mpi;stream" TIMEOUT 120 PROCESSORS 6 RUN_SERIAL TRUE
+        ENVIRONMENT "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
+
     add_executable(test_mpi_core_roles test_mpi_core_roles.cpp)
     target_link_libraries(test_mpi_core_roles PRIVATE AMIO::amio_core MPI::MPI_CXX)
     add_test(NAME integration.mpi_core_roles COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}

@@ -1207,10 +1207,25 @@ std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer
                                                               std::size_t encoded_buffer_budget,
                                                               std::size_t codec_scratch_budget,
                                                               const Grib2Settings &settings) {
+    return encode_step_message(src, meta, encoded_buffer_budget, codec_scratch_budget, settings, active_drt_);
+}
+
+std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta,
+                                                              std::size_t encoded_buffer_budget,
+                                                              std::size_t codec_scratch_budget,
+                                                              const Grib2Settings &settings, GRIB2_DRT drt) {
     const auto saved = settings_;
     settings_ = settings;
     try {
-        auto message = encode_step_message(src, meta, encoded_buffer_budget, codec_scratch_budget);
+        require_complete_grib2_message(meta.write_region.rank == 0);
+        if (meta.dtype != AMIO_DTYPE_F32) throw std::runtime_error("GRIB2 step messages require F32 fields");
+        const auto elements = total_elements(meta.shape);
+        if (elements == 0 || elements > std::numeric_limits<std::size_t>::max() / sizeof(float))
+            throw std::overflow_error("GRIB2 step field byte size cannot be represented");
+        const auto bytes = elements * sizeof(float);
+        preflight_grib2_message(bytes, !is_contiguous_row_major(meta.shape), encoded_buffer_budget, codec_scratch_budget);
+        auto message = encode_message_with_drt(src, meta, drt);
+        validate_complete_grib2_message(message);
         settings_ = saved;
         return message;
     } catch (...) {
@@ -1248,6 +1263,11 @@ void GRIB2_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
 }
 
 std::vector<unsigned char> GRIB2_Driver::encode_message(const StagingBuffer &src, const VarMeta &meta) {
+    return encode_message_with_drt(src, meta, active_drt_);
+}
+
+std::vector<unsigned char> GRIB2_Driver::encode_message_with_drt(const StagingBuffer &src, const VarMeta &meta,
+                                                                  GRIB2_DRT selected_drt) {
     std::lock_guard<std::mutex> codec_lock(g2c_mutex);
     if (!initialized_ || read_mode_ || meta.write_region.rank) {
         throw std::runtime_error("GRIB2_Driver::write called before successful initialization");
@@ -1398,14 +1418,14 @@ std::vector<unsigned char> GRIB2_Driver::encode_message(const StagingBuffer &src
     // (test_p31_identity_roundtrip).  No explicit field_identity_name call
     // is needed here since the write path does not log or return the identity.
 
-    auto drs = build_drs_template(active_drt_, settings_);
+    auto drs = build_drs_template(selected_drt, settings_);
     std::vector<g2int> idrstmpl(drs.begin(), drs.end());
 
     // Copy the (already row-major) payload into a float field array.
     std::vector<float> fld(num_elements);
     std::memcpy(fld.data(), encode_ptr, num_elements * sizeof(float));
 
-    g2int idrsnum = static_cast<g2int>(active_drt_);  // 40 or 42
+    g2int idrsnum = static_cast<g2int>(selected_drt);  // 40 or 42
     ierr = g2_addfield(cgrib.data(),
                        static_cast<g2int>(settings_.pdt_number),  // Product Definition Template number
                        ipdstmpl.data(),

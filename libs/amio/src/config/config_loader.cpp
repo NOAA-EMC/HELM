@@ -216,6 +216,10 @@ amio_err_t ConfigLoader::validate(const Config &config, ValidationError &error_o
         if (evolution.progress_mode != "background" && evolution.progress_mode != "caller") {
             return fail("execution.progress", "progress must be background or caller");
         }
+        if (evolution.execution_mode == "persistent_aggregated" && evolution.progress_mode == "background" &&
+            config.worker_pool.threads == 0) {
+            return fail("worker_pool.threads", "background aggregation requires at least one writer worker");
+        }
         if (evolution.layout != "step_collection") return fail("layout.kind", "persistent datasets require layout: step_collection", AMIO_ERR_UNSUPPORTED);
         const bool stream = evolution.execution_mode == "mpi_stream";
         if (stream) {
