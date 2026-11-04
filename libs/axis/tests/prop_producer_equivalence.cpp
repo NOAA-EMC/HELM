@@ -27,7 +27,10 @@
 #include <axis/ingest/grid_descriptor.hpp>
 #include <axis/topology/mesh_factory.hpp>
 #include <cstddef>
+#include <utility>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
 
 namespace {
 
@@ -44,6 +47,18 @@ rc::Gen<std::size_t> genDim() {
 rc::Gen<std::vector<double>> genCoordVector(std::size_t n) {
     return rc::gen::container<std::vector<double>>(
         n, rc::gen::map(rc::gen::inRange(-18000, 18001), [](int v) { return static_cast<double>(v) / 100.0; }));
+}
+
+std::pair<std::vector<double>, std::vector<double>> make_rectilinear_centers(std::size_t ni, std::size_t nj) {
+    std::vector<double> longitude(ni * nj), latitude(ni * nj);
+    for (std::size_t j = 0; j < nj; ++j) {
+        for (std::size_t i = 0; i < ni; ++i) {
+            const std::size_t cell = i + j * ni;
+            longitude[cell] = -120.0 + 5.0 * static_cast<double>(i);
+            latitude[cell] = -60.0 + 5.0 * static_cast<double>(j);
+        }
+    }
+    return {std::move(longitude), std::move(latitude)};
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,11 +91,9 @@ axis::ingest::GridDescriptor make_cf_descriptor(std::size_t ni, std::size_t nj, 
 RC_GTEST_PROP(PropProducerEquivalence, IdenticalNodeAndCellCounts, ()) {
     const std::size_t ni = *genDim();
     const std::size_t nj = *genDim();
-    const std::size_t n_points = ni * nj;
 
     // Generate coordinate data ONCE (the "truth").
-    auto coords_x = *genCoordVector(n_points);
-    auto coords_y = *genCoordVector(n_points);
+    auto [coords_x, coords_y] = make_rectilinear_centers(ni, nj);
 
     // ── Descriptor A: "AMIO-style" (copies the data into its own buffer) ────
     std::vector<double> buffer_a_x(coords_x.begin(), coords_x.end());
@@ -114,10 +127,8 @@ RC_GTEST_PROP(PropProducerEquivalence, IdenticalNodeAndCellCounts, ()) {
 RC_GTEST_PROP(PropProducerEquivalence, IdenticalCSRConnectivity, ()) {
     const std::size_t ni = *genDim();
     const std::size_t nj = *genDim();
-    const std::size_t n_points = ni * nj;
 
-    auto coords_x = *genCoordVector(n_points);
-    auto coords_y = *genCoordVector(n_points);
+    auto [coords_x, coords_y] = make_rectilinear_centers(ni, nj);
 
     // Descriptor A: AMIO-style (separate buffer copy)
     std::vector<double> buffer_a_x(coords_x.begin(), coords_x.end());
@@ -159,10 +170,8 @@ RC_GTEST_PROP(PropProducerEquivalence, IdenticalCSRConnectivity, ()) {
 RC_GTEST_PROP(PropProducerEquivalence, IdenticalNodeCoordinates, ()) {
     const std::size_t ni = *genDim();
     const std::size_t nj = *genDim();
-    const std::size_t n_points = ni * nj;
 
-    auto coords_x = *genCoordVector(n_points);
-    auto coords_y = *genCoordVector(n_points);
+    auto [coords_x, coords_y] = make_rectilinear_centers(ni, nj);
 
     // Descriptor A: AMIO-style
     std::vector<double> buffer_a_x(coords_x.begin(), coords_x.end());
@@ -303,21 +312,5 @@ RC_GTEST_PROP(PropProducerEquivalence, UgridProducerEquivalence, ()) {
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
 // Property tests need Kokkos initialized for MeshFactory (uses StructuredGrid
 // conversion kernel and Kokkos::deep_copy).
-
-class KokkosEnvironment : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) {
-            Kokkos::initialize();
-        }
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) {
-            Kokkos::finalize();
-        }
-    }
-};
-
-static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnvironment);
 
 }  // namespace
