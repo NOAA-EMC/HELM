@@ -11,7 +11,7 @@
 #     up -d --build
 #
 # Or build directly (override BASE_IMAGE if your compose project name differs):
-#   docker build -f Dockerfile-Benchmarks \
+#   docker build -f Dockerfile.benchmarks \
 #     --build-arg BASE_IMAGE=helm-project-helm-dev:latest \
 #     -t helm-dev-benchmarks .
 #
