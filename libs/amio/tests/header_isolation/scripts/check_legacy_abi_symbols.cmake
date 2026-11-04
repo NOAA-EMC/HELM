@@ -1,0 +1,36 @@
+if(NOT AMIO_NM_EXECUTABLE OR NOT EXISTS "${AMIO_LIBRARY_FILE}")
+    message("SKIPPED: nm or built AMIO library unavailable")
+    return()
+endif()
+if(NOT EXISTS "${AMIO_ABI_FIXTURE}")
+    message(FATAL_ERROR "Legacy ABI fixture not found: ${AMIO_ABI_FIXTURE}")
+endif()
+
+file(READ "${AMIO_ABI_FIXTURE}" _fixture)
+execute_process(
+    COMMAND "${AMIO_NM_EXECUTABLE}" -D --defined-only "${AMIO_LIBRARY_FILE}"
+    RESULT_VARIABLE _nm_result
+    OUTPUT_VARIABLE _symbols
+    ERROR_VARIABLE _nm_error)
+if(NOT _nm_result EQUAL 0)
+    message(FATAL_ERROR "nm failed (${_nm_result}): ${_nm_error}")
+endif()
+
+set(_missing)
+set(_checked_count 0)
+foreach(_symbol_group legacy_exported_symbols_measured evolution_symbols_measured)
+    string(JSON _symbol_count LENGTH "${_fixture}" ${_symbol_group})
+    math(EXPR _last_symbol "${_symbol_count} - 1")
+    foreach(_index RANGE 0 ${_last_symbol})
+        string(JSON _expected GET "${_fixture}" ${_symbol_group} ${_index})
+        math(EXPR _checked_count "${_checked_count} + 1")
+        if(NOT _symbols MATCHES "[ \t]${_expected}([\r\n]|$)")
+            list(APPEND _missing "${_expected}")
+        endif()
+    endforeach()
+endforeach()
+if(_missing)
+    list(JOIN _missing ", " _missing_text)
+    message(FATAL_ERROR "Legacy AMIO ABI symbols missing from ${AMIO_LIBRARY_FILE}: ${_missing_text}")
+endif()
+message(STATUS "All ${_checked_count} measured legacy and evolution AMIO symbols are exported")

@@ -38,7 +38,23 @@
 #include <nlohmann/json.hpp>
 #endif
 
+#ifdef AMIO_HAS_MPI
+#include <halo/collectives.hpp>
+#endif
+
 namespace amio::detail {
+#ifdef AMIO_HAS_MPI
+void Zarr_Driver::set_communicator(MPI_Comm comm) {
+    int initialized = 0;
+    MPI_Initialized(&initialized);
+    if (!initialized || comm == MPI_COMM_NULL) return;
+    halo::Environment::initialize();
+    // Ownership adapter: HALO owns a duplicate, never the host communicator.
+    MPI_Comm duplicate = MPI_COMM_NULL;
+    if (MPI_Comm_dup(comm, &duplicate) != MPI_SUCCESS) throw std::runtime_error("Zarr_Driver: communicator duplication failed");
+    io_comm_.emplace(duplicate);
+}
+#endif
 
 // ===================================================================
 // Static registration with BackendFactory under key "zarr3".
@@ -436,12 +452,6 @@ void Zarr_Driver::open_write(const conf::Config &config) {
     //   inner (per-chunk): bytes → byte-shuffle → compression
     nlohmann::json codecs = nlohmann::json::array();
 
-    // Bytes codec (required for Zarr v3 outer level).
-    nlohmann::json bytes_codec;
-    bytes_codec["name"] = "bytes";
-    bytes_codec["configuration"]["endian"] = "little";
-    codecs.push_back(bytes_codec);
-
     // Sharding codec with inner codecs (R8.3).
     nlohmann::json sharding;
     sharding["name"] = "sharding_indexed";
@@ -457,12 +467,6 @@ void Zarr_Driver::open_write(const conf::Config &config) {
     inner_bytes["configuration"]["endian"] = "little";
     inner_codecs.push_back(inner_bytes);
 
-    // Byte-Shuffle filter (R8.4).
-    nlohmann::json byte_shuffle;
-    byte_shuffle["name"] = "transpose";
-    byte_shuffle["configuration"]["order"] = "C";
-    inner_codecs.push_back(byte_shuffle);
-
     // Compression codec: exactly one of {Blosc, Zstandard} (R8.4).
     nlohmann::json compression;
     if (config_.codec == "blosc") {
@@ -470,7 +474,6 @@ void Zarr_Driver::open_write(const conf::Config &config) {
         compression["configuration"]["cname"] = "lz4";
         compression["configuration"]["clevel"] = 5;
         compression["configuration"]["shuffle"] = "bitshuffle";
-        compression["configuration"]["typesize"] = 4;
         compression["configuration"]["blocksize"] = 0;
     } else {  // zstandard
         compression["name"] = "zstd";
@@ -485,28 +488,54 @@ void Zarr_Driver::open_write(const conf::Config &config) {
     metadata["chunk_grid"]["name"] = "regular";
     metadata["chunk_grid"]["configuration"]["chunk_shape"] = config_.shard_shape;
 
-    // Create mode for writing.
-    spec["create"] = true;
-    spec["delete_existing"] = true;
-
-    // Open TensorStore.
     ts_context_ = tensorstore::Context::Default();
-
-    auto open_result =
-        tensorstore::Open(tensorstore::Spec::FromJson(spec).value(), ts_context_,
-                          tensorstore::OpenMode::create | tensorstore::OpenMode::delete_existing, tensorstore::ReadWriteMode::read_write)
-            .result();
-
-    if (!open_result.ok()) {
-        // Network/auth errors abort operation, leave target unchanged,
-        // return categorized error (R8.9).
-        std::string err_msg = std::string(open_result.status().message());
-        std::string category = categorize_error(err_msg);
-        std::string full_msg = "Zarr_Driver: failed to open TensorStore for writing (" + category + "): " + err_msg;
-        throw std::runtime_error(full_msg);
+    int rank = 0, size = 1;
+#ifdef AMIO_HAS_MPI
+    if (io_comm_) {
+        rank = io_comm_->rank();
+        size = io_comm_->size();
     }
-
-    ts_store_ = std::move(open_result).value();
+#endif
+    // Only the coordinator may create/delete metadata. Publish its result
+    // before other ranks open the existing array, including on failure.
+    std::string open_error;
+    auto open_store = [&](bool create) {
+        auto parsed_spec = tensorstore::Spec::FromJson(spec);
+        if (!parsed_spec.ok()) throw std::runtime_error(std::string(parsed_spec.status().message()));
+        auto result =
+            tensorstore::Open(parsed_spec.value(), ts_context_,
+                              create ? (tensorstore::OpenMode::create | tensorstore::OpenMode::delete_existing) : tensorstore::OpenMode::open,
+                              tensorstore::ReadWriteMode::read_write)
+                .result();
+        if (!result.ok()) throw std::runtime_error(std::string(result.status().message()));
+        ts_store_ = std::move(result).value();
+    };
+    if (rank == 0) {
+        try {
+            open_store(true);
+        } catch (const std::exception &e) {
+            open_error = e.what();
+        }
+    }
+    int failed = open_error.empty() ? 0 : 1;
+#ifdef AMIO_HAS_MPI
+    if (size > 1) failed = halo::allreduce(*io_comm_, std::vector<int>{failed}, MPI_MAX).front();
+#endif
+    if (failed) throw std::runtime_error("Zarr_Driver: coordinator failed to create store: " + open_error);
+    if (rank != 0) {
+        try {
+            open_store(false);
+        } catch (const std::exception &e) {
+            open_error = e.what();
+        }
+    }
+    failed = open_error.empty() ? 0 : 1;
+#ifdef AMIO_HAS_MPI
+    if (size > 1) {
+        failed = halo::allreduce(*io_comm_, std::vector<int>{failed}, MPI_MAX).front();
+    }
+#endif
+    if (failed) throw std::runtime_error("Zarr_Driver: rank failed to open shared store: " + open_error);
 
 #else
     // TensorStore not available at compile time.
@@ -551,7 +580,7 @@ void Zarr_Driver::open_read(const conf::Config &config) {
             .result();
 
     if (!open_result.ok()) {
-        // Network/auth errors abort, leave target unchanged (R8.9).
+        // Propagate storage failures; this is not a multi-chunk transaction.
         std::string err_msg = std::string(open_result.status().message());
         std::string category = categorize_error(err_msg);
         std::string full_msg = "Zarr_Driver: failed to open TensorStore for reading (" + category + "): " + err_msg;
@@ -578,8 +607,8 @@ void Zarr_Driver::open_read(const conf::Config &config) {
 //
 // The Byte-Shuffle filter and compression codec are applied by
 // TensorStore automatically based on the codec chain configured in
-// open_write.  Network/auth errors abort the operation and leave the
-// target unchanged (R8.9).
+// open_write. Failures propagate to the operation handle; earlier committed
+// chunks are not rolled back.
 // ===================================================================
 
 void Zarr_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
@@ -613,15 +642,31 @@ void Zarr_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
         std::string msg = "Zarr_Driver: unsupported dtype";  // -> AMIO_ERR_INVALID_INPUT (Req 11.4)
         throw std::runtime_error(msg);
     }
-    auto array = tensorstore::Array(tensorstore::ElementPointer<const void>(src.data, dt), shape_vec, tensorstore::c_order);
+    auto array = tensorstore::UnownedToShared(
+        tensorstore::Array(tensorstore::ElementPointer<const void>(static_cast<const void *>(src.data), dt), shape_vec, tensorstore::c_order));
 
     // Write the data to TensorStore.  The codec chain configured in
     // open_write applies Byte-Shuffle + compression automatically.
-    auto write_future = tensorstore::Write(array, ts_store_);
+    auto target = ts_store_;
+    if (dt != target.dtype()) throw std::invalid_argument("Zarr_Driver: payload dtype differs from store dtype");
+    if (meta.write_region.rank) {
+        std::vector<tensorstore::Index> origins, counts;
+        if (meta.write_region.rank != target.rank()) throw std::runtime_error("Zarr_Driver: region rank mismatch");
+        for (int d = 0; d < meta.write_region.rank; ++d) {
+            if (meta.write_region.global_extents[d] != target.domain().shape()[d])
+                throw std::runtime_error("Zarr_Driver: global extent differs from store shape");
+            origins.push_back(meta.write_region.offsets[d]);
+            counts.push_back(meta.shape.extents[d]);
+        }
+        // Translate the destination interval to zero so the local array's
+        // coordinates map to the requested global offsets.
+        target = (target | tensorstore::AllDims().SizedInterval(origins, counts).TranslateTo(0)).value();
+    }
+    auto write_future = tensorstore::Write(array, target);
     auto write_result = write_future.result();
 
     if (!write_result.ok()) {
-        // Network/auth errors abort, leave target unchanged (R8.9).
+        // Propagate storage failures; this is not a multi-chunk transaction.
         std::string err_msg = std::string(write_result.status().message());
         std::string category = categorize_error(err_msg);
         std::string full_msg = "Zarr_Driver: write failed (" + category + "): " + err_msg;
@@ -698,7 +743,8 @@ void Zarr_Driver::read(StagingBuffer &dst, const VarMeta &meta, std::int64_t tim
         std::string msg = "Zarr_Driver: unsupported dtype";  // -> AMIO_ERR_INVALID_INPUT (Req 11.4)
         throw std::runtime_error(msg);
     }
-    auto array = tensorstore::Array(tensorstore::ElementPointer<void>(dst.data, dt), shape_vec, tensorstore::c_order);
+    auto array = tensorstore::UnownedToShared(
+        tensorstore::Array(tensorstore::ElementPointer<void>(static_cast<void *>(dst.data), dt), shape_vec, tensorstore::c_order));
 
     // Restrict the read domain to the bounding box, if any.  For each
     // dimension, TranslateSizedInterval(offset, size, stride) selects
@@ -725,7 +771,7 @@ void Zarr_Driver::read(StagingBuffer &dst, const VarMeta &meta, std::int64_t tim
     auto read_result = read_future.result();
 
     if (!read_result.ok()) {
-        // Network/auth errors abort, leave target unchanged (R8.9).
+        // Propagate storage failures; this is not a multi-chunk transaction.
         std::string err_msg = std::string(read_result.status().message());
         std::string category = categorize_error(err_msg);
         std::string full_msg = "Zarr_Driver: read failed (" + category + "): " + err_msg;
@@ -766,6 +812,12 @@ void Zarr_Driver::flush() {
 // ===================================================================
 
 void Zarr_Driver::close() {
+#ifdef AMIO_HAS_MPI
+    // No close operation uses this communicator; release it also on no-op
+    // and error paths, while the DatasetRecord may retain the driver.
+    io_comm_.reset();
+#endif
+
     if (!is_open_) {
         return;  // No-op if not open.
     }

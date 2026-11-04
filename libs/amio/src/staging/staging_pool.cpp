@@ -26,19 +26,28 @@
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <stdexcept>
 
 namespace amio::detail {
 
 StagingPool::StagingPool(std::size_t buffer_count, std::size_t buffer_capacity, std::int64_t timeout_ms)
-    : StagingPool(buffer_count, buffer_capacity, timeout_ms, kMaxBufferCount, GrowMode::Grow) {}
+    : StagingPool(buffer_count, buffer_capacity, timeout_ms, kMaxBufferCount, GrowMode::Grow, static_cast<std::size_t>(-1)) {}
 
-StagingPool::StagingPool(std::size_t buffer_count, std::size_t buffer_capacity, std::int64_t timeout_ms, std::size_t max_buffer_count, GrowMode mode)
-    : buffer_count_(buffer_count), buffer_capacity_(buffer_capacity), timeout_ms_(timeout_ms), grow_mode_(mode) {
+StagingPool::StagingPool(std::size_t buffer_count, std::size_t buffer_capacity, std::int64_t timeout_ms, std::size_t max_buffer_count, GrowMode mode,
+                         std::size_t max_retained_bytes)
+    : buffer_count_(buffer_count),
+      buffer_capacity_(buffer_capacity),
+      timeout_ms_(timeout_ms),
+      grow_mode_(mode),
+      max_retained_bytes_(max_retained_bytes) {
     assert(buffer_count >= kMinBufferCount && buffer_count <= kMaxBufferCount);
     assert(buffer_capacity >= kMinBufferCapacity && buffer_capacity <= kMaxBufferCapacity);
     assert(timeout_ms >= kMinTimeoutMs && timeout_ms <= kMaxTimeoutMs);
     assert(max_buffer_count >= buffer_count);
     assert(max_buffer_count <= kMaxBufferCount);
+    if (max_retained_bytes_ < buffer_capacity_) {
+        throw std::invalid_argument("staging byte ceiling must fit at least one nominal buffer");
+    }
 
     // Bounded mode: the configured count IS the hard limit.
     max_buffer_count_ = (mode == GrowMode::Bounded) ? buffer_count : max_buffer_count;
@@ -95,7 +104,11 @@ StagingBuffer *StagingPool::acquire(std::size_t required_bytes) {
             // Commit (or grow) this buffer's byte storage before handing it
             // out.  Safe under mu_; the buffer is free so no existing view
             // references its storage.
-            ensure_storage(free_list_[idx], required_bytes);
+            if (!ensure_storage(free_list_[idx], required_bytes)) {
+                if (std::max(required_bytes, buffer_capacity_) > max_retained_bytes_) return nullptr;
+                if (cv_.wait_until(lock, deadline) == std::cv_status::timeout) return nullptr;
+                continue;
+            }
             return remove_from_free_list(idx);
         }
 
@@ -129,7 +142,7 @@ StagingBuffer *StagingPool::acquire(std::size_t required_bytes) {
             // have made a buffer available.
             idx = find_best_fit(required_bytes);
             if (idx < free_list_.size()) {
-                ensure_storage(free_list_[idx], required_bytes);
+                if (!ensure_storage(free_list_[idx], required_bytes)) return nullptr;
                 return remove_from_free_list(idx);
             }
             // Timeout: return nullptr to signal backpressure.  In Grow
@@ -256,19 +269,52 @@ std::size_t StagingPool::find_best_fit(std::size_t required_bytes) const {
     return free_list_.size();  // sentinel: no free buffer available
 }
 
-void StagingPool::ensure_storage(std::size_t buf_idx, std::size_t required_bytes) {
+bool StagingPool::ensure_storage(std::size_t buf_idx, std::size_t required_bytes) {
     assert(buf_idx < buffers_.size());
     StagingBuffer &b = buffers_[buf_idx];
     std::size_t target = required_bytes > buffer_capacity_ ? required_bytes : buffer_capacity_;
     if (b.data != nullptr && b.capacity_bytes >= target) {
-        return;  // already committed large enough (Pass A reuse)
+        return true;  // already committed large enough (Pass A reuse)
+    }
+    if (target > max_retained_bytes_) return false;
+    std::size_t retained = 0;
+    for (const auto &buffer : buffers_) retained += buffer.capacity_bytes;
+    const std::size_t old_capacity = b.capacity_bytes;
+    const std::size_t extra_needed = target > old_capacity ? target - old_capacity : 0;
+    // Reclaim cached capacity from idle slots before refusing a bounded growth.
+    // Active buffers are never moved or decommitted.
+    for (const auto idle_index : free_list_) {
+        if (retained <= max_retained_bytes_ - extra_needed) break;
+        if (idle_index == buf_idx) continue;
+        auto &idle = buffers_[idle_index];
+        retained -= idle.capacity_bytes;
+        idle.capacity_bytes = 0;
+        idle.data = nullptr;
+        storage_[idle_index].reset();
+    }
+    if (retained > max_retained_bytes_ - extra_needed) {
+        std::sort(free_list_.begin(), free_list_.end(),
+                  [this](std::size_t a, std::size_t c) { return buffers_[a].capacity_bytes < buffers_[c].capacity_bytes; });
+        return false;
     }
     // (Re)allocate.  The buffer is on the free list (ref_count == 0), so no
     // outstanding Memory_View references the old storage; replacing it here
     // is safe.  Caller holds mu_.
-    storage_[buf_idx] = std::make_unique<std::byte[]>(target);
+    // Release this buffer's prior allocation first so temporary allocator
+    // overlap cannot exceed the configured retained-byte ceiling.
+    storage_[buf_idx].reset();
+    b.data = nullptr;
+    b.capacity_bytes = 0;
+    try {
+        storage_[buf_idx] = std::make_unique<std::byte[]>(target);
+    } catch (...) {
+        std::sort(free_list_.begin(), free_list_.end(),
+                  [this](std::size_t a, std::size_t c) { return buffers_[a].capacity_bytes < buffers_[c].capacity_bytes; });
+        throw;
+    }
     b.data = storage_[buf_idx].get();
     b.capacity_bytes = target;
+    return true;
 }
 
 StagingBuffer *StagingPool::remove_from_free_list(std::size_t free_idx) {
@@ -276,6 +322,8 @@ StagingBuffer *StagingPool::remove_from_free_list(std::size_t free_idx) {
 
     std::size_t buf_idx = free_list_[free_idx];
     free_list_.erase(free_list_.begin() + static_cast<std::ptrdiff_t>(free_idx));
+    std::sort(free_list_.begin(), free_list_.end(),
+              [this](std::size_t a, std::size_t c) { return buffers_[a].capacity_bytes < buffers_[c].capacity_bytes; });
 
     StagingBuffer *buf = &buffers_[buf_idx];
     buf->ref_count = 1;

@@ -30,11 +30,295 @@ target_link_libraries(test_amio_strerror PRIVATE AMIO::public_headers AMIO::amio
 
 # The harness uses std::thread; on most Unix toolchains this requires linking pthreads.  CMake's Threads module exposes that portably.
 find_package(Threads QUIET)
+
 if(Threads_FOUND)
     target_link_libraries(test_amio_strerror PRIVATE Threads::Threads)
 endif()
 
 add_test(NAME unit.amio_strerror COMMAND test_amio_strerror)
+
+add_executable(test_memory_submission test_memory_submission.cpp ${CMAKE_SOURCE_DIR}/src/memory/memory_provider.cpp
+                                      ${CMAKE_SOURCE_DIR}/src/memory/host_snapshot.cpp ${CMAKE_SOURCE_DIR}/src/memory/kokkos_snapshot.cpp)
+target_include_directories(test_memory_submission PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include)
+if(AMIO_HAS_KOKKOS_RUNTIME)
+    target_link_libraries(test_memory_submission PRIVATE ${AMIO_MEMORY_BACKEND_TARGET})
+    target_compile_definitions(test_memory_submission PRIVATE AMIO_HAS_KOKKOS_RUNTIME=1 AMIO_TEST_HAS_KOKKOS_RUNTIME=1)
+endif()
+add_test(NAME unit.memory_submission COMMAND test_memory_submission)
+set_tests_properties(unit.memory_submission PROPERTIES LABELS "unit;memory;submission" TIMEOUT 30)
+
+add_executable(test_evolution_contract test_evolution_contract.cpp)
+target_link_libraries(test_evolution_contract PRIVATE AMIO::amio_core)
+target_include_directories(test_evolution_contract PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(AMIO_HAS_TENSORSTORE)
+    target_compile_definitions(test_evolution_contract PRIVATE AMIO_HAS_TENSORSTORE=1)
+endif()
+if(AMIO_NETCDF_PAR_LIB)
+    target_compile_definitions(test_evolution_contract PRIVATE AMIO_TEST_HAS_NETCDF=1)
+    get_target_property(_amio_evolution_netcdf_include netCDF::netcdf INTERFACE_INCLUDE_DIRECTORIES)
+    if(_amio_evolution_netcdf_include)
+        target_include_directories(test_evolution_contract PRIVATE ${_amio_evolution_netcdf_include})
+    endif()
+    target_link_libraries(test_evolution_contract PRIVATE ${AMIO_NETCDF_PAR_LIB})
+endif()
+if(MPI_CXX_FOUND)
+    target_link_libraries(test_evolution_contract PRIVATE MPI::MPI_CXX)
+    target_compile_definitions(test_evolution_contract PRIVATE AMIO_TEST_HAS_MPI=1)
+endif()
+add_test(NAME unit.evolution_contract COMMAND test_evolution_contract)
+set_tests_properties(unit.evolution_contract PROPERTIES LABELS "unit;abi;evolution")
+
+add_executable(test_transport_protocol test_transport_protocol.cpp ${CMAKE_SOURCE_DIR}/src/execution/transport_protocol.cpp)
+target_include_directories(test_transport_protocol PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_transport_protocol PRIVATE AMIO::public_headers)
+add_test(NAME unit.transport_protocol COMMAND test_transport_protocol)
+set_tests_properties(unit.transport_protocol PROPERTIES LABELS "unit;transport;protocol" TIMEOUT 30)
+
+add_executable(test_diagnostics test_diagnostics.cpp ${CMAKE_SOURCE_DIR}/src/diagnostics/diagnostic_store.cpp)
+target_include_directories(test_diagnostics PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_diagnostics PRIVATE AMIO::public_headers)
+add_test(NAME unit.diagnostics COMMAND test_diagnostics)
+set_tests_properties(unit.diagnostics PROPERTIES LABELS "unit;diagnostics;budget" TIMEOUT 30)
+
+add_executable(test_credit_window test_credit_window.cpp ${CMAKE_SOURCE_DIR}/src/execution/credit_window.cpp)
+target_include_directories(test_credit_window PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_credit_window PRIVATE AMIO::public_headers Threads::Threads)
+add_test(NAME unit.credit_window COMMAND test_credit_window)
+set_tests_properties(unit.credit_window PROPERTIES LABELS "unit;transport;credits" TIMEOUT 30)
+
+add_executable(test_progress_engine test_progress_engine.cpp ${CMAKE_SOURCE_DIR}/src/execution/progress_engine.cpp)
+target_include_directories(test_progress_engine PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_progress_engine PRIVATE AMIO::public_headers Threads::Threads)
+add_test(NAME unit.progress_engine COMMAND test_progress_engine)
+set_tests_properties(unit.progress_engine PROPERTIES LABELS "unit;progress;aggregation" TIMEOUT 30)
+
+add_executable(test_stream_retention test_stream_retention.cpp ${CMAKE_SOURCE_DIR}/src/execution/stream_retention.cpp)
+target_include_directories(test_stream_retention PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_stream_retention PRIVATE AMIO::public_headers Threads::Threads)
+add_test(NAME unit.stream_retention COMMAND test_stream_retention)
+set_tests_properties(unit.stream_retention PROPERTIES LABELS "unit;stream;retention" TIMEOUT 30)
+
+add_executable(test_stream_read_queue test_stream_read_queue.cpp ${CMAKE_SOURCE_DIR}/src/prefetch/stream_read_queue.cpp
+                                      ${CMAKE_SOURCE_DIR}/src/execution/stream_retention.cpp)
+target_include_directories(test_stream_read_queue PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_stream_read_queue PRIVATE AMIO::public_headers Threads::Threads)
+add_test(NAME unit.stream_read_queue COMMAND test_stream_read_queue)
+set_tests_properties(unit.stream_read_queue PROPERTIES LABELS "unit;stream;prefetch;read" TIMEOUT 30)
+
+add_executable(
+    test_step_coordinator
+    test_step_coordinator.cpp
+    ${CMAKE_SOURCE_DIR}/src/execution/direct_execution.cpp
+    ${CMAKE_SOURCE_DIR}/src/steps/step_coordinator.cpp
+    ${CMAKE_SOURCE_DIR}/src/steps/contribution_plan.cpp
+    ${CMAKE_SOURCE_DIR}/src/memory/memory_provider.cpp
+    ${CMAKE_SOURCE_DIR}/src/memory/host_snapshot.cpp
+    ${CMAKE_SOURCE_DIR}/src/schema/schema.cpp
+    ${CMAKE_SOURCE_DIR}/src/staging/resource_budget.cpp
+    ${CMAKE_SOURCE_DIR}/src/c_boundary/operation_record.cpp
+    ${CMAKE_SOURCE_DIR}/src/catalog/collection_reader.cpp
+    ${CMAKE_SOURCE_DIR}/src/catalog/posix_catalog.cpp
+    ${CMAKE_SOURCE_DIR}/src/catalog/catalog_format.cpp)
+target_include_directories(test_step_coordinator PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_step_coordinator PRIVATE AMIO::public_headers)
+if(Threads_FOUND)
+    target_link_libraries(test_step_coordinator PRIVATE Threads::Threads)
+endif()
+add_test(NAME unit.step_coordinator COMMAND test_step_coordinator)
+set_tests_properties(unit.step_coordinator PROPERTIES LABELS "unit;steps;coordinator" TIMEOUT 30)
+
+add_executable(test_operator_policy test_operator_policy.cpp ${CMAKE_SOURCE_DIR}/src/operators/operator_policy.cpp)
+target_include_directories(test_operator_policy PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_operator_policy PRIVATE AMIO::public_headers)
+add_test(NAME unit.operator_policy COMMAND test_operator_policy)
+set_tests_properties(unit.operator_policy PROPERTIES LABELS "unit;operators" TIMEOUT 30)
+
+add_executable(test_payload_integrity test_payload_integrity.cpp ${CMAKE_SOURCE_DIR}/src/operators/payload_integrity.cpp)
+target_include_directories(test_payload_integrity PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_payload_integrity PRIVATE AMIO::public_headers)
+add_test(NAME unit.payload_integrity COMMAND test_payload_integrity)
+set_tests_properties(unit.payload_integrity PROPERTIES LABELS "unit;operators;integrity" TIMEOUT 30)
+
+add_executable(test_integrity_reader test_integrity_reader.cpp ${CMAKE_SOURCE_DIR}/src/operators/integrity_reader.cpp
+                                     ${CMAKE_SOURCE_DIR}/src/operators/payload_integrity.cpp)
+target_include_directories(test_integrity_reader PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_integrity_reader PRIVATE AMIO::public_headers)
+add_test(NAME unit.integrity_reader COMMAND test_integrity_reader)
+set_tests_properties(unit.integrity_reader PROPERTIES LABELS "unit;operators;integrity" TIMEOUT 30)
+
+add_executable(
+    test_operator_executor
+    test_operator_executor.cpp ${CMAKE_SOURCE_DIR}/src/operators/operator_executor.cpp ${CMAKE_SOURCE_DIR}/src/operators/operator_policy.cpp
+    ${CMAKE_SOURCE_DIR}/src/operators/payload_integrity.cpp ${CMAKE_SOURCE_DIR}/src/operators/precision_conversion.cpp)
+target_include_directories(test_operator_executor PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_operator_executor PRIVATE AMIO::public_headers)
+add_test(NAME unit.operator_executor COMMAND test_operator_executor)
+set_tests_properties(unit.operator_executor PROPERTIES LABELS "unit;operators;conversion;integrity" TIMEOUT 30)
+
+add_executable(test_precision_conversion test_precision_conversion.cpp ${CMAKE_SOURCE_DIR}/src/operators/precision_conversion.cpp)
+target_include_directories(test_precision_conversion PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_precision_conversion PRIVATE AMIO::public_headers)
+add_test(NAME unit.precision_conversion COMMAND test_precision_conversion)
+set_tests_properties(unit.precision_conversion PROPERTIES LABELS "unit;operators;conversion" TIMEOUT 30)
+
+add_executable(test_collection_catalog test_collection_catalog.cpp ${CMAKE_SOURCE_DIR}/src/catalog/collection_catalog.cpp
+                                       ${CMAKE_SOURCE_DIR}/src/catalog/catalog_format.cpp)
+target_include_directories(test_collection_catalog PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_collection_catalog PRIVATE AMIO::public_headers)
+add_test(NAME unit.collection_catalog COMMAND test_collection_catalog)
+set_tests_properties(unit.collection_catalog PROPERTIES LABELS "unit;catalog;publication" TIMEOUT 30)
+
+add_executable(test_kvstore_catalog test_kvstore_catalog.cpp ${CMAKE_SOURCE_DIR}/src/catalog/kvstore_catalog.cpp
+                                    ${CMAKE_SOURCE_DIR}/src/catalog/catalog_format.cpp)
+target_include_directories(test_kvstore_catalog PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_kvstore_catalog PRIVATE AMIO::public_headers)
+add_test(NAME unit.kvstore_catalog COMMAND test_kvstore_catalog)
+set_tests_properties(unit.kvstore_catalog PROPERTIES LABELS "unit;catalog;publication;capabilities" TIMEOUT 30)
+
+if(AMIO_HAS_TENSORSTORE AND TARGET amio_tensorstore_abi)
+    add_executable(test_tensorstore_kvstore test_tensorstore_kvstore.cpp ${CMAKE_SOURCE_DIR}/src/catalog/kvstore_catalog.cpp
+                                            ${CMAKE_SOURCE_DIR}/src/catalog/catalog_format.cpp ${CMAKE_SOURCE_DIR}/src/catalog/posix_catalog.cpp)
+    target_include_directories(test_tensorstore_kvstore BEFORE PRIVATE ${AMIO_TENSORSTORE_ABI_INCLUDE_DIR})
+    target_include_directories(test_tensorstore_kvstore PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(test_tensorstore_kvstore PRIVATE AMIO_HAS_TENSORSTORE=1)
+    target_link_libraries(test_tensorstore_kvstore PRIVATE AMIO::public_headers TensorStore::tensorstore amio_tensorstore_abi)
+    add_test(NAME unit.tensorstore_kvstore COMMAND test_tensorstore_kvstore)
+    set_tests_properties(unit.tensorstore_kvstore PROPERTIES LABELS "unit;catalog;tensorstore;capabilities" TIMEOUT 30)
+endif()
+
+if(AMIO_HAS_TENSORSTORE)
+    add_executable(test_evolution_zarr test_evolution_zarr.cpp)
+    target_link_libraries(test_evolution_zarr PRIVATE AMIO::amio_core)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang|IntelLLVM|Intel")
+        target_compile_options(test_evolution_zarr PRIVATE -UNDEBUG)
+    endif()
+    if(MPI_CXX_FOUND)
+        target_compile_definitions(test_evolution_zarr PRIVATE AMIO_TEST_HAS_MPI=1)
+        target_link_libraries(test_evolution_zarr PRIVATE MPI::MPI_CXX)
+    endif()
+    add_test(NAME unit.evolution_zarr COMMAND test_evolution_zarr)
+    set_tests_properties(unit.evolution_zarr PROPERTIES LABELS "unit;evolution;zarr;amio_step" TIMEOUT 30)
+    if(MPI_CXX_FOUND)
+        add_test(NAME integration.evolution_zarr_mpi COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                             $<TARGET_FILE:test_evolution_zarr> ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(
+            integration.evolution_zarr_mpi
+            PROPERTIES LABELS
+                       "integration;mpi;write;zarr3;evolution"
+                       TIMEOUT
+                       90
+                       RUN_SERIAL
+                       TRUE
+                       ENVIRONMENT
+                       "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
+        add_test(NAME integration.evolution_zarr_mpi4 COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS}
+                                                              $<TARGET_FILE:test_evolution_zarr> ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(
+            integration.evolution_zarr_mpi4
+            PROPERTIES LABELS
+                       "integration;mpi;write;zarr3;evolution"
+                       TIMEOUT
+                       90
+                       RUN_SERIAL
+                       TRUE
+                       ENVIRONMENT
+                       "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
+    endif()
+endif()
+
+add_executable(test_collection_reader test_collection_reader.cpp ${CMAKE_SOURCE_DIR}/src/catalog/collection_reader.cpp
+                                      ${CMAKE_SOURCE_DIR}/src/catalog/posix_catalog.cpp ${CMAKE_SOURCE_DIR}/src/catalog/catalog_format.cpp)
+target_include_directories(test_collection_reader PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_collection_reader PRIVATE AMIO::public_headers)
+add_test(NAME unit.collection_reader COMMAND test_collection_reader)
+set_tests_properties(unit.collection_reader PROPERTIES LABELS "unit;catalog;reader" TIMEOUT 30)
+
+add_executable(test_step_read_queue test_step_read_queue.cpp ${CMAKE_SOURCE_DIR}/src/prefetch/step_read_queue.cpp)
+target_include_directories(test_step_read_queue PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_step_read_queue PRIVATE AMIO::public_headers)
+add_test(NAME unit.step_read_queue COMMAND test_step_read_queue)
+set_tests_properties(unit.step_read_queue PROPERTIES LABELS "unit;prefetch;steps;read" TIMEOUT 30)
+
+add_executable(test_schema test_schema.cpp ${CMAKE_SOURCE_DIR}/src/schema/schema.cpp)
+target_include_directories(test_schema PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_schema PRIVATE AMIO::public_headers)
+add_test(NAME unit.schema COMMAND test_schema)
+set_tests_properties(unit.schema PROPERTIES LABELS "unit;schema")
+
+add_executable(test_resource_budget test_resource_budget.cpp ${CMAKE_SOURCE_DIR}/src/staging/resource_budget.cpp)
+target_include_directories(test_resource_budget PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_resource_budget PRIVATE AMIO::public_headers)
+add_test(NAME unit.resource_budget COMMAND test_resource_budget)
+set_tests_properties(unit.resource_budget PROPERTIES LABELS "unit;staging;budget")
+
+add_executable(test_operation_record test_operation_record.cpp ${CMAKE_SOURCE_DIR}/src/c_boundary/operation_record.cpp)
+target_include_directories(test_operation_record PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_operation_record PRIVATE AMIO::public_headers)
+if(Threads_FOUND)
+    target_link_libraries(test_operation_record PRIVATE Threads::Threads)
+endif()
+add_test(NAME unit.operation_record COMMAND test_operation_record)
+set_tests_properties(unit.operation_record PROPERTIES LABELS "unit;c_boundary;operation" TIMEOUT 30)
+
+add_executable(test_execution_context test_execution_context.cpp ${CMAKE_SOURCE_DIR}/src/execution/context.cpp
+                                      ${CMAKE_SOURCE_DIR}/src/execution/role_map.cpp ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp)
+target_include_directories(test_execution_context PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_execution_context PRIVATE AMIO::public_headers)
+if(MPI_CXX_FOUND)
+    target_link_libraries(test_execution_context PRIVATE MPI::MPI_CXX HELM::HALO)
+    target_compile_definitions(test_execution_context PRIVATE AMIO_HAS_MPI=1)
+endif()
+add_test(NAME unit.execution_context COMMAND test_execution_context)
+set_tests_properties(unit.execution_context PROPERTIES LABELS "unit;execution;context" TIMEOUT 30)
+
+if(AMIO_NETCDF_PAR_LIB)
+    add_executable(test_netcdf_steps test_netcdf_steps.cpp ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_steps.cpp
+                                     ${CMAKE_SOURCE_DIR}/src/schema/schema.cpp)
+    target_include_directories(test_netcdf_steps PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(test_netcdf_steps PRIVATE AMIO::public_headers)
+    target_compile_definitions(test_netcdf_steps PRIVATE AMIO_HAS_NETCDF=1)
+    get_target_property(_amio_netcdf_test_include netCDF::netcdf INTERFACE_INCLUDE_DIRECTORIES)
+    if(_amio_netcdf_test_include)
+        target_include_directories(test_netcdf_steps PRIVATE ${_amio_netcdf_test_include})
+    endif()
+    target_link_libraries(test_netcdf_steps PRIVATE ${AMIO_NETCDF_PAR_LIB})
+    if(AMIO_NETCDF_MPI_INCLUDE_DIR)
+        target_include_directories(test_netcdf_steps BEFORE PRIVATE ${AMIO_NETCDF_MPI_INCLUDE_DIR})
+    endif()
+    if(MPI_CXX_FOUND)
+        target_link_libraries(test_netcdf_steps PRIVATE MPI::MPI_CXX)
+        target_compile_definitions(test_netcdf_steps PRIVATE AMIO_HAS_MPI=1)
+    endif()
+    target_compile_definitions(test_netcdf_steps PRIVATE AMIO_HAS_PARALLEL_NETCDF=1)
+    add_test(NAME unit.netcdf_steps COMMAND test_netcdf_steps)
+    set_tests_properties(unit.netcdf_steps PROPERTIES LABELS "unit;netcdf;steps;native_read" TIMEOUT 30 ENVIRONMENT
+                                                      "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
+endif()
+
+add_executable(test_grib2_steps test_grib2_steps.cpp ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp
+                                ${CMAKE_SOURCE_DIR}/src/catalog/catalog_format.cpp)
+target_include_directories(test_grib2_steps PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_grib2_steps PRIVATE AMIO::public_headers HELM::CONF)
+add_test(NAME unit.grib2_steps COMMAND test_grib2_steps)
+set_tests_properties(unit.grib2_steps PROPERTIES LABELS "unit;grib2;steps;budget" TIMEOUT 30)
+
+add_executable(test_zarr_steps test_zarr_steps.cpp ${CMAKE_SOURCE_DIR}/src/drivers/zarr/zarr_steps.cpp ${CMAKE_SOURCE_DIR}/src/schema/schema.cpp
+                               ${CMAKE_SOURCE_DIR}/src/catalog/catalog_format.cpp)
+target_include_directories(test_zarr_steps PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_zarr_steps PRIVATE AMIO::public_headers)
+if(AMIO_HAS_TENSORSTORE)
+    if(AMIO_TENSORSTORE_ABI_INCLUDE_DIR)
+        target_include_directories(test_zarr_steps BEFORE PRIVATE "${AMIO_TENSORSTORE_ABI_INCLUDE_DIR}")
+    endif()
+    target_compile_definitions(test_zarr_steps PRIVATE AMIO_HAS_TENSORSTORE=1)
+    target_link_libraries(test_zarr_steps PRIVATE TensorStore::tensorstore)
+    if(TARGET amio_tensorstore_abi)
+        target_link_libraries(test_zarr_steps PRIVATE amio_tensorstore_abi)
+    endif()
+endif()
+add_test(NAME unit.zarr_steps COMMAND test_zarr_steps)
+set_tests_properties(unit.zarr_steps PROPERTIES LABELS "unit;zarr;steps;amio_step" TIMEOUT 30)
+
 set_tests_properties(unit.amio_strerror PROPERTIES LABELS "unit;c_boundary;errors" TIMEOUT 30)
 
 # ####################################################################################################################################################
@@ -331,6 +615,14 @@ endif()
 
 add_test(NAME unit.write_snapshot COMMAND test_write_snapshot)
 set_tests_properties(unit.write_snapshot PROPERTIES LABELS "unit;write;snapshot;staging" TIMEOUT 60)
+
+get_target_property(_async_write_sources test_write_snapshot SOURCES)
+list(REMOVE_ITEM _async_write_sources test_write_snapshot.cpp)
+add_executable(test_async_write test_async_write.cpp ${_async_write_sources})
+target_include_directories(test_async_write PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_async_write PRIVATE AMIO::public_headers Threads::Threads HELM::CONF HELM::HALO HELM::LOGS)
+add_test(NAME unit.async_write COMMAND test_async_write)
+set_tests_properties(unit.async_write PROPERTIES LABELS "unit;write;parallel" TIMEOUT 30)
 
 # ####################################################################################################################################################
 # test_read_prefetch
@@ -653,8 +945,9 @@ endif()
 if(netCDF_FOUND AND MPI_C_FOUND)
     add_executable(
         test_read_netcdf4
-        test_read_netcdf4.cpp ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_driver.cpp ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp
-        ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp)
+        test_read_netcdf4.cpp ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_driver.cpp ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_steps.cpp
+        ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp
+        ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp)
 
     target_include_directories(test_read_netcdf4 PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_compile_definitions(test_read_netcdf4 PRIVATE AMIO_HAS_NETCDF=1)
@@ -709,8 +1002,14 @@ if(AMIO_HAS_TENSORSTORE)
         ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp)
 
     target_include_directories(test_read_zarr PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    if(AMIO_TENSORSTORE_ABI_INCLUDE_DIR)
+        target_include_directories(test_read_zarr BEFORE PRIVATE "${AMIO_TENSORSTORE_ABI_INCLUDE_DIR}")
+    endif()
     target_compile_definitions(test_read_zarr PRIVATE AMIO_HAS_TENSORSTORE=1)
     target_link_libraries(test_read_zarr PRIVATE AMIO::public_headers TensorStore::tensorstore)
+    if(TARGET amio_tensorstore_abi)
+        target_link_libraries(test_read_zarr PRIVATE amio_tensorstore_abi)
+    endif()
     if(Threads_FOUND)
         target_link_libraries(test_read_zarr PRIVATE Threads::Threads)
     endif()
@@ -733,8 +1032,10 @@ endif()
 # Validates: Req 13.2, 13.3, 13.4, 13.5 (GRIB2 decode + bbox + lossless round trip).
 # ####################################################################################################################################################
 if(g2c_FOUND)
-    add_executable(test_read_grib2 test_read_grib2.cpp ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
-                                   ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/staging/staging_pool.cpp)
+    add_executable(
+        test_read_grib2
+        test_read_grib2.cpp ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp
+        ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp ${CMAKE_SOURCE_DIR}/src/staging/staging_pool.cpp)
 
     target_include_directories(test_read_grib2 PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_compile_definitions(test_read_grib2 PRIVATE AMIO_HAS_G2C=1)
@@ -772,6 +1073,7 @@ if(netCDF_FOUND AND g2c_FOUND AND MPI_C_FOUND)
         test_read_mixed_format.cpp
         ${CMAKE_SOURCE_DIR}/src/drivers/netcdf/netcdf_driver.cpp
         ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
+        ${CMAKE_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp
         ${CMAKE_SOURCE_DIR}/src/drivers/common/var_attributes.cpp
         ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp
         ${CMAKE_SOURCE_DIR}/src/staging/staging_pool.cpp
@@ -786,6 +1088,9 @@ if(netCDF_FOUND AND g2c_FOUND AND MPI_C_FOUND)
     add_executable(test_read_mixed_format ${_amio_mixed_sources})
 
     target_include_directories(test_read_mixed_format PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    if(AMIO_HAS_TENSORSTORE AND AMIO_TENSORSTORE_ABI_INCLUDE_DIR)
+        target_include_directories(test_read_mixed_format BEFORE PRIVATE "${AMIO_TENSORSTORE_ABI_INCLUDE_DIR}")
+    endif()
     target_compile_definitions(test_read_mixed_format PRIVATE AMIO_HAS_NETCDF=1 AMIO_HAS_G2C=1)
     if(AMIO_HAS_TENSORSTORE)
         target_compile_definitions(test_read_mixed_format PRIVATE AMIO_HAS_TENSORSTORE=1)
@@ -815,6 +1120,9 @@ if(netCDF_FOUND AND g2c_FOUND AND MPI_C_FOUND)
     endif()
     if(AMIO_HAS_TENSORSTORE)
         target_link_libraries(test_read_mixed_format PRIVATE TensorStore::tensorstore)
+        if(TARGET amio_tensorstore_abi)
+            target_link_libraries(test_read_mixed_format PRIVATE amio_tensorstore_abi)
+        endif()
     endif()
     if(Threads_FOUND)
         target_link_libraries(test_read_mixed_format PRIVATE Threads::Threads)

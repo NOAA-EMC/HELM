@@ -40,7 +40,7 @@ repos:
     rev: v0.3.7
     hooks:
       - id: fprettify
-        args: ["--indent", "4", "--line-length", "150", "--whitespace", "3"]
+        args: ["--indent", "4", "--line-length", "132", "--whitespace", "3"]
         types: [fortran]
         files: ^libs/amio/
 

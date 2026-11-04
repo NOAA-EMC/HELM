@@ -67,6 +67,9 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 option(AMIO_BUILD_TESTING "Build AMIO unit and property-based tests" OFF)
+option(AMIO_BUILD_QUALIFICATION "Build AMIO reference-data qualification tools" OFF)
+option(AMIO_BUILD_BENCHMARKS "Build matched AMIO output benchmark" OFF)
+option(AMIO_BUILD_TOOLS "Build the installed AMIO command-line utilities" OFF)
 # When AMIO is consumed as a subproject (e.g. CECE's top-level build), only the property-based test suite can be built cleanly -- the
 # unit/integration/ci subdirectories assume the standalone AMIO configure environment.  This option adds ONLY tests/pbt so a parent project can
 # build/run the AMIO PBT targets without enabling the full standalone test tree.
@@ -86,13 +89,42 @@ endif()
 # single configure-time flow with FATAL_ERROR semantics, and task 1.3 declares the closure in the Spack recipe.
 # ####################################################################################################################################################
 
-# HELM micro-libraries - CONF (config parsing), HALO (MPI communicators), LOGS (diagnostics). All PRIVATE to amio_core.
-find_package(CONF REQUIRED)
-find_package(HALO REQUIRED)
-find_package(LOGS REQUIRED)
+# HELM micro-libraries - CONF (config parsing), HALO (MPI communicators), LOGS (diagnostics). All PRIVATE to amio_core. When AMIO is built from this
+# HELM checkout, build the sibling libraries as CMake subprojects so a developer does not need to install them into a prefix first. Packaged consumers
+# and standalone source archives can opt out and use the normal find_package path.
+option(AMIO_USE_HELM_SOURCE_LIBRARIES "Build CONF, HALO, and LOGS from this HELM checkout" ON)
+set(_amio_helm_lib_root "${CMAKE_CURRENT_SOURCE_DIR}/..")
+if(AMIO_USE_HELM_SOURCE_LIBRARIES
+   AND EXISTS "${_amio_helm_lib_root}/conf/CMakeLists.txt"
+   AND EXISTS "${_amio_helm_lib_root}/halo/CMakeLists.txt"
+   AND EXISTS "${_amio_helm_lib_root}/logs/CMakeLists.txt")
+    if(NOT TARGET HELM::CONF)
+        set(CONF_BUILD_FORTRAN OFF CACHE BOOL "Build CONF's Fortran wrapper when embedded in AMIO")
+        add_subdirectory("${_amio_helm_lib_root}/conf" "${CMAKE_CURRENT_BINARY_DIR}/helm-conf" EXCLUDE_FROM_ALL)
+    endif()
+    if(NOT TARGET HELM::HALO)
+        set(HALO_BUILD_FORTRAN OFF CACHE BOOL "Build HALO's Fortran wrapper when embedded in AMIO")
+        add_subdirectory("${_amio_helm_lib_root}/halo" "${CMAKE_CURRENT_BINARY_DIR}/helm-halo" EXCLUDE_FROM_ALL)
+    endif()
+    if(NOT TARGET HELM::LOGS)
+        add_subdirectory("${_amio_helm_lib_root}/logs" "${CMAKE_CURRENT_BINARY_DIR}/helm-logs" EXCLUDE_FROM_ALL)
+    endif()
+    set(CONF_FOUND TRUE)
+    set(HALO_FOUND TRUE)
+    set(LOGS_FOUND TRUE)
+else()
+    find_package(CONF REQUIRED)
+    find_package(HALO REQUIRED)
+    find_package(LOGS REQUIRED)
+endif()
 
 # kokkos/mdspan - reference implementation of std::experimental::mdspan used for Memory_View.  Header-only; PRIVATE to amio_core.
 find_package(mdspan CONFIG QUIET)
+
+# Accelerator runtime discovery is independent of mdspan discovery. Kokkos is optional and remains a private implementation dependency; device
+# submission stays disabled until an adapter is compiled and qualified for the runtime.
+include(AMIOMemoryBackend)
+amio_discover_memory_backend()
 
 # MPI - required for parallel I/O paths (NetCDF-4 Parallel HDF5, HALO communicator splits).
 find_package(MPI QUIET COMPONENTS C CXX Fortran)
@@ -199,6 +231,7 @@ endif()
 # ####################################################################################################################################################
 
 option(AMIO_FORCE_NCZARR "Skip TensorStore discovery; build Zarr_Driver in NCZarr fallback mode" OFF)
+option(AMIO_FETCH_TENSORSTORE "Fetch pinned TensorStore v0.1.86 for backend qualification when no package is installed" OFF)
 
 # Custom find module -- emits AMIO_HAS_TENSORSTORE and TensorStore_REASON.
 find_package(TensorStore MODULE QUIET)
@@ -319,11 +352,14 @@ target_compile_features(amio_public_headers INTERFACE c_std_99)
 # ####################################################################################################################################################
 
 # ---- driver_netcdf ----------------------------------------------------
-add_library(driver_netcdf STATIC src/drivers/netcdf/netcdf_driver.cpp)
+add_library(driver_netcdf STATIC src/drivers/netcdf/netcdf_driver.cpp src/drivers/netcdf/netcdf_steps.cpp)
 add_library(AMIO::driver_netcdf ALIAS driver_netcdf)
 
 target_include_directories(driver_netcdf PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(driver_netcdf PRIVATE amio_public_headers HELM::CONF)
+if(AMIO_NETCDF_PAR_LIB)
+    target_compile_definitions(driver_netcdf PRIVATE AMIO_HAS_PARALLEL_NETCDF=1)
+endif()
 if(netCDFCxx_FOUND)
     target_link_libraries(driver_netcdf PRIVATE netCDF::netcdf-cxx4)
     target_compile_definitions(driver_netcdf PRIVATE AMIO_HAS_NETCDF=1)
@@ -344,7 +380,7 @@ elseif(netCDF_FOUND)
     target_compile_definitions(driver_netcdf PRIVATE AMIO_HAS_NETCDF=1)
 endif()
 if(AMIO_NETCDF_MPI_INCLUDE_DIR)
-    target_include_directories(driver_netcdf PRIVATE ${AMIO_NETCDF_MPI_INCLUDE_DIR})
+    target_include_directories(driver_netcdf BEFORE PRIVATE ${AMIO_NETCDF_MPI_INCLUDE_DIR})
 endif()
 if(MPI_CXX_FOUND)
     target_link_libraries(driver_netcdf PRIVATE MPI::MPI_CXX)
@@ -352,16 +388,26 @@ if(MPI_CXX_FOUND)
 endif()
 
 # ---- driver_zarr -----------------------------------------------------
-add_library(driver_zarr STATIC src/drivers/zarr/zarr_driver.cpp src/drivers/zarr/zarr_nczarr_fallback.cpp)
+add_library(driver_zarr STATIC src/drivers/zarr/zarr_driver.cpp src/drivers/zarr/zarr_nczarr_fallback.cpp src/drivers/zarr/zarr_steps.cpp)
 add_library(AMIO::driver_zarr ALIAS driver_zarr)
 
 target_include_directories(driver_zarr PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(driver_zarr PRIVATE amio_public_headers HELM::CONF)
+target_link_libraries(driver_zarr PRIVATE amio_public_headers HELM::CONF HELM::HALO)
+if(MPI_CXX_FOUND)
+    target_link_libraries(driver_zarr PRIVATE MPI::MPI_CXX)
+    target_compile_definitions(driver_zarr PRIVATE AMIO_HAS_MPI=1)
+endif()
 if(AMIO_HAS_TENSORSTORE)
     # TensorStore mode: link the TensorStore CONFIG-imported target. No -DAMIO_NCZARR_FALLBACK is set; the driver compiles its TensorStore variant
     # (R8.1-R8.5).
     target_link_libraries(driver_zarr PRIVATE TensorStore::tensorstore)
+    if(AMIO_TENSORSTORE_ABI_INCLUDE_DIR)
+        target_include_directories(driver_zarr BEFORE PRIVATE "${AMIO_TENSORSTORE_ABI_INCLUDE_DIR}")
+    endif()
     target_compile_definitions(driver_zarr PRIVATE AMIO_HAS_TENSORSTORE=1)
+    if(TARGET amio_tensorstore_abi)
+        target_link_libraries(driver_zarr PRIVATE amio_tensorstore_abi)
+    endif()
 else()
     # NCZarr fallback mode: link netCDF-c (the NCZarr capability check in the dependency-discovery block above already gated this with FATAL_ERROR if
     # neither backend is available).  The driver compiles its NCZarr variant (R8.6-R8.8, R13.5).
@@ -376,7 +422,7 @@ else()
             target_include_directories(driver_zarr PRIVATE ${_amio_zarr_nc_inc})
         endif()
         if(AMIO_NETCDF_MPI_INCLUDE_DIR)
-            target_include_directories(driver_zarr PRIVATE ${AMIO_NETCDF_MPI_INCLUDE_DIR})
+            target_include_directories(driver_zarr BEFORE PRIVATE ${AMIO_NETCDF_MPI_INCLUDE_DIR})
         endif()
         target_link_libraries(driver_zarr PRIVATE ${AMIO_NETCDF_PAR_LIB})
     else()
@@ -386,11 +432,15 @@ else()
 endif()
 
 # ---- driver_grib2 ----------------------------------------------------
-add_library(driver_grib2 STATIC src/drivers/grib2/grib2_driver.cpp)
+add_library(driver_grib2 STATIC src/drivers/grib2/grib2_driver.cpp src/drivers/grib2/grib2_steps.cpp)
 add_library(AMIO::driver_grib2 ALIAS driver_grib2)
 
 target_include_directories(driver_grib2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(driver_grib2 PRIVATE amio_public_headers HELM::CONF)
+target_link_libraries(driver_grib2 PRIVATE amio_public_headers HELM::CONF HELM::HALO)
+if(MPI_CXX_FOUND)
+    target_link_libraries(driver_grib2 PRIVATE MPI::MPI_CXX)
+    target_compile_definitions(driver_grib2 PRIVATE AMIO_HAS_MPI=1)
+endif()
 if(g2c_FOUND)
     target_link_libraries(driver_grib2 PRIVATE g2c::g2c)
     target_compile_definitions(driver_grib2 PRIVATE AMIO_HAS_G2C=1)
@@ -406,24 +456,54 @@ endif()
 add_library(
     amio_core SHARED
     src/c_boundary/amio_api.cpp
+    src/c_boundary/amio_evolution_api.cpp
     src/c_boundary/amio_core.cpp
     src/c_boundary/handle_table.cpp
+    src/c_boundary/operation_record.cpp
     src/c_boundary/amio_strerror.cpp
     src/staging/staging_pool.cpp
+    src/staging/resource_budget.cpp
     src/workers/worker_pool.cpp
     src/workers/thread_pinning.cpp
     src/workers/comm_split.cpp
     src/workers/exception_bridge.cpp
     src/workers/mpi_threading.cpp
     src/prefetch/prefetch_queue.cpp
+    src/prefetch/step_read_queue.cpp
+    src/prefetch/stream_read_queue.cpp
     src/config/config_loader.cpp
     src/factory/backend_factory.cpp
     src/drivers/common/var_attributes.cpp)
+
+# Evolving engine modules are kept private and are discovered only beneath their dedicated implementation directories. CONFIGURE_DEPENDS makes a newly
+# added source trigger CMake regeneration while avoiding references to files that have not been implemented yet.
+file(
+    GLOB
+    AMIO_EVOLUTION_CORE_SOURCES
+    CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/schema/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/steps/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/catalog/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/execution/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/memory/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/diagnostics/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/operators/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/stream/*.cpp")
+if(AMIO_EVOLUTION_CORE_SOURCES)
+    target_sources(amio_core PRIVATE ${AMIO_EVOLUTION_CORE_SOURCES})
+endif()
 add_library(AMIO::amio_core ALIAS amio_core)
 
 # `amio_api.cpp` checks `AMIO_BUILDING_LIBRARY` so the AMIO_API macro emits `__declspec(dllexport)` on Windows when libamio itself is being built.  On
 # ELF / Mach-O targets visibility is governed by `__attribute__((visibility("default")))` and this define is a harmless no-op.
 target_compile_definitions(amio_core PRIVATE AMIO_BUILDING_LIBRARY=1)
+if(AMIO_NETCDF_PAR_LIB)
+    target_compile_definitions(amio_core PRIVATE AMIO_HAS_PARALLEL_NETCDF=1)
+endif()
+if(g2c_FOUND)
+    target_compile_definitions(amio_core PRIVATE AMIO_HAS_G2C=1)
+    target_link_libraries(amio_core PRIVATE g2c::g2c)
+endif()
 
 set_target_properties(
     amio_core
@@ -443,9 +523,49 @@ target_include_directories(amio_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # PUBLIC link to the public-headers target so that downstream consumers transitively pick up the C99 include path.  Every other dependency is PRIVATE
 # so its headers do not leak (R13.6).
 target_link_libraries(amio_core PUBLIC amio_public_headers PRIVATE driver_netcdf driver_zarr driver_grib2)
+if(AMIO_MEMORY_BACKEND_TARGET)
+    target_link_libraries(amio_core PRIVATE ${AMIO_MEMORY_BACKEND_TARGET})
+    target_compile_definitions(amio_core PRIVATE AMIO_HAS_KOKKOS_RUNTIME=1)
+    if(AMIO_HAS_KOKKOS_DEVICE)
+        target_compile_definitions(amio_core PRIVATE AMIO_HAS_KOKKOS_DEVICE=1)
+    endif()
+endif()
+
+# Compile the concrete catalog bridge in feature-enabled builds. TensorStore remains a private dependency; a host-only/NCZarr build never parses its
+# headers or advertises its catalog adapter.
+if(AMIO_HAS_TENSORSTORE)
+    target_link_libraries(amio_core PRIVATE TensorStore::tensorstore)
+    if(AMIO_TENSORSTORE_ABI_INCLUDE_DIR)
+        target_include_directories(amio_core BEFORE PRIVATE "${AMIO_TENSORSTORE_ABI_INCLUDE_DIR}")
+    endif()
+    target_compile_definitions(amio_core PRIVATE AMIO_HAS_TENSORSTORE=1)
+    if(TARGET amio_tensorstore_abi)
+        target_link_libraries(amio_core PRIVATE amio_tensorstore_abi)
+    endif()
+endif()
 
 # HELM micro-libraries — PRIVATE so no header/symbol leaks to consumers (R7.2, R7.3, R7.4, R7.5, R7.6).
 target_link_libraries(amio_core PRIVATE HELM::CONF HELM::HALO HELM::LOGS)
+# The shared library has runtime/link-time dependencies on HELM and the selected backend runtimes. Export them as LINK_ONLY requirements so downstream
+# consumers resolve the installed DSO closure without inheriting private compile include directories or definitions.
+target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:HELM::CONF>" "$<LINK_ONLY:HELM::HALO>" "$<LINK_ONLY:HELM::LOGS>")
+if(MPI_CXX_FOUND)
+    target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:MPI::MPI_CXX>")
+endif()
+if(AMIO_NETCDF_PAR_LIB)
+    target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:${AMIO_NETCDF_PAR_LIB}>")
+elseif(TARGET netCDF::netcdf)
+    target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:netCDF::netcdf>")
+endif()
+if(g2c_FOUND AND TARGET g2c::g2c)
+    target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:g2c::g2c>")
+endif()
+if(AMIO_MEMORY_BACKEND_TARGET)
+    target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:${AMIO_MEMORY_BACKEND_TARGET}>")
+endif()
+if(AMIO_HAS_TENSORSTORE AND TARGET TensorStore::tensorstore)
+    target_link_libraries(amio_core INTERFACE "$<LINK_ONLY:TensorStore::tensorstore>")
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(amio_core PRIVATE "-Wl,--exclude-libs,ALL")
@@ -523,6 +643,22 @@ elseif(AMIO_BUILD_PBT_ONLY)
         add_subdirectory(tests/pbt)
     else()
         message(STATUS "AMIO PBT: Catch2 or RapidCheck not found; skipping tests/pbt/")
+    endif()
+endif()
+
+if(AMIO_BUILD_QUALIFICATION AND NOT AMIO_BUILD_TESTING)
+    add_subdirectory(tests/qualification)
+endif()
+
+if(AMIO_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
+
+if(AMIO_BUILD_TOOLS)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/CMakeLists.txt")
+        add_subdirectory(tools)
+    else()
+        message(STATUS "AMIO tools requested but the tools directory is not implemented yet")
     endif()
 endif()
 
@@ -623,6 +759,9 @@ message(STATUS "AMIO ${PROJECT_VERSION} configuration summary")
 message(STATUS "  C++ standard          : C++${CMAKE_CXX_STANDARD}")
 message(STATUS "  C   standard          : C${CMAKE_C_STANDARD}")
 message(STATUS "  Build testing         : ${AMIO_BUILD_TESTING}")
+message(STATUS "  Build qualification   : ${AMIO_BUILD_QUALIFICATION}")
+message(STATUS "  Build benchmarks      : ${AMIO_BUILD_BENCHMARKS}")
+message(STATUS "  Build tools           : ${AMIO_BUILD_TOOLS}")
 message(STATUS "  Build documentation   : ${AMIO_BUILD_DOCS}")
 message(STATUS "  Build examples        : ${AMIO_BUILD_EXAMPLES}")
 message(STATUS "  HELM::CONF found      : ${CONF_FOUND}")

@@ -231,6 +231,9 @@ void PrefetchQueue::mark_failed(std::int64_t timestep, amio_err_t error) {
     std::lock_guard<std::mutex> lock(mu_);
     pending_.erase(timestep);
     failed_[timestep] = error;
+    // Bound retained failures when callers advance without consuming every
+    // failed look-ahead result.
+    while (failed_.size() > kMaxDepth) failed_.erase(failed_.begin());
     cv_.notify_all();
 }
 
@@ -290,9 +293,9 @@ void PrefetchQueue::schedule_fetch(std::int64_t timestep) {
         auto self = this;
         auto ts = timestep;
 
-        workers_->submit_prefetch(timestep,
-                                  timestep,  // distance = timestep (from position 0)
-                                  dataset_id_, [self, ts, sel]() { self->sync_fetch(ts, sel.has_value() ? &*sel : nullptr); });
+        const amio_err_t submitted = workers_->try_submit_prefetch(timestep, timestep, dataset_id_,
+                                                                   [self, ts, sel]() { self->sync_fetch(ts, sel.has_value() ? &*sel : nullptr); });
+        if (submitted != AMIO_OK) mark_failed(timestep, submitted);
     } else {
         // Synchronous fallback: perform the fetch directly on the
         // calling thread.

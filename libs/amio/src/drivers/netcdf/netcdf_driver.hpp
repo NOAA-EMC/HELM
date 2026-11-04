@@ -51,10 +51,15 @@
 #include <netcdf_par.h>
 #endif
 
+#include <cstdint>
+#include <map>
+#include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "drivers/common/var_attributes.hpp"
+#include "drivers/netcdf/netcdf_steps.hpp"
 
 namespace amio::detail {
 
@@ -69,64 +74,109 @@ enum class NetCDF4DataModel {
 //
 // Factory key: "netcdf4"
 // Registration: BackendRegistrar<NetCDF_Driver>("netcdf4")
+/** @class NetCDF_Driver
+ * @brief NetCDF storage using collective MPI hyperslab writes and lossless compression.
+ */
 class NetCDF_Driver : public Backend_Driver {
    public:
+    /** @brief Accept rank-local hyperslabs in a shared NetCDF variable. @return True. */
+    bool supports_region_writes() const noexcept override {
+        return true;
+    }
+    bool supports_write_schema_preparation() const noexcept override {
+        return true;
+    }
+
     NetCDF_Driver();
     ~NetCDF_Driver() override;
 
-    // Backend_Driver interface.
+    /** @brief Backend_Driver interface.
+     */
     void open_write(const conf::Config &config) override;
     void open_read(const conf::Config &config) override;
+    void prepare_write_schema(const std::vector<VarMeta> &schema) override;
     void write(const StagingBuffer &src, const VarMeta &meta) override;
     void read(StagingBuffer &dst, const VarMeta &meta, std::int64_t timestep, const std::optional<BoundingBox> &bbox) override;
     void flush() override;
     void close() override;
 
 #if defined(AMIO_HAS_MPI) && defined(AMIO_HAS_NETCDF)
-    // Override set_communicator to receive the I/O communicator
-    // handle from the Worker_Pool's IOCommunicator (R3.3, R10.4).
-    // Must be called before open_write / open_read.
+    /** @brief Override set_communicator to receive the I/O communicator
+     * handle from the Worker_Pool's IOCommunicator (R3.3, R10.4).
+     * Must be called before open_write / open_read.
+     */
     void set_communicator(MPI_Comm comm_handle) override;
 #endif
 
-    // Report a variable's element type, shape, and timestep count by
-    // introspecting the open NetCDF file (nc_inq_varid / nc_inq_var /
-    // nc_inq_dimlen + the unlimited/record dimension).  Returns
-    // VariableInfo{found = false} when the variable is absent, the
-    // driver is not open for reading, or the netCDF element type has no
-    // AMIO dtype mapping.  (Req 4.1, 4.2, 4.5, 9.1)
+    /** @brief Report a variable's element type, shape, and timestep count by
+     * introspecting the open NetCDF file (nc_inq_varid / nc_inq_var /
+     * nc_inq_dimlen + the unlimited/record dimension).  Returns
+     * VariableInfo{found = false} when the variable is absent, the
+     * driver is not open for reading, or the netCDF element type has no
+     * AMIO dtype mapping.  (Req 4.1, 4.2, 4.5, 9.1)
+     */
     VariableInfo describe_variable(const std::string &name) override;
 
-    // Read a CF text attribute ("units", "calendar", ...) for a variable, or
-    // a global attribute when var_name is empty.  Handles both NC_CHAR and
-    // NC_STRING storage; for a multi-element NC_STRING attribute only the first
-    // string is returned.  Returns nullopt if absent, numeric, or the driver is
-    // not open for reading.  (CF time-axis decoding support.)
+    /** @brief Read a CF text attribute ("units", "calendar", ...) for a variable, or
+     * a global attribute when var_name is empty.  Handles both NC_CHAR and
+     * NC_STRING storage; for a multi-element NC_STRING attribute only the first
+     * string is returned.  Returns nullopt if absent, numeric, or the driver is
+     * not open for reading.  (CF time-axis decoding support.)
+     */
     std::optional<std::string> get_text_attribute(const std::string &var_name, const std::string &attr_name) override;
 
-    // Read a numeric attribute ("scale_factor", "add_offset", ...) for a
-    // variable, or a global attribute when var_name is empty.  Returns
-    // nullopt if absent, non-numeric, or the driver is not open for reading.
+    /** @brief Read a numeric attribute ("scale_factor", "add_offset", ...) for a
+     * variable, or a global attribute when var_name is empty.  Returns
+     * nullopt if absent, non-numeric, or the driver is not open for reading.
+     */
     std::optional<double> get_numeric_attribute(const std::string &var_name, const std::string &attr_name) override;
+
+    /** Open one immutable native file for a logical step and define its sealed schema. */
+    void open_step_write(const std::string &path, const Schema &schema, double model_time);
+    /** Submit one local region; all ranks in a parallel file call in the same field order. */
+    void write_step_region(const std::string &variable, const RegionSelection &region, const void *data);
+    /** Prepare a variable for independent region writes in canonical writer-group field order. */
+    void prepare_step_independent_writes(const std::string &variable);
+    /** Write one bounded region after all writers have prepared the variable. */
+    void write_step_region_independent(const std::string &variable, const RegionSelection &region, const void *data);
+    /** Close the step payload before its catalog completion record may be published. */
+    void close_step_write();
+    /** Independently read a selected region from a closed step payload. */
+    static void read_step_region(const std::string &path, const std::string &variable, const RegionSelection &region, void *data);
+    /** Read the required scalar model-time attribute from a closed step payload. */
+    static bool read_step_model_time(const std::string &path, double &model_time) noexcept;
 
    public:
     // ----- Static utility methods (public for testability) -----
 
-    // Validate the data model string from configuration.
+    /** @brief Validate the data model string from configuration.
+     */
     static NetCDF4DataModel parse_data_model(const std::string &model_str);
 
    private:
-    // Verify that the linked netCDF library has Parallel HDF5 + MPI-IO.
+    /** @brief Verify that the linked netCDF library has Parallel HDF5 + MPI-IO.
+     */
     static void verify_parallel_support();
 
-    // Validate that a codec is on the lossless allow-list.
+    /** @brief Validate that a codec is on the lossless allow-list.
+     */
     static void validate_codec(const std::string &codec, const std::vector<std::string> &allow_list);
 
-    // Map amio_dtype_t to netCDF type constant.
+    /** @brief Map amio_dtype_t to netCDF type constant.
+     */
     static int dtype_to_nc_type(amio_dtype_t dtype);
 
-    // Get the byte size of an amio_dtype_t element.
+    /** @brief Get the byte size of an amio_dtype_t element.
+     */
     static std::size_t dtype_byte_size(amio_dtype_t dtype);
+
+    int define_variable_in_define_mode(const VarMeta &meta);
+
+    struct PreparedVariable {
+        int varid = -1;
+        amio_dtype_t dtype = AMIO_DTYPE_F32;
+        std::vector<std::int64_t> global_extents;
+    };
 
 #ifdef AMIO_HAS_NETCDF
     // Internal state.
@@ -142,12 +192,23 @@ class NetCDF_Driver : public Backend_Driver {
     bool is_open_ = false;
     bool is_write_mode_ = false;
     bool use_parallel_ = false;
+    bool write_schema_prepared_ = false;
+    std::unordered_map<std::string, PreparedVariable> prepared_variables_;
+    std::set<std::string, std::less<>> independent_step_variables_;
 
     // CF/UGRID convention metadata + per-variable attributes parsed
     // from the dataset manifest (R7.x convention compliance).
     DatasetAttributes attributes_;
     bool global_attrs_written_ = false;
 };
+
+/** ABI-stable internal bridge so callers need not instantiate the macro-configured driver class. */
+struct NetCDFStepFieldView {
+    RegionSelection region;
+    const void *data = nullptr;
+};
+void write_netcdf_step_payload(const std::string &path, const Schema &schema, double model_time,
+                               const std::map<std::string, NetCDFStepFieldView, std::less<>> &fields, std::int64_t fortran_communicator);
 
 }  // namespace amio::detail
 

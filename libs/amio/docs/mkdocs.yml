@@ -40,6 +40,11 @@ nav:
       - Fortran API: user-guide/fortran-api.md
       - Configuration: user-guide/configuration.md
       - Model Integration: user-guide/model-integration.md
+      - Scalable Output: user-guide/scalable-output.md
+      - Live Streaming: user-guide/live-streaming.md
+      - Data Operators: user-guide/data-operators.md
+      - Accelerator I/O: user-guide/accelerator-io.md
+      - Command-line Utilities: user-guide/utilities.md
   - Examples:
       - NetCDF-4 (C): examples/netcdf4-c.md
       - NetCDF-4 (Fortran): examples/netcdf4-fortran.md

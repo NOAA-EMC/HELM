@@ -1,5 +1,9 @@
 # Quick Start
 
+> This page contains the legacy manifest API example below. For the additive
+> evolution API, its build commands, and the current qualification boundaries,
+> see [Evolution API quickstart](#evolution-api-quickstart).
+
 This page shows the minimal steps to write a multidimensional array through AMIO.
 
 ## 1. Create a Manifest
@@ -114,6 +118,31 @@ program quickstart
     deallocate(data)
 end program quickstart
 ```
+
+## Evolution API quickstart
+
+Build the library, tests, and C/Fortran examples with the same dependency
+prefix used for CONF, HALO, and LOGS:
+
+```sh
+cmake -S libs/amio -B build/amio -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
+  -DAMIO_BUILD_TESTING=ON -DAMIO_BUILD_EXAMPLES=ON \
+  -DAMIO_BUILD_TOOLS=ON -DAMIO_BUILD_QUALIFICATION=ON \
+  -DAMIO_BUILD_BENCHMARKS=ON
+cmake --build build/amio --parallel 4
+ctest --test-dir build/amio --output-on-failure
+```
+
+The examples under `libs/amio/examples/c` and `libs/amio/examples/fortran`
+show the step-collection, aggregated-step, stream, and device-snapshot calls.
+In a host-only build, the device example validates explicit unsupported-device
+handling; it does not qualify device execution. Check configure output for the
+selected Zarr backend. NCZarr builds reject collection output, GRIB2 collection
+publication is not connected to the public lifecycle, and aggregation tests
+currently qualify transport components rather than persistent shared output.
+Consult [configuration support](../user-guide/configuration.md) before
+relying on durability, object-store, or accelerator guarantees.
 
 ## 4. Build and Run
 

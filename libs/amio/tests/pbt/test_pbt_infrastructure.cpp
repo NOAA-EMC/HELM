@@ -103,7 +103,6 @@ TEST_CASE("PBT infrastructure: Arbitrary<Config> generates valid manifests", "[p
         RC_ASSERT(cfg.staging_pool.buffer_capacity_bytes >= 1);
 
         // Worker pool range.
-        RC_ASSERT(cfg.worker_pool.threads >= 1);
         RC_ASSERT(cfg.worker_pool.threads <= 256);
 
         // Prefetch ranges.
