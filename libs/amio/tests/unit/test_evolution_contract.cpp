@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -7,6 +8,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "amio/amio_evolution.h"
@@ -58,6 +60,7 @@ void test_additive_status_values() {
     static_assert(AMIO_VALIDATION_FAIL == 1);
     static_assert(AMIO_VALIDATION_UNSUPPORTED == 2);
     expect(sizeof(amio_descriptor_header_t) == 2 * sizeof(uint32_t), "descriptor header must be two fixed-width words");
+    static_assert(sizeof(amio_field_partition_descriptor_t) == 160);
 }
 
 void test_validation_descriptor_rejection_and_size_query() {
@@ -101,6 +104,14 @@ void test_context_initialization_outputs_and_capability_query() {
     amio_context_handle context = reinterpret_cast<amio_context_handle>(static_cast<uintptr_t>(0x1234));
     amio_context_descriptor_t descriptor{};
     descriptor.struct_size = sizeof(descriptor);
+#ifdef AMIO_TEST_HAS_MPI
+    int rank_count = 0;
+    MPI_Comm_size(MPI_COMM_WORLD, &rank_count);
+    descriptor.rank_count = 1;
+    descriptor.fortran_communicator = static_cast<int64_t>(MPI_Comm_c2f(MPI_COMM_SELF));
+#else
+    descriptor.rank_count = 1;
+#endif
     descriptor.version = AMIO_EVOLUTION_DESCRIPTOR_VERSION_1 + 1;
     expect(amio_init_ex(&descriptor, &context) == AMIO_ERR_INVALID_INPUT, "unknown context descriptor version is rejected");
     expect(context == nullptr, "rejected context initialization clears its output handle");
@@ -113,12 +124,11 @@ void test_context_initialization_outputs_and_capability_query() {
     descriptor.execution_mode = AMIO_EXECUTION_PERSISTENT_DIRECT;
     descriptor.progress_mode = AMIO_PROGRESS_CALLER;
 #ifdef AMIO_TEST_HAS_MPI
-    int rank_count = 0;
     int rank = 0;
-    MPI_Comm_size(MPI_COMM_WORLD, &rank_count);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     descriptor.rank_count = static_cast<uint32_t>(rank_count);
-    descriptor.fortran_communicator = static_cast<int64_t>(MPI_Comm_c2f(MPI_COMM_WORLD));
+    const auto caller_communicator = rank_count == 1 ? MPI_COMM_SELF : MPI_COMM_WORLD;
+    descriptor.fortran_communicator = static_cast<int64_t>(MPI_Comm_c2f(caller_communicator));
 #else
     descriptor.rank_count = 1;
 #endif
@@ -175,8 +185,11 @@ void test_context_initialization_outputs_and_capability_query() {
                "all context members can collectively reduce cumulative counters");
         expect(std::strstr(reduced_report.data(), "\"api_version\":2") != nullptr &&
                    std::strstr(reduced_report.data(), "\"scope\":\"context\"") != nullptr &&
-                   std::strstr(reduced_report.data(), "\"accepted\":\"00000000000000000000\"") != nullptr,
-               "reduction returns a fixed-width versioned context snapshot");
+                   std::strstr(reduced_report.data(), "\"accepted\":\"00000000000000000000\"") != nullptr &&
+                   std::strstr(reduced_report.data(), "\"operator_input_bytes\":") != nullptr &&
+                   std::strstr(reduced_report.data(), "\"operator_output_bytes\":") != nullptr &&
+                   std::strlen(reduced_report.data()) + 1 == reduced_bytes,
+               "reduction returns every fixed-width counter and reports its exact buffer size");
         const auto root = std::filesystem::temp_directory_path() / "amio-evolution-contract-collection";
         std::error_code ec;
         std::filesystem::remove_all(root, ec);
@@ -553,6 +566,22 @@ void test_context_initialization_outputs_and_capability_query() {
                 expect(amio_release_operation(precision_operation) == AMIO_OK, "precision conversion operation observation can be released");
                 expect(amio_release_step_handle(step) == AMIO_OK, "producer step handle has a distinct release operation");
 
+#ifdef AMIO_TEST_HAS_NETCDF
+                std::atomic<bool> model_time_read_started{false};
+                std::atomic<bool> second_step_write_finished{false};
+                std::atomic<bool> model_time_read_failed{false};
+                std::thread model_time_reader([&] {
+                    model_time_read_started.store(true, std::memory_order_release);
+                    do {
+                        double model_time = 0.0;
+                        if (amio_get_step_model_time(dataset, 0, &model_time) != AMIO_OK || model_time != 12.5) {
+                            model_time_read_failed.store(true, std::memory_order_release);
+                            break;
+                        }
+                    } while (!second_step_write_finished.load(std::memory_order_acquire));
+                });
+                while (!model_time_read_started.load(std::memory_order_acquire)) std::this_thread::yield();
+#endif
                 step_descriptor.step_id = 1;
                 amio_step_handle second_step = nullptr;
                 expect(amio_begin_step(dataset, &step_descriptor, &second_step) == AMIO_OK && second_step != nullptr,
@@ -566,6 +595,12 @@ void test_context_initialization_outputs_and_capability_query() {
                     expect(amio_release_operation(second_operation) == AMIO_OK, "later operation observation is released");
                     expect(amio_release_step_handle(second_step) == AMIO_OK, "later producer handle is released");
                 }
+#ifdef AMIO_TEST_HAS_NETCDF
+                second_step_write_finished.store(true, std::memory_order_release);
+                model_time_reader.join();
+                expect(!model_time_read_failed.load(std::memory_order_acquire),
+                       "model-time reads remain valid while a later NetCDF step is being written");
+#endif
                 amio_catalog_cursor_t first_page_cursor{};
                 amio_step_summary_t first_page[1]{};
                 size_t first_page_count = 0;
@@ -695,6 +730,16 @@ void test_context_initialization_outputs_and_capability_query() {
             expect(amio_define_schema(reader, &schema_descriptor, &forbidden_schema) == AMIO_ERR_INVALID_POLICY && forbidden_schema == nullptr,
                    "read-only utility handle rejects schema mutation");
             expect(amio_close_dataset_ex(reader) == AMIO_OK, "read-only utility handle closes cleanly");
+        }
+        amio_step_lease_handle persistent_lease = nullptr;
+        expect(amio_acquire_step_lease(dataset, 0, &persistent_lease) == AMIO_OK && persistent_lease != nullptr,
+               "published step can be held by a persistent consumer lease");
+        if (persistent_lease != nullptr) {
+            size_t stream_read_bytes = 0;
+            expect(amio_stream_read(persistent_lease, nullptr, nullptr, 0, &stream_read_bytes) == AMIO_ERR_INVALID_HANDLE,
+                   "persistent lease is rejected by stream reads");
+            expect(amio_stream_release(persistent_lease) == AMIO_ERR_INVALID_HANDLE, "persistent lease is rejected by stream release");
+            expect(amio_release_step_lease(persistent_lease) == AMIO_OK, "persistent lease releases through its matching API");
         }
         expect(amio_close_dataset_ex(dataset) == AMIO_OK, "evolution dataset closes after schema registration");
         expect(amio_release_context(context) == AMIO_OK, "context closes after its dataset is released");

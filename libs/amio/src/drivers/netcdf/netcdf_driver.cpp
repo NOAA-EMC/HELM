@@ -997,6 +997,7 @@ void NetCDF_Driver::read_step_region(const std::string &path, const std::string 
 
 bool NetCDF_Driver::read_step_model_time(const std::string &path, double &model_time) noexcept {
 #ifdef AMIO_HAS_NETCDF
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
     int ncid = -1;
     if (nc_open(path.c_str(), NC_NOWRITE, &ncid) != NC_NOERR) return false;
     double value = 0.0;

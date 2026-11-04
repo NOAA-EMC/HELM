@@ -64,6 +64,7 @@ endif()
 
 if(MPI_Fortran_FOUND)
     add_executable(example_stream_fortran fortran/example_stream.f90)
+    set_target_properties(example_stream_fortran PROPERTIES LINKER_LANGUAGE Fortran)
     target_link_libraries(example_stream_fortran PRIVATE AMIO::amio_fortran MPI::MPI_Fortran)
     if(AMIO_BUILD_TESTING AND MPIEXEC_EXECUTABLE)
         add_test(NAME example.stream_fortran COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 6 ${MPIEXEC_PREFLAGS}
@@ -74,13 +75,16 @@ if(MPI_Fortran_FOUND)
     endif()
 
     add_executable(example_netcdf4_write_f90 fortran/example_netcdf4_write.f90)
+    set_target_properties(example_netcdf4_write_f90 PROPERTIES LINKER_LANGUAGE Fortran)
     target_link_libraries(example_netcdf4_write_f90 PRIVATE AMIO::amio_fortran MPI::MPI_Fortran)
 
     add_executable(example_step_collection_f90 fortran/example_step_collection.f90)
     target_link_libraries(example_step_collection_f90 PRIVATE AMIO::amio_fortran MPI::MPI_Fortran)
+    set_target_properties(example_step_collection_f90 PROPERTIES LINKER_LANGUAGE Fortran)
 
     add_executable(example_aggregated_steps_f90 fortran/example_aggregated_steps.f90)
     target_link_libraries(example_aggregated_steps_f90 PRIVATE AMIO::amio_fortran MPI::MPI_Fortran)
+    set_target_properties(example_aggregated_steps_f90 PROPERTIES LINKER_LANGUAGE Fortran)
     if(AMIO_BUILD_TESTING AND MPIEXEC_EXECUTABLE)
         add_test(NAME example.aggregated_steps_fortran COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                                                                $<TARGET_FILE:example_aggregated_steps_f90> ${MPIEXEC_POSTFLAGS})
@@ -94,9 +98,18 @@ if(MPI_Fortran_FOUND)
                        COPYONLY)
         add_test(NAME example.netcdf4_write_fortran COMMAND example_netcdf4_write_f90)
         set_tests_properties(example.netcdf4_write_fortran PROPERTIES LABELS "examples" WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
-        add_test(NAME example.step_collection_fortran COMMAND example_step_collection_f90)
-        set_tests_properties(example.step_collection_fortran PROPERTIES LABELS "examples;amio_step;amio_fortran" WORKING_DIRECTORY
-                                                                        "${CMAKE_BINARY_DIR}" TIMEOUT 60)
+        add_test(NAME example.step_collection_fortran COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                              $<TARGET_FILE:example_step_collection_f90> ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(
+            example.step_collection_fortran
+            PROPERTIES LABELS
+                       "examples;amio_step;amio_fortran;integration;mpi"
+                       WORKING_DIRECTORY
+                       "${CMAKE_BINARY_DIR}"
+                       TIMEOUT
+                       60
+                       ENVIRONMENT
+                       "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
     endif()
 else()
     message(STATUS "AMIO NetCDF-4 Fortran example requires MPI Fortran; skipping")
@@ -106,7 +119,9 @@ add_library(example_device_snapshot_fortran OBJECT fortran/example_device_snapsh
 target_link_libraries(example_device_snapshot_fortran PRIVATE AMIO::amio_fortran)
 
 add_executable(example_zarr_write_f90 fortran/example_zarr_write.f90)
+set_target_properties(example_zarr_write_f90 PROPERTIES LINKER_LANGUAGE Fortran)
 target_link_libraries(example_zarr_write_f90 PRIVATE AMIO::amio_fortran)
 
 add_executable(example_grib2_write_f90 fortran/example_grib2_write.f90)
+set_target_properties(example_grib2_write_f90 PROPERTIES LINKER_LANGUAGE Fortran)
 target_link_libraries(example_grib2_write_f90 PRIVATE AMIO::amio_fortran)

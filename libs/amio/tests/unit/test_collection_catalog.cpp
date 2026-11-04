@@ -1,4 +1,6 @@
 #include <cassert>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -101,6 +103,42 @@ void test_catalog_persists_grib2_message_ranges_and_rejects_invalid_ranges() {
     assert(encode_commit_document(value, encoded) == AMIO_ERR_INVALID_INPUT);
 }
 
+void test_shared_catalog_file_helpers_preserve_path_and_read_safety() {
+    assert(catalog_path_is_safe("payloads/steps/0.nc"));
+    assert(!catalog_path_is_safe("../outside"));
+    std::string nul_path = "payloads/steps/0.nc";
+    nul_path.push_back('\0');
+    nul_path += ".hidden";
+    assert(!catalog_path_is_safe(nul_path));
+
+    std::uint64_t step = 0;
+    std::string commit;
+    assert(parse_catalog_head("{\"format_version\":1,\"dataset_uuid\":\"dataset-uuid-0001\",\"step_id\":7,\"commit\":\"commits/7.json\"}",
+                              "dataset-uuid-0001", step, commit));
+    assert(step == 7 && commit == "commits/7.json");
+    assert(
+        !parse_catalog_head("{\"format_version\":1,\"dataset_uuid\":\"dataset-uuid-0001\",\"step_id\":7,"
+                            "\"commit\":\"commits/../outside.json\"}",
+                            "dataset-uuid-0001", step, commit));
+
+    const auto root = std::filesystem::temp_directory_path() / "amio-catalog-file-helpers-test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const auto file = root / "metadata.json";
+    {
+        std::ofstream output(file, std::ios::binary);
+        output << "bounded";
+    }
+    bool missing = false;
+    std::string bytes;
+    assert(read_bounded_catalog_file(file, 7, bytes, missing) && !missing && bytes == "bounded");
+    assert(!read_bounded_catalog_file(file, 6, bytes, missing) && !missing);
+    assert(!read_bounded_catalog_file(root / "missing.json", 7, bytes, missing) && missing);
+    std::filesystem::create_symlink(file, root / "metadata-link.json");
+    assert(!read_bounded_catalog_file(root / "metadata-link.json", 7, bytes, missing) && !missing);
+    std::filesystem::remove_all(root);
+}
+
 }  // namespace
 
 int main() {
@@ -109,5 +147,6 @@ int main() {
     test_ambiguous_head_ack_and_stale_reads_require_reconciliation();
     test_traversal_references_duplicate_owners_and_unreferenced_payloads_are_rejected_or_reported();
     test_catalog_persists_grib2_message_ranges_and_rejects_invalid_ranges();
+    test_shared_catalog_file_helpers_preserve_path_and_read_safety();
     std::cout << "test_collection_catalog: passed\n";
 }

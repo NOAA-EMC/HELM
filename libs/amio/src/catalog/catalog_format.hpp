@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -70,6 +71,9 @@ struct CompletionRecord {
     }
 };
 
+[[nodiscard]] bool catalog_path_is_safe(std::string_view path);
+[[nodiscard]] bool read_bounded_catalog_file(const std::filesystem::path &path, std::size_t max_bytes, std::string &bytes, bool &missing);
+[[nodiscard]] bool parse_catalog_head(std::string_view text, std::string_view uuid, std::uint64_t &step, std::string &commit);
 [[nodiscard]] std::string encode_field_path(std::string_view field);
 [[nodiscard]] bool decode_field_path(std::string_view component, std::string &field, std::size_t max_bytes = 1024 * 1024);
 [[nodiscard]] std::string encode_typed_double(double value);

@@ -9,14 +9,18 @@ program example_aggregated_steps
     integer(c_int32_t), target :: writer(1)
     character(kind=c_char), target :: configuration(2) = [character(kind=c_char) :: '{', '}']
     integer(c_int32_t) :: status, completed
-    integer :: ierr, provided, rank, size
+    integer :: ierr, provided, rank, size, allocation_status
 
     call MPI_Init_thread(MPI_THREAD_FUNNELED, provided, ierr)
     if (ierr /= MPI_SUCCESS .or. provided < MPI_THREAD_FUNNELED) call MPI_Abort(MPI_COMM_WORLD, 1, ierr)
     call MPI_Comm_rank(MPI_COMM_WORLD, rank, ierr)
     call MPI_Comm_size(MPI_COMM_WORLD, size, ierr)
     if (size < 2) call MPI_Abort(MPI_COMM_WORLD, 2, ierr)
-    allocate (producers(size - 1))
+    allocate (producers(size - 1), stat=allocation_status)
+    if (allocation_status /= 0) then
+        call MPI_Abort(MPI_COMM_WORLD, 3, ierr)
+        error stop 'could not allocate producer ranks'
+    end if
     producers = [(int(ierr, c_int32_t), ierr=0, size - 2)]
     writer = int(size - 1, c_int32_t)
     descriptor = amio_context_descriptor_t(int(c_sizeof(descriptor), c_int32_t), 1_c_int32_t, &
@@ -38,5 +42,4 @@ program example_aggregated_steps
     end if
     if (status /= AMIO_OK) call MPI_Abort(MPI_COMM_WORLD, 4, ierr)
     call MPI_Finalize(ierr)
-contains
 end program example_aggregated_steps

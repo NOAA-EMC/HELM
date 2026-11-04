@@ -12,9 +12,11 @@ find_package(Threads QUIET)
 add_executable(test_cli_contract test_cli_contract.cpp ${CMAKE_SOURCE_DIR}/tools/result_writer.cpp)
 target_include_directories(test_cli_contract PRIVATE ${CMAKE_SOURCE_DIR}/tools)
 add_test(NAME integration.cli_contract COMMAND test_cli_contract)
+set_tests_properties(integration.cli_contract PROPERTIES LABELS "integration;cli" TIMEOUT 30)
 add_executable(test_cli_conversion test_cli_conversion.cpp ${CMAKE_SOURCE_DIR}/tools/selection_parse.cpp)
 target_include_directories(test_cli_conversion PRIVATE ${CMAKE_SOURCE_DIR}/tools ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include)
 add_test(NAME integration.cli_conversion COMMAND test_cli_conversion)
+set_tests_properties(integration.cli_conversion PROPERTIES LABELS "integration;cli" TIMEOUT 30)
 add_executable(
     test_cli_copy
     test_cli_copy.cpp
@@ -32,6 +34,9 @@ add_executable(
 target_include_directories(test_cli_copy PRIVATE ${CMAKE_SOURCE_DIR}/tools ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include
                                                  ${CMAKE_SOURCE_DIR}/tests/qualification)
 target_link_libraries(test_cli_copy PRIVATE AMIO::amio_core)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang|IntelLLVM|Intel")
+    target_compile_options(test_cli_copy PRIVATE -UNDEBUG)
+endif()
 if(MPI_CXX_FOUND)
     target_compile_definitions(test_cli_copy PRIVATE AMIO_TOOLS_HAS_MPI=1 AMIO_CLI_TEST_HAS_MPI=1)
     target_link_libraries(test_cli_copy PRIVATE MPI::MPI_CXX)
@@ -54,9 +59,6 @@ if(AMIO_HAS_KOKKOS_RUNTIME)
     add_test(NAME integration.device_snapshot COMMAND test_device_snapshot)
     set_tests_properties(integration.device_snapshot PROPERTIES LABELS "integration;amio_accelerator;kokkos_snapshot" TIMEOUT 60)
 endif()
-
-# Integration fixtures use assert() for checks and setup calls; keep them active in Release builds so MPI ranks execute identical fixture operations.
-add_compile_options("$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-UNDEBUG>")
 
 add_executable(test_catalog_guarantees test_catalog_guarantees.cpp ${CMAKE_SOURCE_DIR}/src/catalog/catalog_format.cpp
                                        ${CMAKE_SOURCE_DIR}/src/catalog/posix_catalog.cpp ${CMAKE_SOURCE_DIR}/src/catalog/collection_reader.cpp)

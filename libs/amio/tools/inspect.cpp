@@ -16,40 +16,8 @@ bool parse_u64(const std::string &text, std::uint64_t &value) {
 
 CliResult run_capabilities(const Options &options) {
     CliResult result{0, "capabilities", "effective compiled capabilities"};
-    std::string configuration = "{}";
-    if (const auto it = options.values.find("--config"); it != options.values.end() && !read_bounded_file(it->second, 1024 * 1024, configuration)) {
-        result.exit_code = 2;
-        result.summary = "invalid configuration path";
-        result.errors.push_back("could not read a regular configuration file within 1 MiB");
-        return result;
-    }
-    amio_context_descriptor_t descriptor{};
-#ifdef AMIO_TOOLS_HAS_MPI
-    int mpi_ready = 0;
-    MPI_Initialized(&mpi_ready);
-    if (!mpi_ready) {
-        int provided = 0;
-        if (MPI_Init_thread(nullptr, nullptr, MPI_THREAD_MULTIPLE, &provided) != MPI_SUCCESS || provided < MPI_THREAD_MULTIPLE) {
-            result.exit_code = 5;
-            result.errors.push_back("MPI_THREAD_MULTIPLE is unavailable");
-            return result;
-        }
-    }
-    int mpi_size = 1;
-    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
-    descriptor.fortran_communicator = static_cast<int64_t>(MPI_Comm_c2f(MPI_COMM_WORLD));
-    descriptor.rank_count = static_cast<uint32_t>(mpi_size);
-#else
-    descriptor.rank_count = 1;
-#endif
-    descriptor.struct_size = sizeof(descriptor);
-    descriptor.version = AMIO_EVOLUTION_DESCRIPTOR_VERSION_1;
-    descriptor.execution_mode = AMIO_EXECUTION_PERSISTENT_DIRECT;
-    descriptor.progress_mode = AMIO_PROGRESS_CALLER;
-    descriptor.canonical_configuration = configuration.data();
-    descriptor.configuration_bytes = configuration.size();
-    amio_context_handle context = nullptr;
-    const auto initialized = amio_init_ex(&descriptor, &context);
+    CliRuntime runtime;
+    const auto initialized = open_cli_context(options, runtime);
     if (initialized != AMIO_OK) {
         result.exit_code = initialized == AMIO_ERR_INVALID_INPUT || initialized == AMIO_ERR_MANIFEST_INVALID ? 2 : 5;
         result.summary = "could not initialize capability query";
@@ -57,17 +25,13 @@ CliResult run_capabilities(const Options &options) {
         return result;
     }
     std::size_t required = 0;
-    auto status = amio_query_capabilities(context, nullptr, 0, &required);
+    auto status = amio_query_capabilities(runtime.context, nullptr, 0, &required);
     if (status == AMIO_OK && required > 0 && required <= 65536) {
         std::string json(required, '\0');
-        status = amio_query_capabilities(context, json.data(), json.size(), &required);
+        status = amio_query_capabilities(runtime.context, json.data(), json.size(), &required);
         if (status == AMIO_OK && !json.empty()) result.results_json.push_back("{\"capabilities\":" + json.substr(0, json.find('\0')) + "}");
     } else if (status == AMIO_OK)
         status = AMIO_ERR_BUFFER_TOO_SMALL;
-    (void)amio_release_context(context);
-#ifdef AMIO_TOOLS_HAS_MPI
-    if (!mpi_ready) MPI_Finalize();
-#endif
     if (status != AMIO_OK) {
         result.exit_code = 5;
         result.summary = "capability query failed";

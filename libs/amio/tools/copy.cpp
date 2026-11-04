@@ -192,6 +192,9 @@ CliResult run_copy(const Options &options) {
     }
     std::map<std::uint64_t, double> model_times;
     std::map<std::uint64_t, std::map<std::string, std::size_t, std::less<>>> byte_sizes;
+    CliRuntime runtime;
+    status = open_cli_dataset(source_path, options, runtime);
+    if (status != AMIO_OK) return invalid(5, "could not open source dataset reader: " + std::to_string(status));
     for (const auto &step : steps) {
         std::vector<std::byte> no_data;
         for (const auto &name : closure) {
@@ -206,9 +209,6 @@ CliResult run_copy(const Options &options) {
             auto payload =
                 std::find_if(step.completion.payloads.begin(), step.completion.payloads.end(), [&](const auto &p) { return p.field == name; });
             if (payload == step.completion.payloads.end()) return invalid(4, "field payload reference is missing: " + name);
-            CliRuntime runtime;
-            status = open_cli_dataset(source_path, options, runtime);
-            if (status != AMIO_OK) return invalid(5, "could not open source dataset reader: " + std::to_string(status));
             std::size_t bytes = 0;
             status = amio_read_step_field(runtime.dataset, step.completion.step_id, name.data(), name.size(), nullptr, nullptr, 0, &bytes);
             if (status != AMIO_OK) return invalid(status == AMIO_ERR_UNSUPPORTED ? 3 : 4, "could not preflight source field bytes: " + name);
@@ -221,9 +221,6 @@ CliResult run_copy(const Options &options) {
             if (bytes > kCopyBudget - total) return invalid(3, "selected step exceeds the 64 MiB local copy budget");
             total += bytes;
         }
-        CliRuntime runtime;
-        status = open_cli_dataset(source_path, options, runtime);
-        if (status != AMIO_OK) return invalid(5, "could not open source dataset reader: " + std::to_string(status));
         double time = 0;
         status = amio_get_step_model_time(runtime.dataset, step.completion.step_id, &time);
         if (status != AMIO_OK)
@@ -232,9 +229,6 @@ CliResult run_copy(const Options &options) {
         model_times[step.completion.step_id] = time;
     }
 
-    CliRuntime runtime;
-    status = open_cli_dataset(source_path, options, runtime);
-    if (status != AMIO_OK) return invalid(5, "could not open source dataset reader: " + std::to_string(status));
     std::vector<VariableWire> wire_variables;
     wire_variables.reserve(closure.size());
     std::vector<amio_variable_descriptor_t> variable_descriptors;

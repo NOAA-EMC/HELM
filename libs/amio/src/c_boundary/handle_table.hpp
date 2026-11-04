@@ -69,6 +69,7 @@ enum class HandleKind : std::uint8_t {
     ValidationReport = 9,
     EvolutionDataset = 10,
     Operation = 11,
+    StreamLease = 12,
 };
 
 // HandleTable -- a slab of generation-stamped slots that hands out

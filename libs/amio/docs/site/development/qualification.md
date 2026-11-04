@@ -31,3 +31,13 @@ backend, MPI rank count, storage system, and hardware. Mark absent tools or
 infrastructure as unavailable and list the exact claim that remains
 unqualified. Keep routine correctness checks separate from large-scale,
 credentialed object-store, and accelerator release gates.
+
+## Evidence and release gates
+
+Committed qualification fixtures are under
+[`tests/qualification/`](../../../tests/qualification/) and benchmark inputs
+are under [`benchmarks/`](../../../benchmarks/). Passing the fixture suite
+does not certify target-machine scaling, a certified destination, or
+accelerator support. SC-002, SC-004, and SC-008 remain unqualified until
+measurements and device evidence are recorded with their storage, hardware,
+and rank-count context.

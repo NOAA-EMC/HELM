@@ -20,19 +20,6 @@ std::mutex owner_mutex;
 std::map<std::string, std::string, std::less<>> owners;
 std::atomic<std::uint64_t> temp_sequence{1};
 
-bool safe_relative_path(std::string_view path) {
-    if (path.empty() || path.front() == '/' || path.find('\\') != std::string_view::npos || path.find('\0') != std::string_view::npos) return false;
-    std::size_t at = 0;
-    while (at <= path.size()) {
-        const auto slash = path.find('/', at);
-        const auto part = path.substr(at, slash == std::string_view::npos ? path.size() - at : slash - at);
-        if (part.empty() || part == "." || part == "..") return false;
-        if (slash == std::string_view::npos) break;
-        at = slash + 1;
-    }
-    return true;
-}
-
 bool sync_requested(PosixSyncLevel level) {
     return level != PosixSyncLevel::Visibility;
 }
@@ -117,51 +104,6 @@ std::string head_json(std::string_view uuid, std::uint64_t step, std::string_vie
            ",\"commit\":\"" + std::string(commit) + "\"}";
 }
 
-bool read_bounded(const std::filesystem::path &path, std::size_t max_bytes, std::string &bytes, bool &missing) {
-    missing = false;
-    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-    if (fd < 0) {
-        missing = errno == ENOENT;
-        return false;
-    }
-    struct stat st{};
-    if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 || static_cast<std::uint64_t>(st.st_size) > max_bytes) {
-        ::close(fd);
-        return false;
-    }
-    bytes.assign(static_cast<std::size_t>(st.st_size), '\0');
-    std::size_t offset = 0;
-    while (offset < bytes.size()) {
-        const auto count = ::read(fd, bytes.data() + offset, bytes.size() - offset);
-        if (count < 0) {
-            if (errno == EINTR) continue;
-            ::close(fd);
-            return false;
-        }
-        if (count == 0) {
-            ::close(fd);
-            return false;
-        }
-        offset += static_cast<std::size_t>(count);
-    }
-    return ::close(fd) == 0;
-}
-
-bool parse_head(std::string_view text, std::string_view uuid, std::uint64_t &step, std::string &commit) {
-    const auto prefix = std::string("{\"format_version\":1,\"dataset_uuid\":\"") + std::string(uuid) + "\",\"step_id\":";
-    constexpr std::string_view marker = ",\"commit\":\"";
-    if (!text.starts_with(prefix)) return false;
-    const auto step_begin = prefix.size();
-    const auto marker_at = text.find(marker, step_begin);
-    if (marker_at == std::string_view::npos || marker_at == step_begin) return false;
-    const auto parsed = std::from_chars(text.data() + step_begin, text.data() + marker_at, step);
-    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + marker_at) return false;
-    const auto commit_begin = marker_at + marker.size();
-    if (text.size() < commit_begin + 2 || text.substr(text.size() - 2) != "\"}") return false;
-    commit.assign(text.substr(commit_begin, text.size() - commit_begin - 2));
-    return safe_relative_path(commit) && commit.rfind("commits/", 0) == 0;
-}
-
 bool valid_uuid(std::string_view uuid) {
     if (uuid.empty() || uuid.size() > 128) return false;
     for (const unsigned char c : uuid)
@@ -204,7 +146,7 @@ struct PosixCatalog::Impl {
     }
 
     bool resolve(std::string_view relative, std::filesystem::path &path, bool create_parent) const {
-        if (!safe_relative_path(relative)) return false;
+        if (!catalog_path_is_safe(relative)) return false;
         path = root / std::filesystem::path(relative);
         std::error_code ec;
         const auto parent = path.parent_path();
@@ -303,7 +245,7 @@ amio_status_t PosixCatalog::create_exclusive() {
 }
 
 amio_status_t PosixCatalog::write_payload(std::string_view relative_path, const void *data, std::size_t bytes, PosixSyncLevel sync) {
-    if (!impl_ || !impl_->created || !impl_->claimed || (bytes && !data) || !safe_relative_path(relative_path) ||
+    if (!impl_ || !impl_->created || !impl_->claimed || (bytes && !data) || !catalog_path_is_safe(relative_path) ||
         relative_path.rfind("payloads/", 0) != 0) {
         return AMIO_ERR_INVALID_INPUT;
     }
@@ -354,13 +296,13 @@ PublicationResult PosixCatalog::publish(CompletionRecord record, PosixSyncLevel 
 }
 
 PublicationResult PosixCatalog::reconcile(std::string_view commit_path) const {
-    if (!impl_ || !safe_relative_path(commit_path) || commit_path.rfind("commits/", 0) != 0)
+    if (!impl_ || !catalog_path_is_safe(commit_path) || commit_path.rfind("commits/", 0) != 0)
         return {AMIO_ERR_INVALID_INPUT, PublicationState::Failed, {}};
     std::filesystem::path path;
     if (!impl_->resolve(commit_path, path, false)) return {AMIO_ERR_INVALID_INPUT, PublicationState::Failed, std::string(commit_path)};
     std::string bytes;
     bool missing = false;
-    if (!read_bounded(path, impl_->limits.document_bytes, bytes, missing)) {
+    if (!read_bounded_catalog_file(path, impl_->limits.document_bytes, bytes, missing)) {
         return {missing ? AMIO_ERR_STEP_FAILED : AMIO_ERR_PUBLICATION_PENDING, missing ? PublicationState::Failed : PublicationState::Reconciling,
                 std::string(commit_path)};
     }
@@ -371,13 +313,13 @@ PublicationResult PosixCatalog::reconcile(std::string_view commit_path) const {
     if (!impl_->resolve("head.json", head_path, false))
         return {AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, std::string(commit_path)};
     std::string head_bytes;
-    if (!read_bounded(head_path, impl_->limits.string_bytes + 512, head_bytes, missing)) {
+    if (!read_bounded_catalog_file(head_path, impl_->limits.string_bytes + 512, head_bytes, missing)) {
         return {missing ? AMIO_ERR_STEP_FAILED : AMIO_ERR_PUBLICATION_PENDING, missing ? PublicationState::Failed : PublicationState::Reconciling,
                 std::string(commit_path)};
     }
     std::uint64_t head_step = 0;
     std::string current;
-    if (!parse_head(head_bytes, impl_->uuid, head_step, current))
+    if (!parse_catalog_head(head_bytes, impl_->uuid, head_step, current))
         return {AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, std::string(commit_path)};
     bool guarantee_valid = false;
     const auto guarantee = sync_level(record.achieved_guarantee, guarantee_valid);
@@ -401,7 +343,7 @@ PublicationResult PosixCatalog::reconcile(std::string_view commit_path) const {
         if (!impl_->resolve(current, current_path, false))
             return {AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, std::string(commit_path)};
         std::string current_bytes;
-        if (!read_bounded(current_path, impl_->limits.document_bytes, current_bytes, missing)) {
+        if (!read_bounded_catalog_file(current_path, impl_->limits.document_bytes, current_bytes, missing)) {
             return {missing ? AMIO_ERR_PUBLICATION_PENDING : AMIO_ERR_PUBLICATION_PENDING, PublicationState::Reconciling, std::string(commit_path)};
         }
         CompletionRecord current_record;

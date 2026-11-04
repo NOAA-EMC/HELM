@@ -31,8 +31,6 @@ target_link_libraries(test_amio_strerror PRIVATE AMIO::public_headers AMIO::amio
 # The harness uses std::thread; on most Unix toolchains this requires linking pthreads.  CMake's Threads module exposes that portably.
 find_package(Threads QUIET)
 
-# Unit tests use assert() for checks and occasionally for setup calls. Keep assertions enabled even when the production build type defines NDEBUG.
-add_compile_options("$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-UNDEBUG>")
 if(Threads_FOUND)
     target_link_libraries(test_amio_strerror PRIVATE Threads::Threads)
 endif()
@@ -47,6 +45,7 @@ if(AMIO_HAS_KOKKOS_RUNTIME)
     target_compile_definitions(test_memory_submission PRIVATE AMIO_HAS_KOKKOS_RUNTIME=1 AMIO_TEST_HAS_KOKKOS_RUNTIME=1)
 endif()
 add_test(NAME unit.memory_submission COMMAND test_memory_submission)
+set_tests_properties(unit.memory_submission PROPERTIES LABELS "unit;memory;submission" TIMEOUT 30)
 
 add_executable(test_evolution_contract test_evolution_contract.cpp)
 target_link_libraries(test_evolution_contract PRIVATE AMIO::amio_core)

@@ -24,6 +24,7 @@ HandleTable::Token HandleTable::insert(HandleKind kind, void *payload) {
         case HandleKind::ValidationReport:
         case HandleKind::EvolutionDataset:
         case HandleKind::Operation:
+        case HandleKind::StreamLease:
             break;
         default:
             return 0;

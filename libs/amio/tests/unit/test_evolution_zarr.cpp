@@ -193,6 +193,9 @@ int main(int argc, char **argv) {
     amio_step_lease_handle lease = nullptr;
     ok(amio_acquire_step_lease(dataset, 7, &lease));
     assert(amio_release_step_handle(reinterpret_cast<amio_step_handle>(lease)) == AMIO_ERR_INVALID_HANDLE);
+    std::size_t stream_read_bytes = 0;
+    assert(amio_stream_read(lease, nullptr, nullptr, 0, &stream_read_bytes) == AMIO_ERR_INVALID_HANDLE);
+    assert(amio_stream_release(lease) == AMIO_ERR_INVALID_HANDLE);
 
     ok(amio_release_operation(operation));
     ok(amio_release_step_handle(step));

@@ -72,6 +72,7 @@ module amio_mod
     ! Derived types
     public :: amio_write_region_t, amio_write_region
     public :: amio_region_write_t, amio_write_region_batch
+    public :: amio_field_partition_descriptor_t
     public :: amio_shape_t
     public :: amio_bbox_t
 
@@ -117,7 +118,8 @@ module amio_mod
     public :: amio_memory_descriptor_t, amio_put_field_memory
     public :: amio_operation_status_t, amio_catalog_cursor_t, amio_step_summary_t, amio_step_selection_t
     public :: amio_open_dataset_ex, amio_close_dataset_ex, amio_define_schema, amio_release_schema
-    public :: amio_begin_step, amio_put_field, amio_cancel_step, amio_end_step, amio_query_operation, amio_wait_operation
+    public :: amio_begin_step, amio_begin_step_partitioned, amio_put_field, amio_cancel_step, amio_end_step, &
+              amio_query_operation, amio_wait_operation
     public :: amio_release_operation, amio_list_steps, amio_describe_step, amio_read_step_field
     public :: AMIO_EXECUTION_PERSISTENT_DIRECT, AMIO_EXECUTION_PERSISTENT_AGGREGATED, AMIO_EXECUTION_MPI_STREAM
     public :: AMIO_PROGRESS_CALLER, AMIO_PROGRESS_BACKGROUND
@@ -323,6 +325,15 @@ module amio_mod
         integer(c_int64_t) :: reserved(2)
     end type amio_step_descriptor_t
 
+    type, bind(C) :: amio_field_partition_descriptor_t
+        integer(c_int32_t) :: struct_size, version
+        type(c_ptr) :: field
+        integer(c_int64_t) :: field_bytes
+        integer(c_int32_t) :: rank, reserved32
+        integer(c_int64_t) :: offsets(AMIO_MAX_RANK), extents(AMIO_MAX_RANK)
+        integer(c_int64_t) :: reserved(2)
+    end type amio_field_partition_descriptor_t
+
     type, bind(C) :: amio_memory_descriptor_t
         integer(c_int32_t) :: struct_size, version, memory_kind, ownership
         integer(c_int32_t) :: device_id, rank, producer_writes_synchronized, reserved32
@@ -426,6 +437,17 @@ module amio_mod
             type(c_ptr), intent(out) :: out_step
             integer(c_int32_t) :: status
         end function amio_begin_step
+
+        function amio_begin_step_partitioned(dataset, descriptor, partitions, partition_count, out_step) result(status) &
+            bind(C, name="amio_begin_step_partitioned")
+            import :: c_ptr, c_int32_t, c_size_t, amio_step_descriptor_t, amio_field_partition_descriptor_t
+            type(c_ptr), value, intent(in) :: dataset
+            type(amio_step_descriptor_t), intent(in) :: descriptor
+            type(amio_field_partition_descriptor_t), intent(in) :: partitions(*)
+            integer(c_size_t), value, intent(in) :: partition_count
+            type(c_ptr), intent(out) :: out_step
+            integer(c_int32_t) :: status
+        end function amio_begin_step_partitioned
 
         function amio_put_field(step, field, field_bytes, data, data_bytes, out_operation) result(status) &
             bind(C, name="amio_put_field")

@@ -1,7 +1,12 @@
 #include "catalog/catalog_format.hpp"
 
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <charconv>
 #include <cmath>
 #include <iomanip>
@@ -344,18 +349,6 @@ bool array_message_ranges(const Json *v, std::vector<PayloadDescriptor::MessageR
     }
     return true;
 }
-bool safe_relative(std::string_view path) {
-    if (path.empty() || path.front() == '/' || path.find('\\') != std::string_view::npos) return false;
-    std::size_t start = 0;
-    while (start <= path.size()) {
-        const auto end = path.find('/', start);
-        const auto part = path.substr(start, end == std::string_view::npos ? path.size() - start : end - start);
-        if (part.empty() || part == "." || part == "..") return false;
-        if (end == std::string_view::npos) break;
-        start = end + 1;
-    }
-    return true;
-}
 bool valid_fields(const std::vector<std::string> &fields, const CatalogLimits &limits) {
     if (fields.size() > limits.fields) return false;
     for (const auto &field : fields)
@@ -395,6 +388,62 @@ bool parse_document(std::string_view json, const CatalogLimits &limits, Json &va
 }
 
 }  // namespace
+
+bool catalog_path_is_safe(std::string_view path) {
+    if (path.empty() || path.front() == '/' || path.find('\\') != std::string_view::npos || path.find('\0') != std::string_view::npos) return false;
+    std::size_t start = 0;
+    while (start <= path.size()) {
+        const auto end = path.find('/', start);
+        const auto part = path.substr(start, end == std::string_view::npos ? path.size() - start : end - start);
+        if (part.empty() || part == "." || part == "..") return false;
+        if (end == std::string_view::npos) break;
+        start = end + 1;
+    }
+    return true;
+}
+
+bool read_bounded_catalog_file(const std::filesystem::path &path, std::size_t max_bytes, std::string &bytes, bool &missing) {
+    missing = false;
+    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) {
+        missing = errno == ENOENT;
+        return false;
+    }
+    struct stat st{};
+    bool ok = ::fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_size >= 0 && static_cast<std::uint64_t>(st.st_size) <= max_bytes;
+    if (ok) {
+        bytes.assign(static_cast<std::size_t>(st.st_size), '\0');
+        std::size_t offset = 0;
+        while (offset < bytes.size()) {
+            const auto count = ::read(fd, bytes.data() + offset, bytes.size() - offset);
+            if (count < 0) {
+                if (errno == EINTR) continue;
+                ok = false;
+                break;
+            }
+            if (count == 0) {
+                ok = false;
+                break;
+            }
+            offset += static_cast<std::size_t>(count);
+        }
+    }
+    return ::close(fd) == 0 && ok;
+}
+
+bool parse_catalog_head(std::string_view text, std::string_view uuid, std::uint64_t &step, std::string &commit) {
+    const auto prefix = std::string("{\"format_version\":1,\"dataset_uuid\":\"") + std::string(uuid) + "\",\"step_id\":";
+    constexpr std::string_view marker = ",\"commit\":\"";
+    if (!text.starts_with(prefix)) return false;
+    const auto marker_at = text.find(marker, prefix.size());
+    if (marker_at == std::string_view::npos || marker_at == prefix.size() || text.size() < marker_at + marker.size() + 2 ||
+        text.substr(text.size() - 2) != "\"}")
+        return false;
+    const auto parsed = std::from_chars(text.data() + prefix.size(), text.data() + marker_at, step);
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + marker_at) return false;
+    commit.assign(text.substr(marker_at + marker.size(), text.size() - marker_at - marker.size() - 2));
+    return catalog_path_is_safe(commit) && commit.starts_with("commits/");
+}
 
 std::string encode_field_path(std::string_view field) {
     static constexpr char hex[] = "0123456789ABCDEF";
@@ -488,7 +537,7 @@ amio_status_t encode_commit_document(const CompletionRecord &record, std::string
         record.dataset_uuid.size() > limits.string_bytes || record.schema_digest.size() > limits.string_bytes ||
         record.achieved_guarantee.size() > limits.string_bytes || record.previous_commit.size() > limits.string_bytes ||
         (record.achieved_guarantee != "visibility" && record.achieved_guarantee != "file_sync" && record.achieved_guarantee != "directory_sync") ||
-        (!record.previous_commit.empty() && !safe_relative(record.previous_commit)) || !valid_fields(record.required_fields, limits) ||
+        (!record.previous_commit.empty() && !catalog_path_is_safe(record.previous_commit)) || !valid_fields(record.required_fields, limits) ||
         !valid_fields(record.present_fields, limits) || record.payloads.size() > limits.payloads)
         return AMIO_ERR_INVALID_INPUT;
     std::set<std::string> present(record.present_fields.begin(), record.present_fields.end());
@@ -516,7 +565,7 @@ amio_status_t encode_commit_document(const CompletionRecord &record, std::string
     out.push_back('[');
     for (std::size_t i = 0; i < record.payloads.size(); ++i) {
         const auto &p = record.payloads[i];
-        if (p.field.empty() || p.field.size() > limits.string_bytes || !safe_relative(p.relative_path) ||
+        if (p.field.empty() || p.field.size() > limits.string_bytes || !catalog_path_is_safe(p.relative_path) ||
             p.relative_path.size() > limits.string_bytes || p.offsets.size() != p.extents.size() || p.offsets.size() > limits.dimensions ||
             p.message_ranges.size() > limits.payloads || !present.contains(p.field))
             return AMIO_ERR_INVALID_INPUT;
@@ -604,7 +653,7 @@ amio_status_t parse_commit_document(std::string_view json, CompletionRecord &rec
         !valid_fields(parsed.required_fields, limits) || !valid_fields(parsed.present_fields, limits) ||
         parsed.dataset_uuid.size() > limits.string_bytes || parsed.schema_digest.size() > limits.string_bytes ||
         parsed.achieved_guarantee.size() > limits.string_bytes || parsed.previous_commit.size() > limits.string_bytes ||
-        (!parsed.previous_commit.empty() && !safe_relative(parsed.previous_commit)))
+        (!parsed.previous_commit.empty() && !catalog_path_is_safe(parsed.previous_commit)))
         return AMIO_ERR_INVALID_INPUT;
     const auto *payloads = member(root, "payloads");
     if (!payloads || payloads->kind != Json::Kind::Array || payloads->array.size() > limits.payloads) return AMIO_ERR_INVALID_INPUT;
@@ -619,7 +668,7 @@ amio_status_t parse_commit_document(std::string_view json, CompletionRecord &rec
             !uint_value(member(item, "bytes"), p.bytes) || !uint_value(member(item, "producer"), producer) || producer > UINT32_MAX ||
             !array_u64(member(item, "offsets"), p.offsets, limits.dimensions) || !array_u64(member(item, "extents"), p.extents, limits.dimensions) ||
             p.offsets.size() != p.extents.size() || p.field.empty() || p.field.size() > limits.string_bytes ||
-            p.relative_path.size() > limits.string_bytes || !present.contains(p.field) || !safe_relative(p.relative_path))
+            p.relative_path.size() > limits.string_bytes || !present.contains(p.field) || !catalog_path_is_safe(p.relative_path))
             return AMIO_ERR_INVALID_INPUT;
         const auto *ranges = member(item, "message_ranges");
         const auto *array_container = member(item, "array_container");

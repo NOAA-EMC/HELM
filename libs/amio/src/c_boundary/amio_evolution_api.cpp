@@ -1037,7 +1037,10 @@ std::string reduced_diagnostics_json(const std::array<std::uint64_t, amio::detai
                                             "stream_skips",
                                             "stream_delivered_bytes",
                                             "stream_released_bytes",
-                                            "stream_disconnects"};
+                                            "stream_disconnects",
+                                            "operator_input_bytes",
+                                            "operator_output_bytes"};
+    static_assert(sizeof(names) / sizeof(names[0]) == amio::detail::kDiagnosticCounterCount);
     std::ostringstream out;
     out << "{\"api_version\":2,\"scope\":\"context\",\"cumulative_counters\":{";
     for (std::size_t i = 0; i < counters.size(); ++i) {
@@ -1352,13 +1355,7 @@ AMIO_API amio_status_t amio_reduce_diagnostics(amio_context_handle context, char
     if (!token_payload(context, HandleKind::Context, &payload)) return context == nullptr ? AMIO_ERR_NULL_HANDLE : AMIO_ERR_INVALID_HANDLE;
     auto *owner = static_cast<ContextPayload *>(payload);
     if (!owner->diagnostics) return AMIO_ERR_UNSUPPORTED;
-    constexpr std::size_t required = sizeof(
-        "{\"api_version\":1,\"scope\":\"context\",\"cumulative_counters\":{\"accepted\":\"00000000000000000000\",\"rejected\":"
-        "\"00000000000000000000\",\"completed\":\"00000000000000000000\",\"failed\":\"00000000000000000000\",\"bytes_accepted\":"
-        "\"00000000000000000000\",\"bytes_written\":\"00000000000000000000\",\"bytes_published\":\"00000000000000000000\",\"source_released_bytes\":"
-        "\"00000000000000000000\",\"transport_received_bytes\":\"00000000000000000000\",\"transport_published_bytes\":\"00000000000000000000\","
-        "\"view_bytes\":\"00000000000000000000\",\"stream_skips\":\"00000000000000000000\",\"stream_delivered_bytes\":\"00000000000000000000\","
-        "\"stream_released_bytes\":\"00000000000000000000\",\"stream_disconnects\":\"00000000000000000000\"}}");
+    const auto required = reduced_diagnostics_json(std::array<std::uint64_t, amio::detail::kDiagnosticCounterCount>{}).size() + 1;
     *out_required_bytes = required;
     if (buffer == nullptr && buffer_capacity == 0) return AMIO_OK;
     const auto local_status = (buffer == nullptr || buffer_capacity < required) ? AMIO_ERR_BUFFER_TOO_SMALL : AMIO_OK;
@@ -1550,7 +1547,7 @@ AMIO_API amio_status_t amio_stream_acquire(amio_context_handle context, uint64_t
         auto lease = std::make_unique<StreamLeasePayload>();
         lease->context = owner;
         lease->lease = *acquired.lease;
-        const auto token = process_handle_table().insert(HandleKind::ConsumerLease, lease.get());
+        const auto token = process_handle_table().insert(HandleKind::StreamLease, lease.get());
         if (token == 0) {
             (void)owner->stream_execution->release_lease(lease->lease.lease_id);
             return AMIO_ERR_BACKEND_FAILURE;
@@ -1569,7 +1566,7 @@ AMIO_API amio_status_t amio_stream_read(amio_step_lease_handle lease, const amio
     if (out_bytes == nullptr) return AMIO_ERR_INVALID_INPUT;
     *out_bytes = 0;
     void *payload = nullptr;
-    if (!token_payload(lease, HandleKind::ConsumerLease, &payload)) return lease == nullptr ? AMIO_ERR_NULL_HANDLE : AMIO_ERR_INVALID_HANDLE;
+    if (!token_payload(lease, HandleKind::StreamLease, &payload)) return lease == nullptr ? AMIO_ERR_NULL_HANDLE : AMIO_ERR_INVALID_HANDLE;
     auto *owner = static_cast<StreamLeasePayload *>(payload);
     constexpr std::size_t minimum = offsetof(amio_stream_read_descriptor_t, reserved) + 2 * sizeof(std::uint64_t);
     if (!valid_descriptor_header(descriptor, minimum) || descriptor->reserved32 || descriptor->reserved[0] || descriptor->reserved[1] ||
@@ -1600,7 +1597,7 @@ AMIO_API amio_status_t amio_stream_read(amio_step_lease_handle lease, const amio
 
 AMIO_API amio_status_t amio_stream_release(amio_step_lease_handle lease) {
     void *payload = nullptr;
-    if (!token_payload(lease, HandleKind::ConsumerLease, &payload)) return lease == nullptr ? AMIO_ERR_NULL_HANDLE : AMIO_ERR_INVALID_HANDLE;
+    if (!token_payload(lease, HandleKind::StreamLease, &payload)) return lease == nullptr ? AMIO_ERR_NULL_HANDLE : AMIO_ERR_INVALID_HANDLE;
     auto *owner = static_cast<StreamLeasePayload *>(payload);
     const auto step_id = owner->lease.step->step_id;
     const auto bytes = owner->lease.step->payload_bytes;
@@ -1610,7 +1607,7 @@ AMIO_API amio_status_t amio_stream_release(amio_step_lease_handle lease) {
                           bytes);
     void *released = nullptr;
     const auto token = HandleTable::from_ptr(const_cast<void *>(reinterpret_cast<const void *>(lease)));
-    const auto release_status = process_handle_table().release(token, HandleKind::ConsumerLease, &released);
+    const auto release_status = process_handle_table().release(token, HandleKind::StreamLease, &released);
     if (release_status != AMIO_OK) return release_status;
     --owner->context->open_step_handles;
     delete static_cast<StreamLeasePayload *>(released);

@@ -194,4 +194,4 @@ jobs:
 
       - name: Publish infrastructure readiness without claiming scale acceptance
         run: |
-          echo "The qualification-labelled fixtures completed. SC-002, SC-004, and SC-008 still require the certified destination, measured 64/256/1024-rank harness, and actual device evidence described in specs/001-evolve-amio-engine/evidence/."
+          echo "The qualification-labelled fixtures completed. SC-002, SC-004, and SC-008 remain unqualified: they require the certified destination, measured 64/256/1024-rank harness, and actual device evidence. See libs/amio/docs/site/development/qualification.md, libs/amio/tests/qualification/, and libs/amio/benchmarks/ for committed qualification inputs; fixture success is not scale or device acceptance."

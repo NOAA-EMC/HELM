@@ -201,6 +201,7 @@ int main(int argc, char **argv) {
         amio_stream_acquire_result_t acquired_public{};
         assert(amio_stream_acquire(public_context, 0, &acquired_public) == AMIO_OK);
         assert(acquired_public.state == AMIO_STREAM_AVAILABLE && acquired_public.lease != nullptr);
+        assert(amio_release_step_lease(acquired_public.lease) == AMIO_ERR_INVALID_HANDLE);
         for (const int producer : producer_ranks) {
             if (4 + producer % 2 != rank) continue;
             amio_stream_read_descriptor_t selection{};

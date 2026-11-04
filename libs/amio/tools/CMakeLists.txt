@@ -6,7 +6,6 @@ add_executable(
     selection_parse.cpp
     inspect.cpp
     validate.cpp
-    conversion_plan.cpp
     copy.cpp
     diagnostics.cpp
     ../src/catalog/catalog_format.cpp

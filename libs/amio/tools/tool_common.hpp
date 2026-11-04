@@ -51,7 +51,6 @@ void finalize_cli_mpi();
 [[nodiscard]] CliResult run_capabilities(const Options &options);
 [[nodiscard]] CliResult run_inspect(const Options &options);
 [[nodiscard]] CliResult run_validate(const Options &options);
-[[nodiscard]] CliResult run_conversion_plan(const Options &options);
 [[nodiscard]] CliResult run_copy(const Options &options);
 [[nodiscard]] CliResult run_diagnostics(const Options &options);
 [[nodiscard]] bool parse_inclusive_step_range(const std::string &text, std::uint64_t &first, std::uint64_t &last);
