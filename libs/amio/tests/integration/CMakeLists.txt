@@ -124,6 +124,9 @@ if(MPI_CXX_FOUND)
     target_include_directories(test_mpi_stream PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_compile_definitions(test_mpi_stream PRIVATE AMIO_HAS_MPI=1)
     target_link_libraries(test_mpi_stream PRIVATE AMIO::amio_core AMIO::public_headers MPI::MPI_CXX HELM::HALO Threads::Threads)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang|IntelLLVM|Intel")
+        target_compile_options(test_mpi_stream PRIVATE -UNDEBUG)
+    endif()
     add_test(NAME integration.mpi_stream COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 6 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:test_mpi_stream>
                                                  ${MPIEXEC_POSTFLAGS})
     set_tests_properties(
@@ -167,7 +170,7 @@ if(MPI_CXX_FOUND)
                    RUN_SERIAL
                    TRUE
                    ENVIRONMENT
-                   "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
+                   "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
 
     add_executable(
         test_mpi_aggregation
@@ -210,7 +213,7 @@ if(MPI_CXX_FOUND)
                    RUN_SERIAL
                    TRUE
                    ENVIRONMENT
-                   "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
+                   "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
 
     add_executable(
         test_mpi_steps
@@ -226,7 +229,16 @@ if(MPI_CXX_FOUND)
     target_link_libraries(test_mpi_steps PRIVATE AMIO::public_headers MPI::MPI_CXX HELM::HALO)
     add_test(NAME integration.mpi_steps COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 3 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:test_mpi_steps>
                                                 ${MPIEXEC_POSTFLAGS})
-    set_tests_properties(integration.mpi_steps PROPERTIES LABELS "integration;mpi;steps;amio_step" TIMEOUT 60 RUN_SERIAL TRUE)
+    set_tests_properties(
+        integration.mpi_steps
+        PROPERTIES LABELS
+                   "integration;mpi;steps;amio_step"
+                   TIMEOUT
+                   60
+                   RUN_SERIAL
+                   TRUE
+                   ENVIRONMENT
+                   "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
 
     add_executable(test_mpi_step_failure test_mpi_step_failure.cpp ${CMAKE_SOURCE_DIR}/src/execution/context.cpp
                                          ${CMAKE_SOURCE_DIR}/src/execution/role_map.cpp ${CMAKE_SOURCE_DIR}/src/workers/comm_split.cpp)
@@ -337,6 +349,9 @@ if(g2c_FOUND)
     if(MPI_CXX_FOUND)
         target_compile_definitions(test_evolution_grib2 PRIVATE AMIO_TEST_HAS_MPI=1)
         target_link_libraries(test_evolution_grib2 PRIVATE MPI::MPI_CXX)
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang|IntelLLVM|Intel")
+            target_compile_options(test_evolution_grib2 PRIVATE -UNDEBUG)
+        endif()
     endif()
     add_test(NAME integration.evolution_grib2 COMMAND test_evolution_grib2)
     set_tests_properties(integration.evolution_grib2 PROPERTIES LABELS "integration;grib2;evolution;roundtrip" TIMEOUT 120)
@@ -377,7 +392,16 @@ if(netCDF_FOUND AND MPI_CXX_FOUND)
         endif()
         add_test(NAME integration.mpi_netcdf_step_payload COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS}
                                                                   $<TARGET_FILE:test_mpi_netcdf_step_payload> ${MPIEXEC_POSTFLAGS})
-        set_tests_properties(integration.mpi_netcdf_step_payload PROPERTIES LABELS "integration;mpi;netcdf;amio_step" TIMEOUT 60 RUN_SERIAL TRUE)
+        set_tests_properties(
+            integration.mpi_netcdf_step_payload
+            PROPERTIES LABELS
+                       "integration;mpi;netcdf;amio_step"
+                       TIMEOUT
+                       60
+                       RUN_SERIAL
+                       TRUE
+                       ENVIRONMENT
+                       "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
     endif()
 
     add_executable(test_mpi_region_write test_mpi_region_write.cpp)
