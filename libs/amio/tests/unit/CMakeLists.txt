@@ -189,6 +189,9 @@ endif()
 if(AMIO_HAS_TENSORSTORE)
     add_executable(test_evolution_zarr test_evolution_zarr.cpp)
     target_link_libraries(test_evolution_zarr PRIVATE AMIO::amio_core)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang|IntelLLVM|Intel")
+        target_compile_options(test_evolution_zarr PRIVATE -UNDEBUG)
+    endif()
     if(MPI_CXX_FOUND)
         target_compile_definitions(test_evolution_zarr PRIVATE AMIO_TEST_HAS_MPI=1)
         target_link_libraries(test_evolution_zarr PRIVATE MPI::MPI_CXX)
@@ -207,7 +210,7 @@ if(AMIO_HAS_TENSORSTORE)
                        RUN_SERIAL
                        TRUE
                        ENVIRONMENT
-                       "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
+                       "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
         add_test(NAME integration.evolution_zarr_mpi4 COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS}
                                                               $<TARGET_FILE:test_evolution_zarr> ${MPIEXEC_POSTFLAGS})
         set_tests_properties(
@@ -219,7 +222,7 @@ if(AMIO_HAS_TENSORSTORE)
                        RUN_SERIAL
                        TRUE
                        ENVIRONMENT
-                       "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
+                       "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
     endif()
 endif()
 
