@@ -15,7 +15,6 @@
 
 #include "common/test_kokkos_env.hpp"
 
-namespace {
 namespace axis::test {
 
 using MemSpace = Kokkos::HostSpace;
