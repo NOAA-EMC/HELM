@@ -31,6 +31,7 @@ extern MPI_Comm g_amio_parent_comm;
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -293,6 +294,8 @@ void NetCDF_Driver::open_write(const conf::Config &config) {
     if (is_open_) {
         throw std::runtime_error("NetCDF_Driver::open_write: driver is already open");
     }
+    write_schema_prepared_ = false;
+    prepared_variables_.clear();
 
 #ifdef AMIO_HAS_NETCDF
     // Extract configuration parameters.
@@ -451,6 +454,176 @@ void NetCDF_Driver::open_read(const conf::Config &config) {
 // write -- serialize StagingBuffer to NetCDF variable (R7.4, R7.5).
 // ===================================================================
 
+void NetCDF_Driver::prepare_write_schema(const std::vector<VarMeta> &schema) {
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
+    if (!is_open_ || !is_write_mode_) throw std::runtime_error("NetCDF_Driver::prepare_write_schema: driver not open for writing");
+    if (write_schema_prepared_ || schema.empty())
+        throw std::runtime_error("NetCDF_Driver::prepare_write_schema: schema is empty or already prepared");
+
+#ifdef AMIO_HAS_NETCDF
+    int status = nc_redef(ncid_);
+    if (status != NC_NOERR && status != NC_EINDEFINE) nc_check(status, "nc_redef for prepared schema");
+
+    std::unordered_map<std::string, PreparedVariable> prepared;
+    prepared.reserve(schema.size());
+    for (const auto &meta : schema) {
+        if (meta.name.empty() || meta.shape.rank < 1 || meta.shape.rank > AMIO_MAX_RANK || meta.write_region.rank != meta.shape.rank)
+            throw std::runtime_error("NetCDF_Driver::prepare_write_schema: invalid variable metadata");
+        if (prepared.contains(meta.name)) throw std::runtime_error("NetCDF_Driver::prepare_write_schema: duplicate variable '" + meta.name + "'");
+        int existing_varid = -1;
+        status = nc_inq_varid(ncid_, meta.name.c_str(), &existing_varid);
+        if (status == NC_NOERR) throw std::runtime_error("NetCDF_Driver::prepare_write_schema: variable already exists '" + meta.name + "'");
+        if (status != NC_ENOTVAR) nc_check(status, "nc_inq_varid('" + meta.name + "')");
+
+        PreparedVariable variable;
+        variable.varid = define_variable_in_define_mode(meta);
+        variable.dtype = meta.dtype;
+        variable.global_extents.assign(meta.write_region.global_extents, meta.write_region.global_extents + meta.write_region.rank);
+        prepared.emplace(meta.name, std::move(variable));
+    }
+
+    nc_check(nc_enddef(ncid_), "nc_enddef for prepared schema");
+    if (use_parallel_) {
+        for (const auto &meta : schema) {
+            const auto &variable = prepared.at(meta.name);
+            nc_check(nc_var_par_access(ncid_, variable.varid, NC_COLLECTIVE), "nc_var_par_access('" + meta.name + "', NC_COLLECTIVE)");
+        }
+    }
+    prepared_variables_ = std::move(prepared);
+    write_schema_prepared_ = true;
+#else
+    (void)schema;
+    throw std::runtime_error("NetCDF_Driver::prepare_write_schema: AMIO built without netCDF support");
+#endif
+}
+
+int NetCDF_Driver::define_variable_in_define_mode(const VarMeta &meta) {
+#ifdef AMIO_HAS_NETCDF
+    std::vector<int> dimids(meta.shape.rank);
+    int status = NC_NOERR;
+
+    for (int32_t d = 0; d < meta.shape.rank; ++d) {
+        const auto target_len = static_cast<std::size_t>(meta.write_region.rank ? meta.write_region.global_extents[d] : meta.shape.extents[d]);
+        std::string dim_name = meta.name + "_dim" + std::to_string(d);
+        if ((meta.name == "lon" || meta.name == "lat" || meta.name == "lev" || meta.name == "time") && meta.shape.rank == 1) {
+            dim_name = meta.name;
+        }
+
+        int existing_dimid = -1;
+        bool found_shared = false;
+        if (meta.name != "lon" && meta.name != "lat" && meta.name != "lev" && meta.name != "time") {
+            int num_dims = 0;
+            if (nc_inq_ndims(ncid_, &num_dims) == NC_NOERR) {
+                std::vector<int> matching_dimids;
+                std::vector<std::string> matching_names;
+                for (int i = 0; i < num_dims; ++i) {
+                    size_t dim_len = 0;
+                    char name_buf[NC_MAX_NAME + 1];
+                    if (nc_inq_dim(ncid_, i, name_buf, &dim_len) == NC_NOERR && dim_len == target_len) {
+                        matching_dimids.push_back(i);
+                        matching_names.emplace_back(name_buf);
+                    }
+                }
+
+                if (matching_dimids.size() == 1) {
+                    existing_dimid = matching_dimids[0];
+                    found_shared = true;
+                } else if (matching_dimids.size() > 1) {
+                    int axis_role = -1;
+                    if (d == meta.shape.rank - 1)
+                        axis_role = 0;
+                    else if (d == meta.shape.rank - 2)
+                        axis_role = 1;
+                    else if (d == meta.shape.rank - 3)
+                        axis_role = 2;
+                    else if (d == meta.shape.rank - 4)
+                        axis_role = 3;
+
+                    int best_score = -1;
+                    int best_dimid = -1;
+                    for (std::size_t i = 0; i < matching_dimids.size(); ++i) {
+                        const std::string &name = matching_names[i];
+                        int score = 0;
+                        if (axis_role == 0) {
+                            if (name == "lon" || name == "x")
+                                score = 3;
+                            else if (name.find("lon") != std::string::npos || name.find("x") != std::string::npos)
+                                score = 2;
+                            else if (name.find("dim") != std::string::npos)
+                                score = 1;
+                        } else if (axis_role == 1) {
+                            if (name == "lat" || name == "y")
+                                score = 3;
+                            else if (name.find("lat") != std::string::npos || name.find("y") != std::string::npos)
+                                score = 2;
+                            else if (name.find("dim") != std::string::npos)
+                                score = 1;
+                        } else if (axis_role == 2) {
+                            if (name == "lev" || name == "z" || name == "level")
+                                score = 3;
+                            else if (name.find("lev") != std::string::npos || name.find("z") != std::string::npos)
+                                score = 2;
+                            else if (name.find("dim") != std::string::npos)
+                                score = 1;
+                        } else if (axis_role == 3) {
+                            if (name == "time" || name == "t")
+                                score = 3;
+                            else if (name.find("time") != std::string::npos || name.find("t") != std::string::npos)
+                                score = 2;
+                            else if (name.find("dim") != std::string::npos)
+                                score = 1;
+                        }
+                        if (score > best_score) {
+                            best_score = score;
+                            best_dimid = matching_dimids[i];
+                        }
+                    }
+                    if (best_dimid != -1) {
+                        existing_dimid = best_dimid;
+                        found_shared = true;
+                    }
+                }
+            }
+        }
+
+        if (found_shared) {
+            dimids[d] = existing_dimid;
+        } else {
+            const int dim_status = nc_inq_dimid(ncid_, dim_name.c_str(), &existing_dimid);
+            if (dim_status == NC_NOERR) {
+                dimids[d] = existing_dimid;
+            } else {
+                const std::size_t def_len = (dim_name == "time" && !meta.write_region.rank) ? static_cast<std::size_t>(NC_UNLIMITED) : target_len;
+                status = nc_def_dim(ncid_, dim_name.c_str(), def_len, &dimids[d]);
+                nc_check(status, "nc_def_dim('" + dim_name + "')");
+            }
+        }
+    }
+
+    const int nc_type = dtype_to_nc_type(meta.dtype);
+    int varid = -1;
+    status = nc_def_var(ncid_, meta.name.c_str(), nc_type, meta.shape.rank, dimids.data(), &varid);
+    nc_check(status, "nc_def_var('" + meta.name + "')");
+
+    if (const VarAttributes *var_attrs = attributes_.find(meta.name)) {
+        nc_write_attributes(ncid_, varid, *var_attrs, nc_type);
+    }
+
+    if (!active_codec_.empty()) {
+        if (active_codec_ == "zstandard" || active_codec_ == "zstd" || active_codec_ == "blosc") {
+            status = nc_def_var_deflate(ncid_, varid, 1, 1, 4);
+        } else {
+            status = nc_def_var_deflate(ncid_, varid, 1, 1, 4);
+        }
+        nc_check(status, "nc_def_var_deflate('" + meta.name + "')");
+    }
+    return varid;
+#else
+    (void)meta;
+    throw std::runtime_error("NetCDF_Driver::define_variable_in_define_mode: AMIO built without netCDF support");
+#endif
+}
+
 void NetCDF_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
     std::lock_guard<std::mutex> lock(netcdf_mutex());
     if (!is_open_ || !is_write_mode_) {
@@ -458,226 +631,60 @@ void NetCDF_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
     }
 
 #ifdef AMIO_HAS_NETCDF
-    // Look up or create the variable in the NetCDF file.
     int varid = -1;
-    int status = nc_inq_varid(ncid_, meta.name.c_str(), &varid);
-
-    if (status == NC_ENOTVAR) {
-        // Variable does not exist yet -- define it.
-        // First, define dimensions based on the shape.
-        std::vector<int> dimids(meta.shape.rank);
-
-        // Switch to define mode if needed.
-        int redef_status = nc_redef(ncid_);
-        // NC_EINDEFINE means we're already in define mode -- that's fine.
-        if (redef_status != NC_NOERR && redef_status != NC_EINDEFINE) {
-            nc_check(redef_status, "nc_redef");
-        }
-
-        auto find_matching_dim = [&](const std::string &candidate_name, std::size_t target_len, int &out_dimid) -> bool {
-            int dimid = -1;
-            if (nc_inq_dimid(ncid_, candidate_name.c_str(), &dimid) == NC_NOERR) {
-                size_t dim_len = 0;
-                if (nc_inq_dimlen(ncid_, dimid, &dim_len) == NC_NOERR) {
-                    if (dim_len == target_len) {
-                        out_dimid = dimid;
-                        return true;
-                    }
-                }
-            }
-            return false;
-        };
-
+    bool schema_prepared = write_schema_prepared_;
+    int status = NC_NOERR;
+    if (schema_prepared) {
+        const auto prepared = prepared_variables_.find(meta.name);
+        if (prepared == prepared_variables_.end()) throw std::runtime_error("NetCDF_Driver: variable is absent from prepared schema");
+        varid = prepared->second.varid;
+        if (prepared->second.dtype != meta.dtype || prepared->second.global_extents.size() != static_cast<std::size_t>(meta.shape.rank))
+            throw std::runtime_error("NetCDF_Driver: write metadata differs from prepared schema");
         for (int32_t d = 0; d < meta.shape.rank; ++d) {
-            std::size_t target_len = static_cast<std::size_t>(meta.write_region.rank ? meta.write_region.global_extents[d] : meta.shape.extents[d]);
-            std::string dim_name = meta.name + "_dim" + std::to_string(d);
-            if ((meta.name == "lon" || meta.name == "lat" || meta.name == "lev" || meta.name == "time") && meta.shape.rank == 1) {
-                dim_name = meta.name;
-            }
-
-            int existing_dimid = -1;
-            bool found_shared = false;
-
-            if (meta.name != "lon" && meta.name != "lat" && meta.name != "lev" && meta.name != "time") {
-                // Find all existing dimensions with matching length.
-                int num_dims = 0;
-                if (nc_inq_ndims(ncid_, &num_dims) == NC_NOERR) {
-                    std::vector<int> matching_dimids;
-                    std::vector<std::string> matching_names;
-                    for (int i = 0; i < num_dims; ++i) {
-                        size_t dim_len = 0;
-                        char name_buf[NC_MAX_NAME + 1];
-                        if (nc_inq_dim(ncid_, i, name_buf, &dim_len) == NC_NOERR) {
-                            if (dim_len == target_len) {
-                                matching_dimids.push_back(i);
-                                matching_names.push_back(std::string(name_buf));
-                            }
-                        }
-                    }
-
-                    if (matching_dimids.size() == 1) {
-                        // Exactly one matching dimension exists -- reuse it!
-                        existing_dimid = matching_dimids[0];
-                        found_shared = true;
-                    } else if (matching_dimids.size() > 1) {
-                        // Multiple exist -- choose the best match based on axis type.
-                        // Determine standard axis role for dimension d:
-                        // d = Rank - 1: X axis (longitude/x)
-                        // d = Rank - 2: Y axis (latitude/y)
-                        // d = Rank - 3: Z axis (vertical/level)
-                        // d = Rank - 4: T axis (time/t)
-                        int axis_role = -1;  // 0=X, 1=Y, 2=Z, 3=T
-                        if (d == meta.shape.rank - 1)
-                            axis_role = 0;
-                        else if (d == meta.shape.rank - 2)
-                            axis_role = 1;
-                        else if (d == meta.shape.rank - 3)
-                            axis_role = 2;
-                        else if (d == meta.shape.rank - 4)
-                            axis_role = 3;
-
-                        int best_score = -1;
-                        int best_dimid = -1;
-                        for (size_t i = 0; i < matching_dimids.size(); ++i) {
-                            const std::string &name = matching_names[i];
-                            int score = 0;
-                            if (axis_role == 0) {  // X axis
-                                if (name == "lon" || name == "x")
-                                    score = 3;
-                                else if (name.find("lon") != std::string::npos || name.find("x") != std::string::npos)
-                                    score = 2;
-                                else if (name.find("dim") != std::string::npos)
-                                    score = 1;
-                            } else if (axis_role == 1) {  // Y axis
-                                if (name == "lat" || name == "y")
-                                    score = 3;
-                                else if (name.find("lat") != std::string::npos || name.find("y") != std::string::npos)
-                                    score = 2;
-                                else if (name.find("dim") != std::string::npos)
-                                    score = 1;
-                            } else if (axis_role == 2) {  // Z axis
-                                if (name == "lev" || name == "z" || name == "level")
-                                    score = 3;
-                                else if (name.find("lev") != std::string::npos || name.find("z") != std::string::npos)
-                                    score = 2;
-                                else if (name.find("dim") != std::string::npos)
-                                    score = 1;
-                            } else if (axis_role == 3) {  // Time axis
-                                if (name == "time" || name == "t")
-                                    score = 3;
-                                else if (name.find("time") != std::string::npos || name.find("t") != std::string::npos)
-                                    score = 2;
-                                else if (name.find("dim") != std::string::npos)
-                                    score = 1;
-                            }
-
-                            if (score > best_score) {
-                                best_score = score;
-                                best_dimid = matching_dimids[i];
-                            }
-                        }
-
-                        if (best_dimid != -1) {
-                            existing_dimid = best_dimid;
-                            found_shared = true;
-                        }
-                    }
-                }
-            }
-
-            if (found_shared) {
-                dimids[d] = existing_dimid;
-            } else {
-                // Check if default dimension already exists.
-                int dim_status = nc_inq_dimid(ncid_, dim_name.c_str(), &existing_dimid);
-                if (dim_status == NC_NOERR) {
-                    dimids[d] = existing_dimid;
-                } else {
-                    // A dimension named "time" is the CF record dimension: define
-                    // it as NC_UNLIMITED so downstream tools (ncview, ncrcat, ...)
-                    // can concatenate per-timestep files into a single series.
-                    const std::size_t def_len = (dim_name == "time" && !meta.write_region.rank) ? static_cast<std::size_t>(NC_UNLIMITED) : target_len;
-                    status = nc_def_dim(ncid_, dim_name.c_str(), def_len, &dimids[d]);
-                    nc_check(status, "nc_def_dim('" + dim_name + "')");
-                }
-            }
+            const auto global_extent = meta.write_region.rank ? meta.write_region.global_extents[d] : meta.shape.extents[d];
+            if (prepared->second.global_extents[static_cast<std::size_t>(d)] != global_extent)
+                throw std::runtime_error("NetCDF_Driver: write extent differs from prepared schema");
         }
-
-        // Define the variable.
-        int nc_type = dtype_to_nc_type(meta.dtype);
-        status = nc_def_var(ncid_, meta.name.c_str(), nc_type, meta.shape.rank, dimids.data(), &varid);
-        nc_check(status, "nc_def_var('" + meta.name + "')");
-
-        // Apply CF/UGRID per-variable attributes declared in the
-        // manifest (units, standard_name, _FillValue, cf_role, ...).
-        // We are still inside define mode here.
-        if (const VarAttributes *var_attrs = attributes_.find(meta.name)) {
-            nc_write_attributes(ncid_, varid, *var_attrs, nc_type);
+    } else {
+        status = nc_inq_varid(ncid_, meta.name.c_str(), &varid);
+        if (status == NC_ENOTVAR) {
+            const int redef_status = nc_redef(ncid_);
+            if (redef_status != NC_NOERR && redef_status != NC_EINDEFINE) nc_check(redef_status, "nc_redef");
+            varid = define_variable_in_define_mode(meta);
+            nc_check(nc_enddef(ncid_), "nc_enddef");
+        } else if (status != NC_NOERR) {
+            nc_check(status, "nc_inq_varid('" + meta.name + "')");
         }
-
-        // Apply lossless compression if configured (R7.5).
-        if (!active_codec_.empty()) {
-            if (active_codec_ == "zstandard" || active_codec_ == "zstd") {
-                // Use shuffle + deflate as a portable lossless option.
-                // NetCDF-4 supports deflate natively.
-                status = nc_def_var_deflate(ncid_, varid,
-                                            /*shuffle=*/1,
-                                            /*deflate=*/1,
-                                            /*deflate_level=*/4);
-                nc_check(status, "nc_def_var_deflate('" + meta.name + "')");
-            } else if (active_codec_ == "blosc") {
-                // Use shuffle + deflate as portable fallback.
-                // Blosc filter requires HDF5 plugin; use deflate if
-                // the plugin is not available.
-                status = nc_def_var_deflate(ncid_, varid,
-                                            /*shuffle=*/1,
-                                            /*deflate=*/1,
-                                            /*deflate_level=*/4);
-                nc_check(status, "nc_def_var_deflate('" + meta.name + "')");
-            } else {
-                // Generic lossless: apply shuffle + deflate.
-                status = nc_def_var_deflate(ncid_, varid,
-                                            /*shuffle=*/1,
-                                            /*deflate=*/1,
-                                            /*deflate_level=*/4);
-                nc_check(status, "nc_def_var_deflate('" + meta.name + "')");
-            }
-        }
-
-        // End define mode.
-        status = nc_enddef(ncid_);
-        nc_check(status, "nc_enddef");
-
-    } else if (status != NC_NOERR) {
-        nc_check(status, "nc_inq_varid('" + meta.name + "')");
     }
 
     // Reject a subsequent write with incompatible metadata before copying data.
-    int existing_rank = 0, existing_type = 0;
-    nc_check(nc_inq_varndims(ncid_, varid, &existing_rank), "nc_inq_varndims");
-    nc_check(nc_inq_vartype(ncid_, varid, &existing_type), "nc_inq_vartype");
-    if (existing_rank != meta.shape.rank || existing_type != dtype_to_nc_type(meta.dtype))
-        throw std::runtime_error("NetCDF_Driver: write shape/type differs from existing variable");
-    if (meta.write_region.rank) {
-        std::vector<int> dims(existing_rank);
-        nc_check(nc_inq_vardimid(ncid_, varid, dims.data()), "nc_inq_vardimid");
-        for (int d = 0; d < existing_rank; ++d) {
-            std::size_t length = 0;
-            nc_check(nc_inq_dimlen(ncid_, dims[d], &length), "nc_inq_dimlen");
-            if (length != static_cast<std::size_t>(meta.write_region.global_extents[d]))
-                throw std::runtime_error("NetCDF_Driver: global extent differs from existing dimension");
+    if (!schema_prepared) {
+        int existing_rank = 0, existing_type = 0;
+        nc_check(nc_inq_varndims(ncid_, varid, &existing_rank), "nc_inq_varndims");
+        nc_check(nc_inq_vartype(ncid_, varid, &existing_type), "nc_inq_vartype");
+        if (existing_rank != meta.shape.rank || existing_type != dtype_to_nc_type(meta.dtype))
+            throw std::runtime_error("NetCDF_Driver: write shape/type differs from existing variable");
+        if (meta.write_region.rank) {
+            std::vector<int> dims(existing_rank);
+            nc_check(nc_inq_vardimid(ncid_, varid, dims.data()), "nc_inq_vardimid");
+            for (int d = 0; d < existing_rank; ++d) {
+                std::size_t length = 0;
+                nc_check(nc_inq_dimlen(ncid_, dims[d], &length), "nc_inq_dimlen");
+                if (length != static_cast<std::size_t>(meta.write_region.global_extents[d]))
+                    throw std::runtime_error("NetCDF_Driver: global extent differs from existing dimension");
+            }
         }
     }
 
     // Set collective access mode for parallel MPI-IO writes (R7.4).
-    if (use_parallel_) {
+    if (use_parallel_ && !schema_prepared) {
         status = nc_var_par_access(ncid_, varid, NC_COLLECTIVE);
         nc_check(status, "nc_var_par_access('" + meta.name + "', NC_COLLECTIVE)");
     }
 
     // Compute start/count arrays for the write.
-    std::vector<std::size_t> start(meta.shape.rank, 0);
-    std::vector<std::size_t> count(meta.shape.rank);
+    std::array<std::size_t, AMIO_MAX_RANK> start{};
+    std::array<std::size_t, AMIO_MAX_RANK> count{};
     for (int32_t d = 0; d < meta.shape.rank; ++d) {
         count[d] = static_cast<std::size_t>(meta.shape.extents[d]);
         if (meta.write_region.rank) start[d] = static_cast<std::size_t>(meta.write_region.offsets[d]);
@@ -864,6 +871,8 @@ void NetCDF_Driver::close() {
     is_open_ = false;
     is_write_mode_ = false;
     file_path_.clear();
+    write_schema_prepared_ = false;
+    prepared_variables_.clear();
     independent_step_variables_.clear();
 }
 

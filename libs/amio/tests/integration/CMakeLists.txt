@@ -395,14 +395,36 @@ if(netCDF_FOUND AND MPI_CXX_FOUND)
     endif()
     add_test(NAME integration.mpi_netcdf_regions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                                                          $<TARGET_FILE:test_mpi_region_write> ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.mpi_netcdf_prepared_schema COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                                 $<TARGET_FILE:test_mpi_region_write> prepared-schema ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.mpi_netcdf_schema_mismatch COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                                 $<TARGET_FILE:test_mpi_region_write> schema-mismatch ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.mpi_netcdf_late_schema COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                             $<TARGET_FILE:test_mpi_region_write> late-schema ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.mpi_netcdf_batch COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                       $<TARGET_FILE:test_mpi_region_write> batch ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.mpi_netcdf_batch_invalid COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                               $<TARGET_FILE:test_mpi_region_write> batch-invalid ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.mpi_netcdf_batch_mismatch COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                                $<TARGET_FILE:test_mpi_region_write> batch-mismatch ${MPIEXEC_POSTFLAGS})
     add_test(NAME integration.mpi_netcdf_sync COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                                                       $<TARGET_FILE:test_mpi_region_write> sync ${MPIEXEC_POSTFLAGS})
     add_test(NAME integration.mpi_thread_gate COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                                                       $<TARGET_FILE:test_mpi_region_write> single ${MPIEXEC_POSTFLAGS})
     add_test(NAME integration.mpi_single_rank_netcdf COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}
                                                              $<TARGET_FILE:test_mpi_region_write> single ${MPIEXEC_POSTFLAGS})
-    set_tests_properties(integration.mpi_netcdf_regions integration.mpi_netcdf_sync integration.mpi_thread_gate integration.mpi_single_rank_netcdf
-                         PROPERTIES LABELS "integration;mpi;write" TIMEOUT 90 RUN_SERIAL TRUE)
+    set_tests_properties(
+        integration.mpi_netcdf_regions
+        integration.mpi_netcdf_prepared_schema
+        integration.mpi_netcdf_schema_mismatch
+        integration.mpi_netcdf_late_schema
+        integration.mpi_netcdf_batch
+        integration.mpi_netcdf_batch_invalid
+        integration.mpi_netcdf_batch_mismatch
+        integration.mpi_netcdf_sync
+        integration.mpi_thread_gate
+        integration.mpi_single_rank_netcdf
+        PROPERTIES LABELS "integration;mpi;write" TIMEOUT 90 RUN_SERIAL TRUE)
     if(AMIO_HAS_TENSORSTORE)
         add_test(NAME integration.mpi_zarr_regions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                                                            $<TARGET_FILE:test_mpi_region_write> zarr3 ${MPIEXEC_POSTFLAGS})

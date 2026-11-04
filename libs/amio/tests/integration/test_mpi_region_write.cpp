@@ -22,6 +22,12 @@ int main(int argc, char **argv) {
     const bool single = argc > 1 && std::string(argv[1]) == "single";
     const bool synchronous = argc > 1 && std::string(argv[1]) == "sync";
     const bool fallback = argc > 1 && std::string(argv[1]) == "nczarr";
+    const bool prepare_schema = argc > 1 && std::string(argv[1]) == "prepared-schema";
+    const bool mismatch_schema = argc > 1 && std::string(argv[1]) == "schema-mismatch";
+    const bool late_schema = argc > 1 && std::string(argv[1]) == "late-schema";
+    const bool batch_invalid = argc > 1 && std::string(argv[1]) == "batch-invalid";
+    const bool batch_mismatch = argc > 1 && std::string(argv[1]) == "batch-mismatch";
+    const bool batch = argc > 1 && (std::string(argv[1]) == "batch" || batch_invalid || batch_mismatch);
     const bool zarr = fallback || (argc > 1 && std::string(argv[1]) == "zarr3");
     int provided = 0;
     MPI_Init_thread(&argc, &argv, (single || synchronous) ? MPI_THREAD_SINGLE : MPI_THREAD_MULTIPLE, &provided);
@@ -91,6 +97,47 @@ int main(int argc, char **argv) {
                       "open second active NetCDF output");
                 datasets.push_back(second);
             }
+            std::vector<std::string> schema_names{"field_0", "field_1", "field_2"};
+            std::vector<amio_write_variable_t> schema(schema_names.size());
+            for (std::size_t i = 0; i < schema.size(); ++i) {
+                schema[i].struct_size = static_cast<std::uint32_t>(sizeof(amio_write_variable_t));
+                schema[i].version = AMIO_WRITE_VARIABLE_VERSION;
+                schema[i].name = schema_names[i].c_str();
+                schema[i].dtype = AMIO_DTYPE_F32;
+                schema[i].rank = 2;
+                schema[i].global_extents[0] = rows;
+                schema[i].global_extents[1] = 3;
+            }
+            if (prepare_schema || mismatch_schema || batch) {
+                if (mismatch_schema) {
+                    const auto *local_schema = rank == 1 ? nullptr : schema.data();
+                    check(amio_prepare_write_schema(dataset, local_schema, schema.size()) == AMIO_ERR_INVALID_INPUT,
+                          "agree on invalid schema input across ranks");
+                    if (rank == 1) schema[1].name = "different_field";
+                }
+                const auto prepared = amio_prepare_write_schema(dataset, schema.data(), schema.size());
+                check(prepared == (mismatch_schema ? AMIO_ERR_SCHEMA_MISMATCH : AMIO_OK),
+                      mismatch_schema ? "reject rank schema mismatch collectively" : "prepare shared schema");
+                if (prepare_schema) {
+                    auto invalid_region = amio_write_region_t{};
+                    invalid_region.rank = 2;
+                    invalid_region.global_extents[0] = rows + 1;
+                    invalid_region.global_extents[1] = 3;
+                    amio_shape_t invalid_shape{};
+                    invalid_shape.rank = 2;
+                    invalid_shape.extents[0] = rank + 1;
+                    invalid_shape.extents[1] = 3;
+                    std::vector<float> invalid_data((rank + 1) * 3);
+                    amio_io_handle invalid_io = nullptr;
+                    check(amio_write_region(dataset, "field_0", invalid_data.data(), AMIO_DTYPE_F32, &invalid_shape, &invalid_region, &invalid_io) ==
+                              AMIO_ERR_SCHEMA_MISMATCH,
+                          "reject write that differs from prepared global shape");
+                }
+            }
+            if (batch && datasets.size() > 1)
+                for (std::size_t file = 1; file < datasets.size(); ++file)
+                    check(amio_prepare_write_schema(datasets[file], schema.data(), schema.size()) == AMIO_OK,
+                          "prepare batch schema for second output");
             amio_shape_t shape{};
             shape.rank = 2;
             shape.extents[0] = rank + 1;
@@ -101,16 +148,49 @@ int main(int argc, char **argv) {
             region.global_extents[1] = 3;
             region.offsets[0] = offset;
             std::vector<float> data((rank + 1) * 3);
+            std::vector<std::vector<float>> batch_data(3, std::vector<float>(data.size()));
+            std::vector<amio_region_write_t> batch_writes(3);
+            const auto fill_batch = [&](int step, std::size_t file) {
+                for (int field = 0; field < 3; ++field) {
+                    for (int i = 0; i < rank + 1; ++i)
+                        for (int j = 0; j < 3; ++j)
+                            batch_data[field][static_cast<std::size_t>(i * 3 + j)] =
+                                100000 * static_cast<float>(file) + 1000 * step + 100 * field + (offset + i) * 3 + j;
+                    batch_writes[field] = {schema_names[field].c_str(), batch_data[field].data(), AMIO_DTYPE_F32, &shape, &region};
+                }
+            };
+            if (batch_invalid || batch_mismatch) {
+                fill_batch(0, 0);
+                auto rejected_batch = batch_writes;
+                if (batch_invalid && rank == 1) rejected_batch[0].host_data = nullptr;
+                if (batch_mismatch && rank == 1) std::swap(rejected_batch[0], rejected_batch[1]);
+                amio_io_handle rejected_io = nullptr;
+                const auto expected = batch_invalid ? AMIO_ERR_INVALID_INPUT : AMIO_ERR_SCHEMA_MISMATCH;
+                check(amio_write_region_batch(dataset, rejected_batch.data(), rejected_batch.size(), &rejected_io) == expected,
+                      batch_invalid ? "reject invalid batch input collectively" : "reject ordered batch schema mismatch collectively");
+                check(rejected_io == nullptr, "rejected batch returns no I/O handle");
+            }
             std::vector<amio_io_handle> pending;
             for (int step = 0; step < 12; ++step) {
                 for (std::size_t file = 0; file < datasets.size(); ++file) {
-                    for (int i = 0; i < rank + 1; ++i)
-                        for (int j = 0; j < 3; ++j) data[i * 3 + j] = 100000 * file + 1000 * step + (offset + i) * 3 + j;
                     amio_io_handle io = nullptr;
-                    const std::string name = zarr ? "field" : "field_" + std::to_string(step % 3);
-                    check(amio_write_region(datasets[file], name.c_str(), data.data(), AMIO_DTYPE_F32, &shape, &region, &io) == AMIO_OK,
-                          "enqueue interleaved output region");
-                    std::fill(data.begin(), data.end(), -999);  // Host can reuse immediately.
+                    if (batch) {
+                        fill_batch(step, file);
+                        check(amio_write_region_batch(datasets[file], batch_writes.data(), batch_writes.size(), &io) == AMIO_OK,
+                              "enqueue region batch");
+                        for (auto &values : batch_data) std::fill(values.begin(), values.end(), -999);
+                    } else {
+                        for (int i = 0; i < rank + 1; ++i)
+                            for (int j = 0; j < 3; ++j) data[i * 3 + j] = 100000 * file + 1000 * step + (offset + i) * 3 + j;
+                        const std::string name = zarr ? "field" : "field_" + std::to_string(step % 3);
+                        check(amio_write_region(datasets[file], name.c_str(), data.data(), AMIO_DTYPE_F32, &shape, &region, &io) == AMIO_OK,
+                              "enqueue interleaved output region");
+                        std::fill(data.begin(), data.end(), -999);  // Host can reuse immediately.
+                    }
+                    if (late_schema && step == 0 && file == 0) {
+                        check(amio_prepare_write_schema(dataset, schema.data(), schema.size()) == AMIO_ERR_INVALID_POLICY,
+                              "reject schema preparation after writes begin");
+                    }
                     pending.push_back(io);
                 }
             }
@@ -132,8 +212,11 @@ int main(int argc, char **argv) {
                             int varid = -1;
                             check(nc_inq_varid(ncid, ("field_" + std::to_string(field)).c_str(), &varid) == NC_NOERR, "find variable");
                             check(nc_get_var_float(ncid, varid, actual.data()) == NC_NOERR, "read global field");
+                            const int expected_step = batch ? 11 : 9 + field;
+                            const int field_offset = batch ? 100 * field : 0;
                             for (int i = 0; i < rows * 3; ++i)
-                                check(actual[i] == 100000 * file + 1000 * (9 + field) + i, "regions preserved in both ordered outputs");
+                                check(actual[i] == 100000 * file + 1000 * expected_step + field_offset + i,
+                                      "regions preserved in both ordered outputs");
                         }
                         check(nc_close(ncid) == NC_NOERR, "close independent reader");
                     }

@@ -69,10 +69,42 @@ rc = amio_wait(pending, 30000);
 rc = amio_flush(dataset, 30000);
 ```
 
-For Fortran, `amio_mod` exports `amio_write_region_t` and the interoperable
-`amio_write_region` function. Reverse Fortran array dimension order when populating
-both the local shape and global destination, following the existing AMIO shape
-convention. Pass `c_loc(values)` for a contiguous, interoperable host array.
+## Batched NetCDF-4 region writes
+
+When the NetCDF-4 schema has been prepared with `amio_prepare_write_schema()`,
+multiple ordered region writes can be submitted as one operation. All ranks
+must submit the same number of descriptors in the same variable order, with
+matching types and global extents. Local shapes and offsets may vary. Each
+descriptor's payload is copied before the call returns; one handle represents
+the entire batch. The API accepts 1 through 4096 descriptors and is currently
+limited to schema-prepared NetCDF-4 datasets. The staging pool must be able to
+hold the sum of the local payloads in the batch.
+
+```c
+amio_region_write_t writes[2] = {
+    {"temperature", temperature, AMIO_DTYPE_F32, &local, &temperature_region},
+    {"humidity", humidity, AMIO_DTYPE_F32, &local, &humidity_region}
+};
+amio_io_handle batch = NULL;
+amio_status_t rc = amio_write_region_batch(dataset, writes, 2, &batch);
+/* Check admission on every rank; both payload buffers can now be reused. */
+rc = amio_wait(batch, 30000);
+/* Wait for the batch on every rank before collective lifecycle operations. */
+rc = amio_flush(dataset, 30000);
+```
+
+Batch completion errors are reported through the one returned handle and
+`amio_flush()`. If admission fails, `out_io` is NULL. Schema or ordered-batch
+disagreements are reported collectively; callers remain responsible for
+assigning disjoint regions.
+
+For Fortran, `amio_mod` exports `amio_write_region_t` and
+`amio_write_region`, along with `amio_region_write_t` and
+`amio_write_region_batch`. Reverse Fortran array dimension order when populating
+the local shape and global destination, following the existing AMIO shape
+convention. Batch descriptor pointer fields use `c_loc()` for a NUL-terminated
+character name, contiguous interoperable host data, and target shape/region
+descriptors. Pass the descriptor array and its length using `integer(c_size_t)`.
 
 ## Completion and backpressure
 

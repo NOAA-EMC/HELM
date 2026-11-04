@@ -216,6 +216,11 @@ AMIO_API amio_status_t amio_write(amio_dataset_handle dataset, const char *var_n
                          [&](void *payload) -> amio_status_t { return amio::detail::write(payload, var_name, host_data, dtype, shape, out_io); });
 }
 
+AMIO_API amio_status_t amio_prepare_write_schema(amio_dataset_handle dataset, const amio_write_variable_t *variables, size_t variable_count) {
+    return kind_dispatch(dataset, HandleKind::Dataset,
+                         [&](void *payload) { return amio::detail::prepare_write_schema(payload, variables, variable_count); });
+}
+
 AMIO_API amio_status_t amio_write_region(amio_dataset_handle dataset, const char *var_name, const void *host_data, amio_dtype_t dtype,
                                          const amio_shape_t *shape, const amio_write_region_t *region, amio_io_handle *out_io) {
     if (!out_io) return AMIO_ERR_INVALID_INPUT;
@@ -223,6 +228,14 @@ AMIO_API amio_status_t amio_write_region(amio_dataset_handle dataset, const char
     if (!var_name || !host_data || !shape || !region) return AMIO_ERR_INVALID_INPUT;
     return kind_dispatch(dataset, HandleKind::Dataset,
                          [&](void *payload) { return amio::detail::write(payload, var_name, host_data, dtype, shape, out_io, region); });
+}
+
+AMIO_API amio_status_t amio_write_region_batch(amio_dataset_handle dataset, const amio_region_write_t *writes, size_t write_count,
+                                               amio_io_handle *out_io) {
+    if (out_io == nullptr) return AMIO_ERR_INVALID_INPUT;
+    *out_io = nullptr;
+    return kind_dispatch(dataset, HandleKind::Dataset,
+                         [&](void *payload) { return amio::detail::write_region_batch(payload, writes, write_count, out_io); });
 }
 
 AMIO_API amio_status_t amio_describe(amio_dataset_handle dataset, const char *var_name, amio_shape_t *out_shape, int64_t *out_total_timesteps) {

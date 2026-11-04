@@ -55,6 +55,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "drivers/common/var_attributes.hpp"
@@ -82,6 +83,9 @@ class NetCDF_Driver : public Backend_Driver {
     bool supports_region_writes() const noexcept override {
         return true;
     }
+    bool supports_write_schema_preparation() const noexcept override {
+        return true;
+    }
 
     NetCDF_Driver();
     ~NetCDF_Driver() override;
@@ -90,6 +94,7 @@ class NetCDF_Driver : public Backend_Driver {
      */
     void open_write(const conf::Config &config) override;
     void open_read(const conf::Config &config) override;
+    void prepare_write_schema(const std::vector<VarMeta> &schema) override;
     void write(const StagingBuffer &src, const VarMeta &meta) override;
     void read(StagingBuffer &dst, const VarMeta &meta, std::int64_t timestep, const std::optional<BoundingBox> &bbox) override;
     void flush() override;
@@ -165,6 +170,14 @@ class NetCDF_Driver : public Backend_Driver {
      */
     static std::size_t dtype_byte_size(amio_dtype_t dtype);
 
+    int define_variable_in_define_mode(const VarMeta &meta);
+
+    struct PreparedVariable {
+        int varid = -1;
+        amio_dtype_t dtype = AMIO_DTYPE_F32;
+        std::vector<std::int64_t> global_extents;
+    };
+
 #ifdef AMIO_HAS_NETCDF
     // Internal state.
     int ncid_ = -1;                  // NetCDF file ID
@@ -179,6 +192,8 @@ class NetCDF_Driver : public Backend_Driver {
     bool is_open_ = false;
     bool is_write_mode_ = false;
     bool use_parallel_ = false;
+    bool write_schema_prepared_ = false;
+    std::unordered_map<std::string, PreparedVariable> prepared_variables_;
     std::set<std::string, std::less<>> independent_step_variables_;
 
     // CF/UGRID convention metadata + per-variable attributes parsed

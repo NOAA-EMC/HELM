@@ -693,6 +693,146 @@ static bool validate_shape(const amio_shape_t *shape) noexcept {
     return true;
 }
 
+amio_status_t prepare_write_schema(void *dataset_payload, const amio_write_variable_t *variables, std::size_t variable_count) {
+    auto *record = static_cast<DatasetRecord *>(dataset_payload);
+    auto *core = record->core;
+    std::unique_lock<std::mutex> schema_lock(record->write_schema_mu);
+
+    amio_status_t local_status = AMIO_OK;
+    std::vector<VarMeta> driver_schema;
+    std::unordered_map<std::string, DatasetRecord::PreparedWriteVariable> prepared_schema;
+    std::uint64_t hash = 14695981039346656037ULL;
+    const auto hash_bytes = [&hash](const void *data, std::size_t size) {
+        const auto *bytes = static_cast<const unsigned char *>(data);
+        for (std::size_t i = 0; i < size; ++i) {
+            hash ^= bytes[i];
+            hash *= 1099511628211ULL;
+        }
+    };
+
+    if (record->mode != AMIO_MODE_WRITE)
+        local_status = AMIO_ERR_INVALID_POLICY;
+    else if (record->writes_started || record->write_schema_prepared || record->write_schema_failed)
+        local_status = AMIO_ERR_INVALID_POLICY;
+    else if (variables == nullptr || variable_count == 0 || variable_count > 4096)
+        local_status = AMIO_ERR_INVALID_INPUT;
+    else if (!record->driver || !record->driver->supports_write_schema_preparation())
+        local_status = AMIO_ERR_UNSUPPORTED;
+
+    if (local_status == AMIO_OK) {
+        try {
+            driver_schema.reserve(variable_count);
+            prepared_schema.reserve(variable_count);
+            hash_bytes(&variable_count, sizeof(variable_count));
+            for (std::size_t i = 0; i < variable_count; ++i) {
+                const auto &input = variables[i];
+                if (input.struct_size < sizeof(amio_write_variable_t) || input.version != AMIO_WRITE_VARIABLE_VERSION || input.reserved[0] != 0 ||
+                    input.reserved[1] != 0 || input.name == nullptr || input.rank == 0 || input.rank > AMIO_MAX_RANK ||
+                    input.dtype > AMIO_DTYPE_U64 || dtype_element_size(static_cast<amio_dtype_t>(input.dtype)) == 0) {
+                    local_status = AMIO_ERR_INVALID_INPUT;
+                    break;
+                }
+
+                std::size_t name_length = 0;
+                while (name_length <= 255 && input.name[name_length] != '\0') ++name_length;
+                if (name_length == 0 || name_length > 255) {
+                    local_status = AMIO_ERR_INVALID_INPUT;
+                    break;
+                }
+                const std::string name(input.name, name_length);
+
+                VarMeta meta{};
+                meta.name = name;
+                meta.dtype = static_cast<amio_dtype_t>(input.dtype);
+                meta.shape.rank = static_cast<std::int32_t>(input.rank);
+                meta.write_region.rank = static_cast<std::int32_t>(input.rank);
+                DatasetRecord::PreparedWriteVariable prepared{};
+                prepared.dtype = meta.dtype;
+                prepared.global_extents.reserve(input.rank);
+                bool valid = true;
+                for (std::uint32_t d = 0; d < input.rank; ++d) {
+                    const auto extent = input.global_extents[d];
+                    if (extent <= 0) {
+                        valid = false;
+                        break;
+                    }
+                    meta.shape.extents[d] = extent;
+                    meta.write_region.global_extents[d] = extent;
+                    prepared.global_extents.push_back(extent);
+                }
+                for (std::uint32_t d = input.rank; d < AMIO_MAX_RANK; ++d) {
+                    if (input.global_extents[d] != 0) valid = false;
+                }
+                if (!valid || !prepared_schema.emplace(name, std::move(prepared)).second) {
+                    local_status = AMIO_ERR_INVALID_INPUT;
+                    break;
+                }
+
+                hash_bytes(&name_length, sizeof(name_length));
+                hash_bytes(name.data(), name.size());
+                hash_bytes(&input.dtype, sizeof(input.dtype));
+                hash_bytes(&input.rank, sizeof(input.rank));
+                hash_bytes(input.global_extents, input.rank * sizeof(input.global_extents[0]));
+                driver_schema.push_back(std::move(meta));
+            }
+        } catch (const std::bad_alloc &) {
+            local_status = AMIO_ERR_BACKEND_FAILURE;
+        } catch (...) {
+            local_status = AMIO_ERR_INVALID_INPUT;
+        }
+    }
+
+    const auto agree_status = [&](amio_status_t status) -> amio_status_t {
+#ifdef AMIO_HAS_MPI
+        if (core != nullptr && core->io_communicator.size_value > 1) {
+            int initialized = 0;
+            if (MPI_Initialized(&initialized) != MPI_SUCCESS || !initialized) return AMIO_ERR_COMM_SPLIT_FAILED;
+            int local = static_cast<int>(status), global = 0;
+            if (MPI_Allreduce(&local, &global, 1, MPI_INT, MPI_MAX, core->io_communicator.handle()) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+            return static_cast<amio_status_t>(global);
+        }
+#else
+        (void)core;
+#endif
+        return status;
+    };
+
+    auto status = agree_status(local_status);
+    if (status != AMIO_OK) return status;
+
+#ifdef AMIO_HAS_MPI
+    if (core != nullptr && core->io_communicator.size_value > 1) {
+        std::uint64_t minimum_hash = 0, maximum_hash = 0;
+        const MPI_Comm communicator = core->io_communicator.handle();
+        if (MPI_Allreduce(&hash, &minimum_hash, 1, MPI_UINT64_T, MPI_MIN, communicator) != MPI_SUCCESS ||
+            MPI_Allreduce(&hash, &maximum_hash, 1, MPI_UINT64_T, MPI_MAX, communicator) != MPI_SUCCESS)
+            return AMIO_ERR_COMM_SPLIT_FAILED;
+        if (minimum_hash != maximum_hash) return AMIO_ERR_SCHEMA_MISMATCH;
+    }
+#endif
+
+    try {
+        record->driver->prepare_write_schema(driver_schema);
+    } catch (const std::bad_alloc &) {
+        local_status = AMIO_ERR_BACKEND_FAILURE;
+    } catch (const std::exception &e) {
+        core->logger.log(logs::Severity_Level::ERROR, std::string("prepare write schema failed: ") + e.what());
+        local_status = AMIO_ERR_BACKEND_FAILURE;
+    } catch (...) {
+        core->logger.log(logs::Severity_Level::ERROR, "prepare write schema failed: unknown exception");
+        local_status = AMIO_ERR_BACKEND_FAILURE;
+    }
+    status = agree_status(local_status);
+    if (status != AMIO_OK) {
+        record->write_schema_failed = true;
+        return status;
+    }
+
+    record->prepared_write_schema = std::move(prepared_schema);
+    record->write_schema_prepared = true;
+    return AMIO_OK;
+}
+
 // ---------------------------------------------------------------
 // amio_write -- task 9.1: synchronous snapshot write path
 //
@@ -758,6 +898,25 @@ amio_status_t write(void *dataset_payload, const char *var_name, const void *hos
     // Sanity: payload must be at least 1 byte.
     if (payload_bytes == 0) {
         return AMIO_ERR_INVALID_INPUT;
+    }
+
+    {
+        std::lock_guard<std::mutex> schema_lock(record->write_schema_mu);
+        if (record->write_schema_failed) return AMIO_ERR_BACKEND_FAILURE;
+        if (record->write_schema_prepared) {
+            const auto schema_it = record->prepared_write_schema.find(var_name);
+            if (schema_it == record->prepared_write_schema.end()) return AMIO_ERR_SCHEMA_MISMATCH;
+            const auto &prepared = schema_it->second;
+            if (prepared.dtype != dtype || prepared.global_extents.size() != static_cast<std::size_t>(shape->rank)) return AMIO_ERR_SCHEMA_MISMATCH;
+            for (int32_t d = 0; d < shape->rank; ++d) {
+                if (region) {
+                    if (region->global_extents[d] != prepared.global_extents[static_cast<std::size_t>(d)]) return AMIO_ERR_SCHEMA_MISMATCH;
+                } else if (shape->extents[d] != prepared.global_extents[static_cast<std::size_t>(d)]) {
+                    return AMIO_ERR_SCHEMA_MISMATCH;
+                }
+            }
+        }
+        record->writes_started = true;
     }
 
     // ---- Step 3: Access AMIO_Core via back-pointer ----
@@ -927,6 +1086,251 @@ amio_status_t write(void *dataset_payload, const char *var_name, const void *hos
     }
 
     // ---- Step 8: Return io_handle to caller (R2.7) ----
+    *out_io = HandleTable::to_ptr(io_token);
+    return AMIO_OK;
+}
+
+amio_status_t write_region_batch(void *dataset_payload, const amio_region_write_t *writes, std::size_t write_count, amio_io_handle *out_io) {
+    auto *record = static_cast<DatasetRecord *>(dataset_payload);
+    if (out_io == nullptr) return AMIO_ERR_INVALID_INPUT;
+    *out_io = nullptr;
+
+    AMIO_Core *core = record->core;
+    amio_status_t local_status = AMIO_OK;
+    struct BatchItem {
+        VarMeta meta;
+        std::size_t offset = 0;
+        std::size_t bytes = 0;
+    };
+    std::vector<BatchItem> items;
+    std::size_t total_bytes = 0;
+    std::uint64_t schema_hash = 14695981039346656037ULL;
+    const auto hash_bytes = [&schema_hash](const void *data, std::size_t size) {
+        const auto *bytes = static_cast<const unsigned char *>(data);
+        for (std::size_t i = 0; i < size; ++i) {
+            schema_hash ^= bytes[i];
+            schema_hash *= 1099511628211ULL;
+        }
+    };
+
+    {
+        std::unique_lock<std::mutex> schema_lock(record->write_schema_mu);
+        if (record->mode != AMIO_MODE_WRITE)
+            local_status = AMIO_ERR_INVALID_POLICY;
+        else if (!record->driver || !record->driver->supports_region_writes())
+            local_status = AMIO_ERR_UNSUPPORTED;
+        else if (!record->write_schema_prepared || record->write_schema_failed)
+            local_status = record->write_schema_failed ? AMIO_ERR_BACKEND_FAILURE : AMIO_ERR_INVALID_POLICY;
+        else if (writes == nullptr || write_count == 0 || write_count > 4096)
+            local_status = AMIO_ERR_INVALID_INPUT;
+
+        if (local_status == AMIO_OK) {
+            try {
+                items.reserve(write_count);
+                hash_bytes(&write_count, sizeof(write_count));
+                for (std::size_t i = 0; i < write_count; ++i) {
+                    const auto &input = writes[i];
+                    if (input.var_name == nullptr || input.host_data == nullptr || input.shape == nullptr || input.region == nullptr ||
+                        dtype_element_size(input.dtype) == 0 || !validate_shape(input.shape) || input.region->rank != input.shape->rank) {
+                        local_status = AMIO_ERR_INVALID_INPUT;
+                        break;
+                    }
+
+                    std::size_t name_length = 0;
+                    while (name_length <= 255 && input.var_name[name_length] != '\0') ++name_length;
+                    if (name_length == 0 || name_length > 255) {
+                        local_status = AMIO_ERR_INVALID_INPUT;
+                        break;
+                    }
+
+                    const std::size_t element_bytes = dtype_element_size(input.dtype);
+                    for (int d = 0; d < input.shape->rank; ++d) {
+                        if (input.region->global_extents[d] <= 0 || input.region->offsets[d] < 0 ||
+                            input.shape->extents[d] > input.region->global_extents[d] ||
+                            input.region->offsets[d] > input.region->global_extents[d] - input.shape->extents[d]) {
+                            local_status = AMIO_ERR_INVALID_INPUT;
+                            break;
+                        }
+                    }
+                    if (local_status != AMIO_OK) break;
+                    std::size_t contiguous_elements = 1;
+                    for (int d = input.shape->rank - 1; d >= 0; --d) {
+                        const auto extent = static_cast<std::size_t>(input.shape->extents[d]);
+                        if ((input.shape->strides[d] != 0 && static_cast<std::size_t>(input.shape->strides[d]) != contiguous_elements) ||
+                            extent > std::numeric_limits<std::size_t>::max() / contiguous_elements) {
+                            local_status = AMIO_ERR_INVALID_INPUT;
+                            break;
+                        }
+                        contiguous_elements *= extent;
+                    }
+                    if (local_status != AMIO_OK || contiguous_elements > std::numeric_limits<std::size_t>::max() / element_bytes) {
+                        local_status = AMIO_ERR_INVALID_INPUT;
+                        break;
+                    }
+                    const std::size_t payload_bytes = contiguous_elements * element_bytes;
+                    for (int d = input.shape->rank; d < AMIO_MAX_RANK; ++d) {
+                        if (input.shape->extents[d] != 0 || input.shape->strides[d] != 0 || input.region->global_extents[d] != 0 ||
+                            input.region->offsets[d] != 0) {
+                            local_status = AMIO_ERR_INVALID_INPUT;
+                            break;
+                        }
+                    }
+                    if (local_status != AMIO_OK) break;
+                    if (payload_bytes > std::numeric_limits<std::size_t>::max() - total_bytes) {
+                        local_status = AMIO_ERR_INVALID_INPUT;
+                        break;
+                    }
+
+                    const std::string name(input.var_name, name_length);
+                    const auto schema_it = record->prepared_write_schema.find(name);
+                    if (schema_it == record->prepared_write_schema.end() || schema_it->second.dtype != input.dtype ||
+                        schema_it->second.global_extents.size() != static_cast<std::size_t>(input.shape->rank)) {
+                        local_status = AMIO_ERR_SCHEMA_MISMATCH;
+                        break;
+                    }
+                    for (int d = 0; d < input.shape->rank; ++d) {
+                        if (schema_it->second.global_extents[static_cast<std::size_t>(d)] != input.region->global_extents[d]) {
+                            local_status = AMIO_ERR_SCHEMA_MISMATCH;
+                            break;
+                        }
+                    }
+                    if (local_status != AMIO_OK) break;
+
+                    BatchItem item{};
+                    item.meta.dataset_id = record->dataset_id;
+                    item.meta.name = name;
+                    item.meta.dtype = input.dtype;
+                    item.meta.shape = *input.shape;
+                    item.meta.write_region = *input.region;
+                    item.meta.timestep = -1;
+                    item.offset = total_bytes;
+                    item.bytes = payload_bytes;
+                    items.push_back(std::move(item));
+                    total_bytes += payload_bytes;
+
+                    hash_bytes(&name_length, sizeof(name_length));
+                    hash_bytes(name.data(), name.size());
+                    hash_bytes(&input.dtype, sizeof(input.dtype));
+                    hash_bytes(&input.shape->rank, sizeof(input.shape->rank));
+                    hash_bytes(input.region->global_extents, input.shape->rank * sizeof(input.region->global_extents[0]));
+                }
+            } catch (const std::bad_alloc &) {
+                local_status = AMIO_ERR_BACKEND_FAILURE;
+            } catch (...) {
+                local_status = AMIO_ERR_INVALID_INPUT;
+            }
+        }
+
+        const auto agree_status = [&](amio_status_t status) -> amio_status_t {
+#ifdef AMIO_HAS_MPI
+            if (core != nullptr && core->io_communicator.size_value > 1) {
+                int initialized = 0;
+                if (MPI_Initialized(&initialized) != MPI_SUCCESS || !initialized) return AMIO_ERR_COMM_SPLIT_FAILED;
+                int local = static_cast<int>(status), global = 0;
+                if (MPI_Allreduce(&local, &global, 1, MPI_INT, MPI_MAX, core->io_communicator.handle()) != MPI_SUCCESS)
+                    return AMIO_ERR_COMM_SPLIT_FAILED;
+                return static_cast<amio_status_t>(global);
+            }
+#else
+            (void)core;
+#endif
+            return status;
+        };
+        auto status = agree_status(local_status);
+        if (status != AMIO_OK) return status;
+
+#ifdef AMIO_HAS_MPI
+        if (core != nullptr && core->io_communicator.size_value > 1) {
+            std::uint64_t minimum_hash = 0, maximum_hash = 0;
+            const MPI_Comm communicator = core->io_communicator.handle();
+            if (MPI_Allreduce(&schema_hash, &minimum_hash, 1, MPI_UINT64_T, MPI_MIN, communicator) != MPI_SUCCESS ||
+                MPI_Allreduce(&schema_hash, &maximum_hash, 1, MPI_UINT64_T, MPI_MAX, communicator) != MPI_SUCCESS)
+                return AMIO_ERR_COMM_SPLIT_FAILED;
+            if (minimum_hash != maximum_hash) return AMIO_ERR_SCHEMA_MISMATCH;
+        }
+#endif
+        record->writes_started = true;
+    }
+
+    if (total_bytes == 0 || core == nullptr || core->staging_pool == nullptr) return AMIO_ERR_INVALID_INPUT;
+    StagingBuffer *staging_buf = core->staging_pool.get()->acquire(total_bytes);
+    if (staging_buf == nullptr) return AMIO_ERR_STAGING_BACKPRESSURE;
+    for (std::size_t i = 0; i < write_count; ++i) std::memcpy(staging_buf->data + items[i].offset, writes[i].host_data, items[i].bytes);
+    staging_buf->used_bytes = total_bytes;
+
+    auto *io_rec = new (std::nothrow) IoRecord{};
+    if (io_rec == nullptr) {
+        core->staging_pool.get()->release(staging_buf);
+        return AMIO_ERR_BACKEND_FAILURE;
+    }
+    io_rec->dataset_id = record->dataset_id;
+    io_rec->core = core;
+    io_rec->staging_buf = staging_buf;
+    HandleTable::Token io_token = 0;
+    try {
+        io_token = process_handle_table().insert(HandleKind::Io, io_rec);
+    } catch (...) {
+        core->staging_pool.get()->release(staging_buf);
+        delete io_rec;
+        return AMIO_ERR_BACKEND_FAILURE;
+    }
+    io_rec->token = io_token;
+
+    record->pending_writes.fetch_add(1);
+    auto execute_batch = [items = std::move(items), staging_buf, record, core, io_rec]() {
+        try {
+            for (const auto &item : items) {
+                StagingBuffer slice{};
+                slice.data = staging_buf->data + item.offset;
+                slice.capacity_bytes = item.bytes;
+                slice.used_bytes = item.bytes;
+                record->driver->write(slice, item.meta);
+            }
+        } catch (...) {
+            std::string message;
+            io_rec->failure_code = translate_exception_to_error(&message);
+            core->logger.log(logs::Severity_Level::ERROR, message);
+            io_rec->failed.store(true);
+            amio_err_t expected = AMIO_OK;
+            record->first_failure_code.compare_exchange_strong(expected, io_rec->failure_code);
+            record->has_failure.store(true);
+        }
+        core->staging_pool.get()->release(staging_buf);
+        {
+            std::lock_guard<std::mutex> lock(record->pending_mu);
+            record->pending_writes.fetch_sub(1);
+        }
+        record->pending_cv.notify_all();
+        io_rec->completed.store(true);
+    };
+
+    if (core->worker_pool != nullptr) {
+        DatasetVariableKey dv_key{};
+        dv_key.dataset_id = 0;
+        dv_key.variable_id = 0;
+        std::uint64_t seq = 0;
+        amio_err_t admission = AMIO_OK;
+        try {
+            admission = core->worker_pool.get()->submit_write(dv_key, io_token, std::move(execute_batch), &seq);
+        } catch (...) {
+            admission = AMIO_ERR_BACKEND_FAILURE;
+        }
+        if (admission != AMIO_OK) {
+            {
+                std::lock_guard<std::mutex> lock(record->pending_mu);
+                record->pending_writes.fetch_sub(1);
+            }
+            record->pending_cv.notify_all();
+            core->staging_pool.get()->release(staging_buf);
+            process_handle_table().release(io_token, HandleKind::Io);
+            delete io_rec;
+            return admission;
+        }
+        io_rec->dv_seq = seq;
+    } else {
+        execute_batch();
+    }
+
     *out_io = HandleTable::to_ptr(io_token);
     return AMIO_OK;
 }

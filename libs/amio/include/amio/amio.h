@@ -46,7 +46,7 @@ extern "C" {
  *  @{
  */
 #define AMIO_ABI_VERSION_MAJOR 0 /**< ABI major version */
-#define AMIO_ABI_VERSION_MINOR 3 /**< ABI minor version */
+#define AMIO_ABI_VERSION_MINOR 4 /**< ABI minor version */
 #define AMIO_ABI_VERSION_PATCH 0 /**< ABI patch version */
 /** @} */
 
@@ -221,6 +221,30 @@ AMIO_API amio_status_t amio_write(amio_dataset_handle dataset, const char *var_n
                                   const amio_shape_t *shape, amio_io_handle *out_io);
 
 /**
+ * @brief Collectively define a fixed schema before writing shared NetCDF arrays.
+ *
+ * Every rank must call this before the first write, with the same ordered
+ * descriptors. AMIO defines all dimensions and variables in one metadata
+ * phase and configures collective access once. Subsequent amio_write_region()
+ * calls must match a declared name, dtype, rank, and global shape.
+ *
+ * This currently supports the NetCDF-4 backend. For multi-rank datasets the
+ * call is collective over the dataset communicator. Datasets without a
+ * prepared schema retain the existing lazy-definition behavior.
+ *
+ * @param[in] dataset Write-mode dataset from amio_open_dataset().
+ * @param[in] variables Ordered fixed-shape variable definitions; names must
+ *                      fit in 255 bytes and unused extents/reserved fields
+ *                      must be zero.
+ * @param[in] variable_count Number of definitions; must be between 1 and 4096.
+ * @return AMIO_OK on success, AMIO_ERR_SCHEMA_MISMATCH when rank schemas
+ *         differ, AMIO_ERR_INVALID_POLICY if writes have already started,
+ *         AMIO_ERR_UNSUPPORTED for an unsupported backend, or another
+ *         AMIO_ERR_* status on validation/NetCDF failure.
+ */
+AMIO_API amio_status_t amio_prepare_write_schema(amio_dataset_handle dataset, const amio_write_variable_t *variables, size_t variable_count);
+
+/**
  * @brief Snapshot and asynchronously write a rank-local region of a shared array.
  *
  * Payload is contiguous row-major; shape describes the local payload, region
@@ -253,6 +277,36 @@ AMIO_API amio_status_t amio_write(amio_dataset_handle dataset, const char *var_n
  */
 AMIO_API amio_status_t amio_write_region(amio_dataset_handle dataset, const char *var_name, const void *host_data, amio_dtype_t dtype,
                                          const amio_shape_t *shape, const amio_write_region_t *region, amio_io_handle *out_io);
+
+/**
+ * @brief Snapshot and asynchronously write multiple rank-local regions as one operation.
+ *
+ * Requires a write-mode NetCDF-4 dataset with a schema prepared by
+ * amio_prepare_write_schema(). For multi-rank datasets, every rank must call
+ * this function with the same write count and ordered variable names, types,
+ * and global extents. Local shapes and offsets may differ by rank. Callers
+ * must assign disjoint regions and order collective submissions identically.
+ *
+ * All payloads are snapshotted before a successful return, so the caller may
+ * reuse both payloads and descriptors immediately afterward. One I/O handle
+ * represents the whole batch; amio_wait() and amio_flush() report completion
+ * or failure. The batch is limited to 4096 writes and requires staging
+ * capacity for the sum of its local payload sizes.
+ *
+ * @param[in] dataset Write-mode dataset with a prepared schema.
+ * @param[in] writes Ordered array of region-write descriptors.
+ * @param[in] write_count Number of descriptors; must be between 1 and 4096.
+ * @param[out] out_io Receives one pending handle, or NULL if admission fails.
+ * @return AMIO_OK on admission; AMIO_ERR_INVALID_INPUT for malformed
+ *         descriptors; AMIO_ERR_INVALID_POLICY if schema preparation has not
+ *         completed; AMIO_ERR_SCHEMA_MISMATCH for disagreement with the
+ *         prepared schema or other ranks; AMIO_ERR_UNSUPPORTED for an
+ *         unsupported backend; AMIO_ERR_STAGING_BACKPRESSURE or
+ *         AMIO_ERR_QUEUE_FULL when resources are unavailable; another
+ *         AMIO_ERR_* status on backend or communicator failure.
+ */
+AMIO_API amio_status_t amio_write_region_batch(amio_dataset_handle dataset, const amio_region_write_t *writes, size_t write_count,
+                                               amio_io_handle *out_io);
 
 /**
  * @brief Return a Memory_View for a prefetched variable/timestep.

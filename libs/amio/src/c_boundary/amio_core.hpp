@@ -127,6 +127,11 @@ struct VariableReadState {
  * @brief Dataset ownership and pending-operation state for flush and close.
  */
 struct DatasetRecord {
+    struct PreparedWriteVariable {
+        amio_dtype_t dtype = AMIO_DTYPE_F32;
+        std::vector<std::int64_t> global_extents;
+    };
+
     // Parsed manifest as a conf::Config -- owns the configuration
     // document for the driver's lifetime.  Declared before `driver`
     // so it outlives the driver (destroyed after driver, per C++
@@ -151,6 +156,11 @@ struct DatasetRecord {
 
     // Next variable ID counter for ordering.
     std::atomic<std::uint64_t> next_variable_id{1};
+    mutable std::mutex write_schema_mu;
+    bool writes_started = false;
+    bool write_schema_prepared = false;
+    bool write_schema_failed = false;
+    std::unordered_map<std::string, PreparedWriteVariable> prepared_write_schema;
 
     // ---- Read path state (task 9.2) ----
 
@@ -347,6 +357,10 @@ amio_status_t describe(void *dataset_payload, const char *var_name, amio_shape_t
  */
 amio_status_t write(void *dataset_payload, const char *var_name, const void *host_data, amio_dtype_t dtype, const amio_shape_t *shape,
                     amio_io_handle *out_io, const amio_write_region_t *region = nullptr);
+
+amio_status_t write_region_batch(void *dataset_payload, const amio_region_write_t *writes, std::size_t write_count, amio_io_handle *out_io);
+
+amio_status_t prepare_write_schema(void *dataset_payload, const amio_write_variable_t *variables, std::size_t variable_count);
 
 amio_status_t read(void *dataset_payload, const char *var_name, std::int64_t timestep, const amio_bbox_t *bbox, amio_view_handle *out_view);
 

@@ -71,6 +71,7 @@ module amio_mod
 
     ! Derived types
     public :: amio_write_region_t, amio_write_region
+    public :: amio_region_write_t, amio_write_region_batch
     public :: amio_shape_t
     public :: amio_bbox_t
 
@@ -225,6 +226,15 @@ module amio_mod
         integer(c_int64_t) :: global_extents(7)
         integer(c_int64_t) :: offsets(7)
     end type amio_write_region_t
+
+    !> One descriptor in an asynchronous region-write batch.
+    type, bind(C) :: amio_region_write_t
+        type(c_ptr) :: var_name
+        type(c_ptr) :: host_data
+        integer(c_int) :: dtype
+        type(c_ptr) :: shape
+        type(c_ptr) :: region
+    end type amio_region_write_t
 
     !> Fortran equivalent of C amio_bbox_t
     type, bind(C) :: amio_bbox_t
@@ -754,6 +764,16 @@ module amio_mod
             type(c_ptr), intent(out) :: out_io
             integer(c_int32_t) :: status
         end function amio_write_region
+
+        function amio_write_region_batch(dataset, writes, write_count, out_io) result(status) &
+            bind(C, name="amio_write_region_batch")
+            import :: c_ptr, c_size_t, c_int32_t, amio_region_write_t
+            type(c_ptr), value, intent(in) :: dataset
+            type(amio_region_write_t), intent(in) :: writes(*)
+            integer(c_size_t), value, intent(in) :: write_count
+            type(c_ptr), intent(out) :: out_io
+            integer(c_int32_t) :: status
+        end function amio_write_region_batch
 
         !> amio_read -- return a Memory_View for a prefetched timestep.
         !! C signature:

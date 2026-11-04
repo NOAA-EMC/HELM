@@ -40,6 +40,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
@@ -243,6 +244,11 @@ class Backend_Driver {
         return false;
     }
 
+    /** Whether the backend can define a complete write schema before payload submission. */
+    virtual bool supports_write_schema_preparation() const noexcept {
+        return false;
+    }
+
     virtual ~Backend_Driver() = default;
 
     /** @brief open_write -- prepare the driver for write operations.
@@ -265,6 +271,12 @@ class Backend_Driver {
      * Throws std::exception (or conf::Conf_Error) on failure.
      */
     virtual void open_read(const conf::Config &config) = 0;
+
+    /** Define all variables in a shared output before any writes are admitted. */
+    virtual void prepare_write_schema(const std::vector<VarMeta> &schema) {
+        (void)schema;
+        throw std::runtime_error("backend does not support write-schema preparation");
+    }
 
     /** @brief write -- serialize a staging buffer payload to storage.
      *
