@@ -7,6 +7,7 @@
 ///        Kokkos parallel kernels. Zero file I/O, zero YAML/JSON parsing.
 
 #include <Kokkos_Core.hpp>
+#include <algorithm>
 #include <axis/topology/mesh_builder.hpp>
 #include <axis/topology/rule_generator.hpp>
 #include <cmath>

@@ -138,6 +138,9 @@ void UnstructuredMesh<MemorySpace>::compute_areas() {
                 // ─────────────────────────────────────────────────────────────
                 double nx = 0.0, ny = 0.0, nz = 0.0;
 
+                // Compact two-column Cartesian3D meshes carry an implied z == 0;
+                // only read column 2 when the coordinate table actually stores it.
+                const bool coords_have_z = coords.extent(1) > 2;
                 for (int i = 0; i < nv; ++i) {
                     const int j = (i + 1) % nv;
                     const index_t vi = indices(start + i);
@@ -145,10 +148,10 @@ void UnstructuredMesh<MemorySpace>::compute_areas() {
 
                     const double vix = coords(vi, 0);
                     const double viy = coords(vi, 1);
-                    const double viz = coords(vi, 2);
+                    const double viz = coords_have_z ? coords(vi, 2) : 0.0;
                     const double vjx = coords(vj, 0);
                     const double vjy = coords(vj, 1);
-                    const double vjz = coords(vj, 2);
+                    const double vjz = coords_have_z ? coords(vj, 2) : 0.0;
 
                     // Accumulate cross product
                     double cx, cy, cz;
