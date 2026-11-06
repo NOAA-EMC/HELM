@@ -4,7 +4,6 @@ import argparse
 import os
 import shutil
 import subprocess
-import sys
 import xarray as xr
 from pathlib import Path
 from artifacts import digest, identity, load, profile, relative, save
