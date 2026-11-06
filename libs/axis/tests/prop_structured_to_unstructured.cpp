@@ -23,6 +23,7 @@
 #include <axis/topology/structured_grid.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -230,6 +231,39 @@ RC_GTEST_PROP(PropStructuredToUnstructured, CornerCoordinatesPreserved, ()) {
             RC_ASSERT(coords_ptr[n3 + n_nodes_total * 1] == corner_lat_vec[tl_idx]);
         }
     }
+}
+
+TEST(PropStructuredToUnstructured, NonSquareAffineCentersExtrapolateEveryPerimeter) {
+    constexpr std::size_t ni = 3;
+    constexpr std::size_t nj = 2;
+    Kokkos::View<double *, Kokkos::HostSpace> lon("lon", ni * nj);
+    Kokkos::View<double *, Kokkos::HostSpace> lat("lat", ni * nj);
+    for (std::size_t j = 0; j < nj; ++j) {
+        for (std::size_t i = 0; i < ni; ++i) {
+            lon(i + j * ni) = 4.0 + 2.0 * static_cast<double>(i);
+            lat(i + j * ni) = -3.0 + 6.0 * static_cast<double>(j);
+        }
+    }
+    axis::topology::StructuredGrid<Kokkos::HostSpace> grid(ni, nj, std::move(lon), std::move(lat), axis::topology::CoordinateSystem::SphericalDeg);
+    const auto mesh =
+        grid.to_unstructured(axis::topology::CornerPolicy::RectilinearMidpoint, axis::topology::LongitudePeriodicity{false, 360.0, true});
+    const auto coords = mesh.node_coords();
+    for (std::size_t j = 0; j <= nj; ++j) {
+        for (std::size_t i = 0; i <= ni; ++i) {
+            const std::size_t node = i + j * (ni + 1);
+            const double expected_lon = 3.0 + 2.0 * static_cast<double>(i);
+            const double expected_lat = -6.0 + 6.0 * static_cast<double>(j);
+            EXPECT_NEAR(coords(node, 0), expected_lon, 1e-12);
+            EXPECT_NEAR(coords(node, 1), expected_lat, 1e-12);
+        }
+    }
+    const auto offsets = mesh.conn_offsets();
+    const auto indices = mesh.conn_indices();
+    EXPECT_EQ(offsets(0), 0);
+    EXPECT_EQ(indices(0), 0);
+    EXPECT_EQ(indices(1), 1);
+    EXPECT_EQ(indices(2), 5);
+    EXPECT_EQ(indices(3), 4);
 }
 
 // ─── Property 2d: Node count is exactly (ni+1)*(nj+1) ───────────────────────

@@ -79,6 +79,33 @@ enum class CoordinateSystem : std::uint8_t {
     Cartesian3D
 };
 
+/// Controls how a structured grid obtains its cell corners when none were set.
+enum class CornerPolicy : std::uint8_t { RequireExplicit, GaussianLatLon, RectilinearMidpoint, CurvilinearApproximate };
+
+/// Explicit longitude seam metadata shared by grid topology builders.
+struct LongitudePeriodicity {
+    bool periodic{false};
+    double period{360.0};
+    bool increasing{true};
+};
+
+/// Describes how mesh boundary coordinates were obtained.
+enum class GeometryProvenance : std::uint8_t { Unspecified, SourceAuthoritative, DeclaredGridModel, Reconstructed, Approximate };
+
+/// Mathematical interpretation of polygon edges.
+enum class BoundaryModel : std::uint8_t { Unspecified, GreatCircle, ConstantLatitude, CartesianStraight };
+
+/// Mathematical model associated with the mesh's current cell-area values.
+enum class AreaModel : std::uint8_t { Unspecified, SphericalExcess, ConstantLatitudeStrip, PlanarPolygon, SourceSupplied };
+
+/// Queryable geometry semantics retained with the canonical CSR mesh.
+struct GeometryMetadata {
+    GeometryProvenance provenance{GeometryProvenance::Unspecified};
+    BoundaryModel boundary_model{BoundaryModel::Unspecified};
+    AreaModel area_model{AreaModel::Unspecified};
+    LongitudePeriodicity longitude_periodicity{};
+};
+
 }  // namespace axis::topology
 
 #endif  // AXIS_TOPOLOGY_ENUMS_HPP

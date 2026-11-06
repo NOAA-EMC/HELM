@@ -2,6 +2,12 @@
 // AXIS — Arbitrary eXgrid Interpolation Solver
 // Copyright (c) HELM Project Contributors
 
+/// @file src/solver/vector_regridder.cpp
+/// @brief Vector (rotating) regridding weight generation and application.
+///
+/// Derives paired x/y weight matrices from the scalar spatial matrix and the
+/// grid rotation fields so contravariant vector components transfer correctly.
+
 #include <axis/detail/memory_traits.hpp>
 #include <axis/solver/vector_regridder.hpp>
 #include <axis/solver/weight_generator.hpp>
@@ -24,6 +30,7 @@ std::pair<InterpolationMatrix<MemorySpace>, InterpolationMatrix<MemorySpace>> Ve
     // 2. We extract the scalar sparse matrix underlying Views directly
     const auto &rows = W_scalar.factor_row_view();
     const auto &cols = W_scalar.factor_col_view();
+    if (W_scalar.has_linear_reconstruction()) throw std::invalid_argument("vector weights do not yet support field-dependent linear reconstruction");
     const auto &vals = W_scalar.factor_list_view();
 
     // Each scalar entry W_ji yields exactly 2 entries in W_u and 2 entries in W_v

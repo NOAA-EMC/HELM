@@ -1,3 +1,4 @@
+#include <axis/solver/paper_diagnostics.hpp>
 // SPDX-License-Identifier: Apache-2.0
 // AXIS — Arbitrary eXgrid Interpolation Solver
 // Copyright (c) HELM Project Contributors
@@ -23,7 +24,9 @@
 #include <array>
 #include <axis/detail/dateline_handler.hpp>
 #include <axis/detail/degenerate_cell_handler.hpp>
+#include <axis/detail/linear_geometry.hpp>
 #include <axis/detail/morton_sort.hpp>
+#include <axis/detail/parallel_host_rows.hpp>
 #include <axis/detail/planar_clipper.hpp>
 #include <axis/detail/regular_grid_detector.hpp>
 #include <axis/detail/spherical_cap_filter.hpp>
@@ -35,6 +38,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -84,58 +88,60 @@ void compute_cell_centroids_xy(const topology::UnstructuredMesh<MemorySpace> &me
     cx_out = Kokkos::View<double *, Kokkos::HostSpace>("cx", n_cells);
     cy_out = Kokkos::View<double *, Kokkos::HostSpace>("cy", n_cells);
 
-    for (std::size_t c = 0; c < n_cells; ++c) {
-        auto start = static_cast<std::size_t>(offsets[c]);
-        auto end = static_cast<std::size_t>(offsets[c + 1]);
-        auto n_verts = end - start;
+    Kokkos::parallel_for(
+        "axis::centroids", Kokkos::RangePolicy<Kokkos::DefaultHostExecutionSpace>(0, n_cells), KOKKOS_LAMBDA(std::size_t c) {
+            auto start = static_cast<std::size_t>(offsets[c]);
+            auto end = static_cast<std::size_t>(offsets[c + 1]);
+            auto n_verts = end - start;
 
-        if (is_spherical) {
-            double sum_x = 0.0, sum_y = 0.0, sum_z = 0.0;
-            for (std::size_t i = start; i < end; ++i) {
-                auto ni = static_cast<std::size_t>(indices[i]);
-                double lon = coords(ni, 0);
-                double lat = coords(ni, 1);
+            if (is_spherical) {
+                double sum_x = 0.0, sum_y = 0.0, sum_z = 0.0;
+                for (std::size_t i = start; i < end; ++i) {
+                    auto ni = static_cast<std::size_t>(indices[i]);
+                    double lon = coords(ni, 0);
+                    double lat = coords(ni, 1);
+                    if (csys == topology::CoordinateSystem::SphericalDeg) {
+                        const double pi = 3.14159265358979323846;
+                        lon = lon * pi / 180.0;
+                        lat = lat * pi / 180.0;
+                    }
+                    sum_x += std::cos(lat) * std::cos(lon);
+                    sum_y += std::cos(lat) * std::sin(lon);
+                    sum_z += std::sin(lat);
+                }
+                double inv = (n_verts > 0) ? 1.0 / static_cast<double>(n_verts) : 0.0;
+                double avg_x = sum_x * inv;
+                double avg_y = sum_y * inv;
+                double avg_z = sum_z * inv;
+
+                double lat_avg = std::asin(avg_z);
+                double lon_avg = std::atan2(avg_y, avg_x);
+                if (lon_avg < 0.0) {
+                    const double pi = 3.14159265358979323846;
+                    lon_avg += 2.0 * pi;
+                }
+
                 if (csys == topology::CoordinateSystem::SphericalDeg) {
                     const double pi = 3.14159265358979323846;
-                    lon = lon * pi / 180.0;
-                    lat = lat * pi / 180.0;
+                    lon_avg = lon_avg * 180.0 / pi;
+                    lat_avg = lat_avg * 180.0 / pi;
                 }
-                sum_x += std::cos(lat) * std::cos(lon);
-                sum_y += std::cos(lat) * std::sin(lon);
-                sum_z += std::sin(lat);
-            }
-            double inv = (n_verts > 0) ? 1.0 / static_cast<double>(n_verts) : 0.0;
-            double avg_x = sum_x * inv;
-            double avg_y = sum_y * inv;
-            double avg_z = sum_z * inv;
+                cx_out(c) = lon_avg;
+                cy_out(c) = lat_avg;
+            } else {
+                double sx = 0.0, sy = 0.0;
+                for (std::size_t i = start; i < end; ++i) {
+                    auto ni = static_cast<std::size_t>(indices[i]);
+                    sx += coords(ni, 0);
+                    sy += coords(ni, 1);
+                }
 
-            double lat_avg = std::asin(avg_z);
-            double lon_avg = std::atan2(avg_y, avg_x);
-            if (lon_avg < 0.0) {
-                const double pi = 3.14159265358979323846;
-                lon_avg += 2.0 * pi;
+                double inv = (n_verts > 0) ? 1.0 / static_cast<double>(n_verts) : 0.0;
+                cx_out(c) = sx * inv;
+                cy_out(c) = sy * inv;
             }
-
-            if (csys == topology::CoordinateSystem::SphericalDeg) {
-                const double pi = 3.14159265358979323846;
-                lon_avg = lon_avg * 180.0 / pi;
-                lat_avg = lat_avg * 180.0 / pi;
-            }
-            cx_out(c) = lon_avg;
-            cy_out(c) = lat_avg;
-        } else {
-            double sx = 0.0, sy = 0.0;
-            for (std::size_t i = start; i < end; ++i) {
-                auto ni = static_cast<std::size_t>(indices[i]);
-                sx += coords(ni, 0);
-                sy += coords(ni, 1);
-            }
-
-            double inv = (n_verts > 0) ? 1.0 / static_cast<double>(n_verts) : 0.0;
-            cx_out(c) = sx * inv;
-            cy_out(c) = sy * inv;
-        }
-    }
+        });
+    Kokkos::fence("axis::centroids::complete");
 }
 
 /// @brief Safe, loop-free, constant-time longitude normalization.
@@ -310,6 +316,266 @@ std::vector<double> get_cell_areas(const topology::UnstructuredMesh<MemorySpace>
     }
 
     return areas;
+}
+
+struct ConstantLatitudeCell {
+    double south{};
+    double north{};
+    double west{};
+    double east{};
+};
+
+struct ConstantLatitudeBand {
+    double south{};
+    double north{};
+    std::vector<index_t> cells;
+};
+
+struct LongitudeSegment {
+    double west{};
+    double east{};
+    index_t cell{};
+};
+
+template <class MemorySpace>
+std::vector<ConstantLatitudeCell> extract_constant_latitude_cells(const topology::UnstructuredMesh<MemorySpace> &mesh, bool periodic, double period) {
+    const auto coords = mesh.node_coords();
+    const auto offsets = mesh.conn_offsets();
+    const auto indices = mesh.conn_indices();
+    std::vector<ConstantLatitudeCell> cells(mesh.n_cells());
+    const double rad_to_units = mesh.coord_system() == topology::CoordinateSystem::SphericalDeg ? 180.0 / std::acos(-1.0) : 1.0;
+    for (std::size_t cell = 0; cell < mesh.n_cells(); ++cell) {
+        const std::size_t begin = static_cast<std::size_t>(offsets[cell]);
+        const std::size_t end = static_cast<std::size_t>(offsets[cell + 1]);
+        double south = std::numeric_limits<double>::max();
+        double north = -std::numeric_limits<double>::max();
+        std::vector<double> longitudes;
+        longitudes.reserve(end - begin);
+        for (std::size_t k = begin; k < end; ++k) {
+            const std::size_t node = static_cast<std::size_t>(indices[k]);
+            const double lon = coords(node, 0);
+            const double lat = coords(node, 1);
+            south = std::min(south, lat);
+            north = std::max(north, lat);
+            if (periodic) {
+                double normalized = std::fmod(lon, period);
+                if (normalized < 0.0) normalized += period;
+                if (normalized >= period) normalized = 0.0;
+                longitudes.push_back(normalized);
+            } else {
+                longitudes.push_back(lon);
+            }
+        }
+        if (longitudes.empty()) throw std::invalid_argument("constant-latitude overlay: encountered an empty cell polygon");
+        double west = std::numeric_limits<double>::max();
+        double east = -std::numeric_limits<double>::max();
+        if (periodic) {
+            std::sort(longitudes.begin(), longitudes.end());
+            longitudes.erase(std::unique(longitudes.begin(), longitudes.end(),
+                                         [period](double a, double b) { return std::abs(a - b) <= 1e-12 * std::max(1.0, period); }),
+                             longitudes.end());
+            if (longitudes.size() == 1) {
+                west = longitudes.front();
+                east = west + period;
+            } else {
+                double largest_gap = -1.0;
+                std::size_t gap_after = 0;
+                for (std::size_t i = 0; i < longitudes.size(); ++i) {
+                    const double next = (i + 1 < longitudes.size()) ? longitudes[i + 1] : longitudes.front() + period;
+                    const double gap = next - longitudes[i];
+                    if (gap > largest_gap) {
+                        largest_gap = gap;
+                        gap_after = i;
+                    }
+                }
+                west = longitudes[(gap_after + 1) % longitudes.size()];
+                east = west + period - largest_gap;
+            }
+        } else {
+            for (double lon : longitudes) {
+                west = std::min(west, lon);
+                east = std::max(east, lon);
+            }
+        }
+        if (!(north > south) || !(east > west) || north - south > 180.0 * rad_to_units + 1e-10) {
+            throw std::invalid_argument("constant-latitude overlay: invalid cell latitude/longitude bounds");
+        }
+        cells[cell] = ConstantLatitudeCell{south, north, west, east};
+    }
+    return cells;
+}
+
+std::vector<LongitudeSegment> make_longitude_segments(const std::vector<ConstantLatitudeCell> &cells, const std::vector<index_t> &band_cells,
+                                                      bool periodic, double period) {
+    std::vector<LongitudeSegment> result;
+    result.reserve(band_cells.size() * 2);
+    for (index_t cell_id : band_cells) {
+        const auto &cell = cells[static_cast<std::size_t>(cell_id)];
+        const double width = cell.east - cell.west;
+        if (!periodic) {
+            result.push_back(LongitudeSegment{cell.west, cell.east, cell_id});
+        } else if (width >= period - 1e-10 * std::max(1.0, period)) {
+            result.push_back(LongitudeSegment{0.0, period, cell_id});
+        } else {
+            double west = std::fmod(cell.west, period);
+            if (west < 0.0) west += period;
+            const double east = west + width;
+            if (east <= period) {
+                result.push_back(LongitudeSegment{west, east, cell_id});
+            } else {
+                result.push_back(LongitudeSegment{west, period, cell_id});
+                result.push_back(LongitudeSegment{0.0, east - period, cell_id});
+            }
+        }
+    }
+    std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) { return a.west < b.west || (a.west == b.west && a.east < b.east); });
+    return result;
+}
+
+template <class MemorySpace>
+InterpolationMatrix<MemorySpace> generate_constant_latitude_conservative(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
+                                                                         const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
+                                                                         const RegridConfig &config) {
+    paper_overlap_begin();
+    const auto src_geometry = src_mesh.geometry_metadata();
+    const auto dst_geometry = dst_mesh.geometry_metadata();
+    // Longitude is circular for spherical cell geometry even when the overall
+    // mesh is regional. Normalize each cell arc into a common period; this
+    // does not close a regional mesh or make its domain periodic.
+    constexpr bool normalize_longitudes = true;
+    const double period = src_geometry.longitude_periodicity.period;
+    if (std::abs(period - dst_geometry.longitude_periodicity.period) > 1e-10 * std::max(1.0, period)) {
+        throw std::invalid_argument("constant-latitude overlay requires matching longitude periods");
+    }
+    if (!std::isfinite(period) || period <= 0.0) throw std::invalid_argument("constant-latitude overlay requires a finite positive longitude period");
+
+    const std::size_t n_src = src_mesh.n_cells();
+    const std::size_t n_dst = dst_mesh.n_cells();
+    const auto src_cells = extract_constant_latitude_cells(src_mesh, normalize_longitudes, period);
+    const auto dst_cells = extract_constant_latitude_cells(dst_mesh, normalize_longitudes, period);
+    const double radians = src_mesh.coord_system() == topology::CoordinateSystem::SphericalDeg ? std::acos(-1.0) / 180.0 : 1.0;
+    const auto src_areas = get_cell_areas(src_mesh);
+    const auto dst_areas = get_cell_areas(dst_mesh);
+    const auto src_mask = src_mesh.cell_mask();
+    const auto dst_mask = dst_mesh.cell_mask();
+    const bool has_src_mask = src_mask.extent(0) == n_src;
+    const bool has_dst_mask = dst_mask.extent(0) == n_dst;
+
+    std::map<std::pair<double, double>, ConstantLatitudeBand> src_band_map;
+    std::map<std::pair<double, double>, ConstantLatitudeBand> dst_band_map;
+    for (std::size_t i = 0; i < n_src; ++i) {
+        auto &band = src_band_map[{src_cells[i].south, src_cells[i].north}];
+        band.south = src_cells[i].south;
+        band.north = src_cells[i].north;
+        band.cells.push_back(static_cast<index_t>(i));
+    }
+    for (std::size_t j = 0; j < n_dst; ++j) {
+        auto &band = dst_band_map[{dst_cells[j].south, dst_cells[j].north}];
+        band.south = dst_cells[j].south;
+        band.north = dst_cells[j].north;
+        band.cells.push_back(static_cast<index_t>(j));
+    }
+    std::vector<ConstantLatitudeBand> src_bands, dst_bands;
+    for (auto &[key, band] : src_band_map) src_bands.push_back(std::move(band));
+    for (auto &[key, band] : dst_band_map) dst_bands.push_back(std::move(band));
+
+    std::vector<std::vector<LongitudeSegment>> src_segments(src_bands.size()), dst_segments(dst_bands.size());
+    for (std::size_t b = 0; b < src_bands.size(); ++b)
+        src_segments[b] = make_longitude_segments(src_cells, src_bands[b].cells, normalize_longitudes, period);
+    for (std::size_t b = 0; b < dst_bands.size(); ++b)
+        dst_segments[b] = make_longitude_segments(dst_cells, dst_bands[b].cells, normalize_longitudes, period);
+
+    std::vector<double> frac_a(n_src, 0.0), frac_b(n_dst, 0.0);
+    std::vector<double> weights;
+    std::vector<index_t> rows, columns;
+    std::vector<bool> dst_has_entry(n_dst, false);
+    const double tol = 1e-12 * std::max(1.0, period);
+
+    for (std::size_t db = 0; db < dst_bands.size(); ++db) {
+        const auto &dst_band = dst_bands[db];
+        for (std::size_t sb = 0; sb < src_bands.size(); ++sb) {
+            const auto &src_band = src_bands[sb];
+            const double south = std::max(dst_band.south, src_band.south);
+            const double north = std::min(dst_band.north, src_band.north);
+            if (north <= south) continue;
+            const double lat_factor = std::sin(north * radians) - std::sin(south * radians);
+            if (lat_factor <= 0.0) continue;
+
+            const auto &ss = src_segments[sb];
+            const auto &ds = dst_segments[db];
+            std::size_t si = 0, di = 0;
+            std::map<std::pair<index_t, index_t>, double> band_overlaps;
+            while (si < ss.size() && di < ds.size()) {
+                const double lon_width = std::min(ss[si].east, ds[di].east) - std::max(ss[si].west, ds[di].west);
+                paper_overlap_observation(std::max(0.0, lon_width) * radians * lat_factor, tol * radians * lat_factor);
+                if (lon_width > tol) band_overlaps[{ds[di].cell, ss[si].cell}] += lon_width * radians * lat_factor;
+                if (ss[si].east < ds[di].east - tol) {
+                    ++si;
+                } else if (ds[di].east < ss[si].east - tol) {
+                    ++di;
+                } else {
+                    ++si;
+                    ++di;
+                }
+            }
+
+            for (const auto &[pair, overlap] : band_overlaps) {
+                const std::size_t dst = static_cast<std::size_t>(pair.first);
+                const std::size_t src = static_cast<std::size_t>(pair.second);
+                if (has_dst_mask && dst_mask[dst] == 0) continue;
+                if (has_src_mask && src_mask[src] == 0) continue;
+                const double area_dst = dst_areas[dst];
+                const double area_src = src_areas[src];
+                if (area_dst <= 0.0 || area_src <= 0.0) continue;
+                weights.push_back(overlap / area_dst);
+                rows.push_back(static_cast<index_t>(dst));
+                columns.push_back(static_cast<index_t>(src));
+                frac_a[src] += overlap / area_src;
+                frac_b[dst] += overlap / area_dst;
+                dst_has_entry[dst] = true;
+            }
+        }
+    }
+
+    if (config.unmapped == UnmappedAction::Error) {
+        for (std::size_t dst = 0; dst < n_dst; ++dst) {
+            if (has_dst_mask && dst_mask[dst] == 0) continue;
+            if (dst_areas[dst] > 0.0 && !dst_has_entry[dst]) {
+                throw std::runtime_error("WeightGenerator::generate_conservative: unmapped destination cell " + std::to_string(dst));
+            }
+        }
+    }
+    if (config.norm_type == NormType::FracArea) {
+        for (std::size_t k = 0; k < weights.size(); ++k) {
+            const std::size_t dst = static_cast<std::size_t>(rows[k]);
+            if (frac_b[dst] > 0.0) weights[k] /= frac_b[dst];
+        }
+    }
+    for (double &fraction : frac_a) fraction = std::min(fraction, 1.0);
+    for (double &fraction : frac_b) fraction = std::min(fraction, 1.0);
+
+    Kokkos::View<double *, MemorySpace> factor_list("constant_latitude_factor", weights.size());
+    Kokkos::View<index_t *, MemorySpace> factor_row("constant_latitude_row", rows.size());
+    Kokkos::View<index_t *, MemorySpace> factor_col("constant_latitude_col", columns.size());
+    Kokkos::View<double *, MemorySpace> frac_a_view("constant_latitude_frac_a", n_src);
+    Kokkos::View<double *, MemorySpace> frac_b_view("constant_latitude_frac_b", n_dst);
+    Kokkos::View<double *, MemorySpace> area_a_view("constant_latitude_area_a", n_src);
+    Kokkos::View<double *, MemorySpace> area_b_view("constant_latitude_area_b", n_dst);
+    for (std::size_t k = 0; k < weights.size(); ++k) {
+        factor_list(k) = weights[k];
+        factor_row(k) = rows[k];
+        factor_col(k) = columns[k];
+    }
+    for (std::size_t i = 0; i < n_src; ++i) {
+        frac_a_view(i) = frac_a[i];
+        area_a_view(i) = src_areas[i];
+    }
+    for (std::size_t j = 0; j < n_dst; ++j) {
+        frac_b_view(j) = frac_b[j];
+        area_b_view(j) = dst_areas[j];
+    }
+    return InterpolationMatrix<MemorySpace>(std::move(factor_list), std::move(factor_row), std::move(factor_col), std::move(frac_a_view),
+                                            std::move(frac_b_view), std::move(area_a_view), std::move(area_b_view), n_src, n_dst);
 }
 
 // ──────────────────── Sutherland-Hodgman polygon clipping ────────────────────
@@ -1737,6 +2003,8 @@ template <class MemorySpace>
 InterpolationMatrix<MemorySpace> coastal_renormalize_and_extrapolate(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
                                                                      const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
                                                                      InterpolationMatrix<MemorySpace> matrix, const RegridConfig &config) {
+    if (matrix.has_linear_reconstruction()) return matrix;
+
     // If source mesh does not have a cell mask View, return original matrix
     if (src_mesh.cell_mask_view().extent(0) == 0) {
         return matrix;
@@ -1784,8 +2052,13 @@ InterpolationMatrix<MemorySpace> coastal_renormalize_and_extrapolate(const topol
 
         if (h_mask(i) > 0) {
             double s = row_sums[j];
-            if (s > 0.0 && s < 1.0) {
-                w /= s;  // Renormalize wet weights
+            // Conservative weights already encode DstArea or FracArea. Coastal
+            // row renormalization would turn diluted DstArea values into covered
+            // averages and break conservation, even with an all-wet mask.
+            const bool conservative =
+                config.method == InterpolationMethod::Conservative1stOrder || config.method == InterpolationMethod::Conservative2ndOrder;
+            if (!conservative && s > 0.0 && s < 1.0) {
+                w /= s;
             }
             u_rows.push_back(j);
             u_cols.push_back(i);
@@ -1897,7 +2170,9 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate(const topology::Unstr
 
     // Spherical longitude disjoint range check (safeguard against silent 2D matching / BVH empty overlaps)
     const auto csys = src_mesh.coord_system();
-    if (csys == topology::CoordinateSystem::SphericalDeg || csys == topology::CoordinateSystem::SphericalRad) {
+    const bool raw_xy_search = config.method == InterpolationMethod::Bilinear || config.method == InterpolationMethod::Bicubic ||
+                               config.method == InterpolationMethod::Patch;
+    if (raw_xy_search && (csys == topology::CoordinateSystem::SphericalDeg || csys == topology::CoordinateSystem::SphericalRad)) {
         auto src_coords_dev = src_mesh.node_coords_view();
         auto src_offsets_dev = src_mesh.conn_offsets_view();
         auto src_indices_dev = src_mesh.conn_indices_view();
@@ -2052,22 +2327,27 @@ InterpolationMatrix<MemorySpace> generate_nearest_rect(const topology::Unstructu
             index_t d_i = j % dst_ni;
             index_t d_j = j / dst_ni;
 
-            double lon = dst_lon_start + static_cast<double>(d_i) * dst_dlon;
-            double lat = dst_lat_start + static_cast<double>(d_j) * dst_dlat;
+            // RegularGridInfo stores cell-boundary minima. Nearest-neighbor
+            // selection is between cell centers, so offset both grids by half
+            // a cell before computing source indices.
+            double lon = dst_lon_start + (static_cast<double>(d_i) + 0.5) * dst_dlon;
+            double lat = dst_lat_start + (static_cast<double>(d_j) + 0.5) * dst_dlat;
+            const double src_lon_center_start = src_lon_start + 0.5 * src_dlon;
+            const double src_lat_center_start = src_lat_start + 0.5 * src_dlat;
 
             // Safe, periodic longitude shift mapping to standard [0, 360) space
-            double relative_lon = lon - src_lon_start;
+            double relative_lon = lon - src_lon_center_start;
             while (relative_lon < 0.0) relative_lon += 360.0;
             while (relative_lon >= 360.0) relative_lon -= 360.0;
 
             // Rounding to nearest source coordinate index
-            index_t s_i = static_cast<index_t>(Kokkos::round((lon - src_lon_start) / src_dlon));
+            index_t s_i = static_cast<index_t>(Kokkos::round(relative_lon / src_dlon));
 
             // Wrap longitude periodically
             s_i = s_i % src_ni;
             if (s_i < 0) s_i += src_ni;
 
-            index_t s_j = static_cast<index_t>(Kokkos::round((lat - src_lat_start) / src_dlat));
+            index_t s_j = static_cast<index_t>(Kokkos::round((lat - src_lat_center_start) / src_dlat));
 
             // Clamp latitude safely
             if (s_j < 0) s_j = 0;
@@ -2113,7 +2393,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_nearest(const topolog
 
     auto src_reg = detail::detect_regular_grid(src_mesh);
     auto dst_reg = detail::detect_regular_grid(dst_mesh);
-    if (src_reg.is_regular && dst_reg.is_regular) {
+    if (config.use_structured_fast_paths && src_reg.is_regular && dst_reg.is_regular) {
         return generate_nearest_rect<MemorySpace>(src_mesh, dst_mesh, src_reg, dst_reg, config);
     }
 
@@ -2144,58 +2424,64 @@ InterpolationMatrix<MemorySpace> generate_nearest_impl(const topology::Unstructu
 
     const auto csys = src_mesh.coord_system();
 
-    Kokkos::View<ArborX::PairValueIndex<Point, unsigned int> *, HostSpace> values("values", 0);
-    Kokkos::View<int *, HostSpace> offsets("offsets", 0);
+    Kokkos::View<index_t *, HostSpace> selected("nearest_selected", n_dst);
+    Kokkos::deep_copy(selected, index_t{-1});
     Kokkos::DefaultHostExecutionSpace host_exec;
 
     if constexpr (Dimension == 3) {
         Kokkos::View<Point *, HostSpace> src_points("src_points_3d", n_src);
-        for (std::size_t i = 0; i < n_src; ++i) {
-            double lon = src_cx(i);
-            double lat = src_cy(i);
-            if (csys == topology::CoordinateSystem::SphericalDeg) {
-                const double pi = 3.14159265358979323846;
-                lon = lon * pi / 180.0;
-                lat = lat * pi / 180.0;
-            }
-            float x = static_cast<float>(std::cos(lat) * std::cos(lon));
-            float y = static_cast<float>(std::cos(lat) * std::sin(lon));
-            float z = static_cast<float>(std::sin(lat));
-            src_points(i) = Point{x, y, z};
-        }
+        Kokkos::parallel_for(
+            "axis::nearest::points", Kokkos::RangePolicy<Kokkos::DefaultHostExecutionSpace>(0, n_src), KOKKOS_LAMBDA(std::size_t i) {
+                double lon = src_cx(i);
+                double lat = src_cy(i);
+                if (csys == topology::CoordinateSystem::SphericalDeg) {
+                    const double pi = 3.14159265358979323846;
+                    lon = lon * pi / 180.0;
+                    lat = lat * pi / 180.0;
+                }
+                float x = static_cast<float>(std::cos(lat) * std::cos(lon));
+                float y = static_cast<float>(std::cos(lat) * std::sin(lon));
+                float z = static_cast<float>(std::sin(lat));
+                src_points(i) = Point{x, y, z};
+            });
 
         ArborX::BoundingVolumeHierarchy tree(host_exec, ArborX::Experimental::attach_indices(src_points));
 
         Kokkos::View<decltype(ArborX::nearest(Point{}, 1)) *, HostSpace> queries("queries_3d", n_dst);
-        for (std::size_t j = 0; j < n_dst; ++j) {
-            double lon = dst_cx(j);
-            double lat = dst_cy(j);
-            if (csys == topology::CoordinateSystem::SphericalDeg) {
-                const double pi = 3.14159265358979323846;
-                lon = lon * pi / 180.0;
-                lat = lat * pi / 180.0;
-            }
-            float x = static_cast<float>(std::cos(lat) * std::cos(lon));
-            float y = static_cast<float>(std::cos(lat) * std::sin(lon));
-            float z = static_cast<float>(std::sin(lat));
-            queries(j) = ArborX::nearest(Point{x, y, z}, 1);
-        }
+        Kokkos::parallel_for(
+            "axis::nearest::queries", Kokkos::RangePolicy<Kokkos::DefaultHostExecutionSpace>(0, n_dst), KOKKOS_LAMBDA(std::size_t j) {
+                double lon = dst_cx(j);
+                double lat = dst_cy(j);
+                if (csys == topology::CoordinateSystem::SphericalDeg) {
+                    const double pi = 3.14159265358979323846;
+                    lon = lon * pi / 180.0;
+                    lat = lat * pi / 180.0;
+                }
+                float x = static_cast<float>(std::cos(lat) * std::cos(lon));
+                float y = static_cast<float>(std::cos(lat) * std::sin(lon));
+                float z = static_cast<float>(std::sin(lat));
+                queries(j) = ArborX::nearest(Point{x, y, z}, 1);
+            });
 
-        tree.query(host_exec, queries, values, offsets);
+        tree.query(
+            host_exec, ArborX::Experimental::attach_indices(queries),
+            KOKKOS_LAMBDA(const auto &predicate, const auto &value) { selected(ArborX::getData(predicate)) = static_cast<index_t>(value.index); });
     } else {
         Kokkos::View<Point *, HostSpace> src_points("src_points", n_src);
-        for (std::size_t i = 0; i < n_src; ++i) {
-            src_points(i) = Point{static_cast<float>(src_cx(i)), static_cast<float>(src_cy(i))};
-        }
+        Kokkos::parallel_for(
+            "axis::nearest::points", Kokkos::RangePolicy<Kokkos::DefaultHostExecutionSpace>(0, n_src),
+            KOKKOS_LAMBDA(std::size_t i) { src_points(i) = Point{static_cast<float>(src_cx(i)), static_cast<float>(src_cy(i))}; });
 
         ArborX::BoundingVolumeHierarchy tree(host_exec, ArborX::Experimental::attach_indices(src_points));
 
         Kokkos::View<decltype(ArborX::nearest(Point{}, 1)) *, HostSpace> queries("queries", n_dst);
-        for (std::size_t j = 0; j < n_dst; ++j) {
-            queries(j) = ArborX::nearest(Point{static_cast<float>(dst_cx(j)), static_cast<float>(dst_cy(j))}, 1);
-        }
+        Kokkos::parallel_for(
+            "axis::nearest::queries", Kokkos::RangePolicy<Kokkos::DefaultHostExecutionSpace>(0, n_dst),
+            KOKKOS_LAMBDA(std::size_t j) { queries(j) = ArborX::nearest(Point{static_cast<float>(dst_cx(j)), static_cast<float>(dst_cy(j))}, 1); });
 
-        tree.query(host_exec, queries, values, offsets);
+        tree.query(
+            host_exec, ArborX::Experimental::attach_indices(queries),
+            KOKKOS_LAMBDA(const auto &predicate, const auto &value) { selected(ArborX::getData(predicate)) = static_cast<index_t>(value.index); });
     }
 
     // ── Build COO entries ──
@@ -2207,15 +2493,13 @@ InterpolationMatrix<MemorySpace> generate_nearest_impl(const topology::Unstructu
     cols_vec.reserve(n_dst);
 
     for (std::size_t j = 0; j < n_dst; ++j) {
-        int begin = offsets(j);
-        int end = offsets(j + 1);
-        if (begin == end) {
+        if (selected(j) < 0) {
             if (config.unmapped == UnmappedAction::Error) {
                 throw std::runtime_error("WeightGenerator::generate_nearest: unmapped destination cell " + std::to_string(j));
             }
             continue;
         }
-        auto src_idx = static_cast<std::size_t>(values(begin).index);
+        auto src_idx = static_cast<std::size_t>(selected(j));
         weights_vec.push_back(1.0);
         rows_vec.push_back(static_cast<index_t>(j));
         cols_vec.push_back(static_cast<index_t>(src_idx));
@@ -2323,7 +2607,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bilinear(const topolo
     // index arithmetic instead of BVH. No ArborX allocation occurs in this path.
     auto src_grid_info = detail::detect_regular_grid(src_mesh);
     auto dst_grid_info = detail::detect_regular_grid(dst_mesh);
-    if (src_grid_info.is_regular && dst_grid_info.is_regular) {
+    if (config.use_structured_fast_paths && src_grid_info.is_regular && dst_grid_info.is_regular) {
         auto result = generate_bilinear_rect(src_mesh, dst_mesh, config, src_grid_info, dst_grid_info);
         // A default-constructed InterpolationMatrix (n_dst == 0) signals
         // degenerate grid — fall through to BVH. Any matrix with valid
@@ -2337,7 +2621,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bilinear(const topolo
 
     // ── Non-uniform rectilinear grid fast-path dispatch ──
     auto src_rect_info = detail::detect_rectilinear_grid(src_mesh);
-    if (src_rect_info.is_rectilinear) {
+    if (config.use_structured_fast_paths && src_rect_info.is_rectilinear) {
         auto result = generate_bilinear_rect_nonuniform(src_mesh, dst_mesh, config, src_rect_info);
         if (result.n_dst() > 0) {
             return result;
@@ -2388,7 +2672,27 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bilinear(const topolo
     std::vector<index_t> rows_vec;
     std::vector<index_t> cols_vec;
 
-    for (std::size_t j = 0; j < n_dst; ++j) {
+    struct SmallRow {
+        std::array<double, 4> weights{};
+        std::array<index_t, 4> columns{}, rows{};
+        std::size_t size = 0;
+    };
+    struct Buffer {
+        SmallRow &row;
+        int kind;
+        void push_back(double x) {
+            row.weights[row.size] = x;
+        }
+        void push_back(index_t x) {
+            if (kind == 1)
+                row.rows[row.size] = x;
+            else {
+                row.columns[row.size] = x;
+                ++row.size;
+            }
+        }
+    };
+    auto process = [&](std::size_t j, auto &weights_vec, auto &rows_vec, auto &cols_vec, auto cache_tag) {
         int begin = offsets_view(j);
         int end = offsets_view(j + 1);
 
@@ -2396,7 +2700,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bilinear(const topolo
             if (config.unmapped == UnmappedAction::Error) {
                 throw std::runtime_error("WeightGenerator::generate_bilinear: unmapped destination cell " + std::to_string(j));
             }
-            continue;
+            return;
         }
 
         double px = dst_cx(j);
@@ -2421,6 +2725,29 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bilinear(const topolo
         int n_avail = end - begin;
         bool used_shape_functions = false;
 
+        std::array<Vec2, 8> projected;
+        std::array<bool, 8> ready{};
+        auto projection = [&](int k) {
+            auto si = static_cast<std::size_t>(values(begin + k).index);
+            Vec2 q{src_cx(si), src_cy(si)};
+            if (!is_spherical) return q;
+            if constexpr (decltype(cache_tag)::value) {
+                if (ready[k]) return projected[k];
+            }
+            if (csys == topology::CoordinateSystem::SphericalDeg) {
+                const double pi = 3.14159265358979323846;
+                q.x = q.x * pi / 180.0;
+                q.y = q.y * pi / 180.0;
+            }
+            double u, v;
+            project_gnomonic(lon0, lat0, q.x, q.y, u, v);
+            if constexpr (decltype(cache_tag)::value) {
+                projected[k] = {u, v};
+                ready[k] = true;
+            }
+            return Vec2{u, v};
+        };
+
         // Phase A: Search for containing Quad
         if (n_avail >= 4 && !used_shape_functions) {
             for (int a = 0; a < n_avail - 3 && !used_shape_functions; ++a) {
@@ -2432,30 +2759,10 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bilinear(const topolo
                             std::size_t c2 = static_cast<std::size_t>(values(begin + c).index);
                             std::size_t c3 = static_cast<std::size_t>(values(begin + d).index);
 
-                            Vec2 q0{src_cx(c0), src_cy(c0)};
-                            Vec2 q1{src_cx(c1), src_cy(c1)};
-                            Vec2 q2{src_cx(c2), src_cy(c2)};
-                            Vec2 q3{src_cx(c3), src_cy(c3)};
-
-                            if (is_spherical) {
-                                const double pi = 3.14159265358979323846;
-                                auto to_rad = [&](double deg) { return deg * pi / 180.0; };
-                                auto proj = [&](Vec2 q) {
-                                    double u, v;
-                                    double q_lon = q.x;
-                                    double q_lat = q.y;
-                                    if (csys == topology::CoordinateSystem::SphericalDeg) {
-                                        q_lon = to_rad(q_lon);
-                                        q_lat = to_rad(q_lat);
-                                    }
-                                    project_gnomonic(lon0, lat0, q_lon, q_lat, u, v);
-                                    return Vec2{u, v};
-                                };
-                                q0 = proj(q0);
-                                q1 = proj(q1);
-                                q2 = proj(q2);
-                                q3 = proj(q3);
-                            }
+                            Vec2 q0 = projection(a);
+                            Vec2 q1 = projection(b);
+                            Vec2 q2 = projection(c);
+                            Vec2 q3 = projection(d);
 
                             double xi_centroids = 0.0, eta_centroids = 0.0;
                             if (map_to_reference_quad(test_px, test_py, q0, q1, q2, q3, xi_centroids, eta_centroids)) {
@@ -2500,28 +2807,9 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bilinear(const topolo
                         std::size_t c1 = static_cast<std::size_t>(values(begin + b).index);
                         std::size_t c2 = static_cast<std::size_t>(values(begin + c).index);
 
-                        Vec2 q0{src_cx(c0), src_cy(c0)};
-                        Vec2 q1{src_cx(c1), src_cy(c1)};
-                        Vec2 q2{src_cx(c2), src_cy(c2)};
-
-                        if (is_spherical) {
-                            const double pi = 3.14159265358979323846;
-                            auto to_rad = [&](double deg) { return deg * pi / 180.0; };
-                            auto proj = [&](Vec2 q) {
-                                double u, v;
-                                double q_lon = q.x;
-                                double q_lat = q.y;
-                                if (csys == topology::CoordinateSystem::SphericalDeg) {
-                                    q_lon = to_rad(q_lon);
-                                    q_lat = to_rad(q_lat);
-                                }
-                                project_gnomonic(lon0, lat0, q_lon, q_lat, u, v);
-                                return Vec2{u, v};
-                            };
-                            q0 = proj(q0);
-                            q1 = proj(q1);
-                            q2 = proj(q2);
-                        }
+                        Vec2 q0 = projection(a);
+                        Vec2 q1 = projection(b);
+                        Vec2 q2 = projection(c);
 
                         double l0 = 0.0, l1 = 0.0, l2 = 0.0;
                         if (barycentric_triangle(test_px, test_py, q0, q1, q2, l0, l1, l2)) {
@@ -2560,7 +2848,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bilinear(const topolo
         if (!used_shape_functions) {
             double sum_inv_dist = 0.0;
             int n_idw = std::min(4, n_avail);
-            std::vector<double> distances(n_idw);
+            std::array<double, 4> distances{};
             bool has_zero = false;
             int zero_idx = -1;
 
@@ -2616,6 +2904,26 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bilinear(const topolo
                 }
             }
         }
+    };
+    weights_vec.reserve(4 * n_dst);
+    rows_vec.reserve(4 * n_dst);
+    cols_vec.reserve(4 * n_dst);
+    if (n_dst < 256 || Kokkos::DefaultHostExecutionSpace().concurrency() == 1) {
+        // A serial caller needs no intermediate rows or second copy of COO data.
+        for (std::size_t j = 0; j < n_dst; ++j) process(j, weights_vec, rows_vec, cols_vec, std::false_type{});
+    } else {
+        std::vector<SmallRow> work(n_dst);
+        detail::parallel_host_rows("axis::bilinear::weights", n_dst, [&](std::size_t j) {
+            auto &row = work[j];
+            Buffer w{row, 0}, r{row, 1}, c{row, 2};
+            process(j, w, r, c, std::true_type{});
+        });
+        for (const auto &row : work)
+            for (std::size_t k = 0; k < row.size; ++k) {
+                weights_vec.push_back(row.weights[k]);
+                rows_vec.push_back(row.rows[k]);
+                cols_vec.push_back(row.columns[k]);
+            }
     }
 
     // ── Pack into InterpolationMatrix ──
@@ -2668,17 +2976,13 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bilinear(const topolo
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// generate_bicubic — 4×4 stencil least-squares bicubic interpolation
+// generate_bicubic — overdetermined least-squares tensor bicubic interpolation
 //
 // Algorithm:
-//   1. Use ArborX nearest(k=16) to find the 16 nearest source cell centroids.
-//   2. Construct a bicubic Vandermonde matrix V[k,m] = x_k^i * y_k^j for
-//      i+j <= 3 (10 terms) or full 4×4 (16 terms). We use 16-term full bicubic.
-//   3. Solve V * coeffs = identity columns to get weights directly:
-//      weights = V^{-1} evaluated at destination point.
-//      Equivalently: w = V^{-T} * eval_vec where eval_vec = [x_d^i * y_d^j].
-//   4. Simpler: solve the 16×16 system V^T * w = eval_vec for w.
-//   5. area_a set to 0.0.
+//   1. Query up to 64 nearby active source cells.
+//   2. Fit the full 16-term tensor bicubic basis in locally scaled coordinates.
+//   3. Evaluate the least-squares polynomial at the destination centroid.
+//   4. Set area_a to 0.0, following the ESMF convention for this method.
 // ─────────────────────────────────────────────────────────────────────────────
 
 template <class MemorySpace>
@@ -2691,16 +2995,30 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bicubic(const topolog
     const std::size_t n_src = src_mesh.n_cells();
     const std::size_t n_dst = dst_mesh.n_cells();
 
-    // Stencil size for bicubic: 16 neighbors (4×4)
-    const int k_stencil = static_cast<int>(std::min(static_cast<std::size_t>(16), n_src));
+    // A wider candidate set makes the polynomial fit overdetermined and avoids
+    // amplifying geometric errors through an exact 16-point solve.
+    const int k_stencil = static_cast<int>(std::min(static_cast<std::size_t>(64), n_src));
 
     // ── Compute source centroids and build ArborX BVH ──
     Kokkos::View<double *, HostSpace> src_cx, src_cy;
     compute_cell_centroids_xy(src_mesh, src_cx, src_cy);
 
-    Kokkos::View<Point2 *, HostSpace> src_points("src_points", n_src);
+    const auto source_mask = src_mesh.cell_mask();
+    const auto destination_mask = dst_mesh.cell_mask();
+    const bool has_source_mask = source_mask.extent(0) == n_src;
+    const bool has_destination_mask = destination_mask.extent(0) == n_dst;
+    std::vector<std::size_t> active_source_indices;
+    active_source_indices.reserve(n_src);
     for (std::size_t i = 0; i < n_src; ++i) {
-        src_points(i) = Point2{static_cast<float>(src_cx(i)), static_cast<float>(src_cy(i))};
+        if (!has_source_mask || source_mask(i) != 0) active_source_indices.push_back(i);
+    }
+    Kokkos::View<Point2 *, HostSpace> src_points("src_points", active_source_indices.size());
+    for (std::size_t i = 0; i < active_source_indices.size(); ++i) {
+        const auto source_index = active_source_indices[i];
+        src_points(i) = Point2{static_cast<float>(src_cx(source_index)), static_cast<float>(src_cy(source_index))};
+    }
+    if (active_source_indices.empty() && config.unmapped == UnmappedAction::Error) {
+        throw std::runtime_error("WeightGenerator::generate_bicubic: source mesh has no active cells");
     }
 
     Kokkos::DefaultHostExecutionSpace host_exec;
@@ -2713,7 +3031,8 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bicubic(const topolog
     // ── Build nearest(point, k_stencil) queries ──
     Kokkos::View<decltype(ArborX::nearest(Point2{}, 1)) *, HostSpace> queries("queries", n_dst);
     for (std::size_t j = 0; j < n_dst; ++j) {
-        queries(j) = ArborX::nearest(Point2{static_cast<float>(dst_cx(j)), static_cast<float>(dst_cy(j))}, k_stencil);
+        queries(j) = ArborX::nearest(Point2{static_cast<float>(dst_cx(j)), static_cast<float>(dst_cy(j))},
+                                     std::min(k_stencil, static_cast<int>(active_source_indices.size())));
     }
 
     // ── Execute query ──
@@ -2732,6 +3051,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bicubic(const topolog
     constexpr int n_basis_full = 16;  // Full bicubic
 
     for (std::size_t j = 0; j < n_dst; ++j) {
+        if (has_destination_mask && destination_mask(j) == 0) continue;
         int begin = offsets_view(j);
         int end_q = offsets_view(j + 1);
         int n_neighbors = end_q - begin;
@@ -2747,23 +3067,28 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bicubic(const topolog
         double yd = dst_cy(j);
 
         // Collect neighbor info
-        std::vector<std::size_t> src_indices(n_neighbors);
-        std::vector<double> xs(n_neighbors), ys(n_neighbors);
+        std::vector<std::size_t> src_indices;
+        std::vector<double> xs, ys;
 
         // Compute local centroid for numerical conditioning
         double cx_mean = 0.0, cy_mean = 0.0;
         for (int vi = begin; vi < end_q; ++vi) {
-            auto si = static_cast<std::size_t>(values(vi).index);
+            auto si = active_source_indices[static_cast<std::size_t>(values(vi).index)];
+            if (has_source_mask && source_mask(si) == 0) continue;
             cx_mean += src_cx(si);
             cy_mean += src_cy(si);
+            src_indices.push_back(si);
         }
-        cx_mean /= n_neighbors;
-        cy_mean /= n_neighbors;
+        const int n_active_neighbors = static_cast<int>(src_indices.size());
+        if (n_active_neighbors == 0) continue;
+        cx_mean /= n_active_neighbors;
+        cy_mean /= n_active_neighbors;
 
         // Compute scale for conditioning
         double scale = 0.0;
         for (int vi = begin; vi < end_q; ++vi) {
-            auto si = static_cast<std::size_t>(values(vi).index);
+            auto si = active_source_indices[static_cast<std::size_t>(values(vi).index)];
+            if (has_source_mask && source_mask(si) == 0) continue;
             double dx = src_cx(si) - cx_mean;
             double dy = src_cy(si) - cy_mean;
             scale = std::max(scale, std::max(std::abs(dx), std::abs(dy)));
@@ -2771,25 +3096,22 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bicubic(const topolog
         if (scale < 1e-30) scale = 1.0;
         double inv_scale = 1.0 / scale;
 
-        for (int vi = begin; vi < end_q; ++vi) {
-            int local_i = vi - begin;
-            auto si = static_cast<std::size_t>(values(vi).index);
-            src_indices[local_i] = si;
-            xs[local_i] = (src_cx(si) - cx_mean) * inv_scale;
-            ys[local_i] = (src_cy(si) - cy_mean) * inv_scale;
+        for (auto si : src_indices) {
+            xs.push_back((src_cx(si) - cx_mean) * inv_scale);
+            ys.push_back((src_cy(si) - cy_mean) * inv_scale);
         }
 
         double xd_local = (xd - cx_mean) * inv_scale;
         double yd_local = (yd - cy_mean) * inv_scale;
 
         // Determine polynomial order based on available neighbors
-        int n_basis = std::min(n_basis_full, n_neighbors);
+        int n_basis = std::min(n_basis_full, n_active_neighbors);
 
-        // Build Vandermonde matrix V (n_neighbors × n_basis) row-major
+        // Build Vandermonde matrix V (n_active_neighbors × n_basis) row-major.
         // Basis: 1, x, y, x^2, xy, y^2, x^3, x^2y, xy^2, y^3, x^3y, x^2y^2, xy^3, ...
         // For full bicubic (16 terms): x^i * y^j for i=0..3, j=0..3
-        std::vector<double> V(n_neighbors * n_basis, 0.0);
-        for (int row = 0; row < n_neighbors; ++row) {
+        std::vector<double> V(n_active_neighbors * n_basis, 0.0);
+        for (int row = 0; row < n_active_neighbors; ++row) {
             double xr = xs[row];
             double yr = ys[row];
             int col = 0;
@@ -2832,7 +3154,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bicubic(const topolog
         std::vector<double> alpha(n_basis);
         bool solved = false;
 
-        if (n_neighbors == n_basis) {
+        if (n_active_neighbors == n_basis) {
             // Square system: solve V^T * w = eval directly
             // V is n×n, solve V * c = delta gives coefficients; then w_k = eval at k
             // Actually: w = (V^{-T}) * eval_vec, i.e., V^T * w = eval_vec
@@ -2846,7 +3168,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bicubic(const topolog
             solved = dense_solve(Vt, rhs, n_basis);
             if (solved) {
                 // rhs now contains the weights directly
-                for (int k = 0; k < n_neighbors; ++k) {
+                for (int k = 0; k < n_active_neighbors; ++k) {
                     weights_vec.push_back(rhs[k]);
                     rows_vec.push_back(static_cast<index_t>(j));
                     cols_vec.push_back(static_cast<index_t>(src_indices[k]));
@@ -2870,7 +3192,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bicubic(const topolog
             for (int i = 0; i < n_basis; ++i) {
                 for (int jj = 0; jj < n_basis; ++jj) {
                     double sum = 0.0;
-                    for (int k = 0; k < n_neighbors; ++k) {
+                    for (int k = 0; k < n_active_neighbors; ++k) {
                         sum += V[k * n_basis + i] * V[k * n_basis + jj];
                     }
                     AtA[i * n_basis + jj] = sum;
@@ -2880,7 +3202,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bicubic(const topolog
             solved = dense_solve(AtA, rhs, n_basis);
             if (solved) {
                 // Step 2: w_k = V[k,:] . alpha
-                for (int k = 0; k < n_neighbors; ++k) {
+                for (int k = 0; k < n_active_neighbors; ++k) {
                     double w = 0.0;
                     for (int m = 0; m < n_basis; ++m) {
                         w += V[k * n_basis + m] * rhs[m];
@@ -3251,7 +3573,22 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
     // When MemorySpace is a device space (CudaSpace/HIPSpace), route to the
     // fully device-resident pipeline that avoids host round-trips.
     if constexpr (is_device_space_v<MemorySpace>) {
+        paper_path("device_spherical");
         return generate_conservative_device(src_mesh, dst_mesh, config);
+    }
+
+    if constexpr (std::is_same_v<MemorySpace, Kokkos::HostSpace>) {
+        const auto src_geometry = src_mesh.geometry_metadata();
+        const auto dst_geometry = dst_mesh.geometry_metadata();
+        const auto spherical =
+            src_mesh.coord_system() != topology::CoordinateSystem::Cartesian3D && dst_mesh.coord_system() != topology::CoordinateSystem::Cartesian3D;
+        if (spherical && src_geometry.boundary_model == topology::BoundaryModel::ConstantLatitude &&
+            dst_geometry.boundary_model == topology::BoundaryModel::ConstantLatitude &&
+            src_geometry.area_model == topology::AreaModel::ConstantLatitudeStrip &&
+            dst_geometry.area_model == topology::AreaModel::ConstantLatitudeStrip) {
+            paper_path("constant_latitude_strip");
+            return generate_constant_latitude_conservative(src_mesh, dst_mesh, config);
+        }
     }
 
     // ── Optimization dispatch (Req 2.1, 2.5) ──
@@ -3259,7 +3596,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
     // both source and destination meshes are uniform lat-lon grids.
     auto src_grid_info = detail::detect_regular_grid(src_mesh);
     auto dst_grid_info = detail::detect_regular_grid(dst_mesh);
-    if (src_grid_info.is_regular && dst_grid_info.is_regular) {
+    if (config.use_structured_fast_paths && src_grid_info.is_regular && dst_grid_info.is_regular) {
         auto result = generate_conservative_rect(src_mesh, dst_mesh, config, src_grid_info, dst_grid_info);
         // The fast path signals DECLINE (dateline wrap / misaligned grids) by
         // returning a default-constructed matrix whose n_dst()==0. A legitimate
@@ -3275,6 +3612,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
         // the BVH path validates — so keep the stricter nnz()>0 accept there and
         // let an all-zero-coverage matrix fall through to BVH to raise.
         if (result.n_dst() > 0 && (config.unmapped != UnmappedAction::Error || result.nnz() > 0)) {
+            paper_path("regular_rectangle");
             return result;
         }
     }
@@ -3290,13 +3628,16 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
         // even a zero-nonzero one; under Error keep the stricter nnz()>0 so an
         // all-zero-coverage matrix falls through to BVH to be diagnosed.
         if (result.n_dst() > 0 && (config.unmapped != UnmappedAction::Error || result.nnz() > 0)) {
+            paper_path("nonuniform_rectangle");
             return result;
         }
     }
 
     if (config.line_type == LineType::GreatCircle) {
+        paper_path("host_spherical_greiner_hormann");
         return generate_conservative_impl<3, MemorySpace>(src_mesh, dst_mesh, config);
     } else {
+        paper_path("host_planar_sutherland_hodgman");
         return generate_conservative_impl<2, MemorySpace>(src_mesh, dst_mesh, config);
     }
 }
@@ -3603,18 +3944,25 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
 
     } else {
         // ══════════════════════════════════════════════════════════════════════
-        // Spherical path: sequential with SphericalClipper + cap filter + trig cache
-        // (unchanged behavior)
+        // Spherical path: ordered blocks with SphericalClipper + cap filter + trig cache
         // ══════════════════════════════════════════════════════════════════════
 
-        for (std::size_t k = 0; k < n_dst; ++k) {
+        if (paper_diagnostics) {
+            paper_diagnostics->candidates = 0;
+            paper_diagnostics->invalid = 0;
+            paper_diagnostics->zero_overlap = 0;
+            paper_diagnostics->discarded = 0;
+        }
+        auto *diagnostics_target = paper_diagnostics;
+        auto process = [&](std::size_t k, auto &weights_vec, auto &rows_vec, auto &cols_vec, auto record_coverage,
+                           PaperDiagnostics *paper_diagnostics) {
             // Process destinations in Morton/Z-curve order for spatial locality (Req 5.2)
             std::size_t j = static_cast<std::size_t>(sorted_dst(k));
             // Skip masked destination cells entirely (Req 8.2)
-            if (has_dst_mask && dst_mask[j] == 0) continue;
+            if (has_dst_mask && dst_mask[j] == 0) return;
 
             // Skip degenerate destination cells (Req 11.1)
-            if (dst_degenerate[j]) continue;
+            if (dst_degenerate[j]) return;
 
             int begin = offsets_view(j);
             int end = offsets_view(j + 1);
@@ -3624,7 +3972,7 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
                 if (config.unmapped == UnmappedAction::Error) {
                     throw std::runtime_error("WeightGenerator::generate_conservative: unmapped destination cell " + std::to_string(j));
                 }
-                continue;
+                return;
             }
 
             bool has_entry = false;
@@ -3649,6 +3997,7 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
 
             for (int vi = begin; vi < end; ++vi) {
                 auto src_i = static_cast<std::size_t>(values(vi).index);
+                if (paper_diagnostics) ++paper_diagnostics->candidates;
 
                 // Skip masked source cells (Req 8.1)
                 if (has_src_mask && src_mask[src_i] == 0) continue;
@@ -3679,7 +4028,19 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
 
                 double overlap_area = axis::detail::SphericalClipper::overlap_area<32>(src_sp, dst_sp);
 
-                if (overlap_area <= 0.0) continue;
+                if (!std::isfinite(overlap_area)) {
+                    if (paper_diagnostics) ++paper_diagnostics->invalid;
+                    continue;
+                }
+                if (overlap_area <= 0.0) {
+                    if (paper_diagnostics) {
+                        if (overlap_area < 0)
+                            ++paper_diagnostics->discarded;
+                        else
+                            ++paper_diagnostics->zero_overlap;
+                    }
+                    continue;
+                }
 
                 double w_ij = overlap_area / area_dst;
                 w_ij = std::max(w_ij, 0.0);
@@ -3689,13 +4050,67 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
                 cols_vec.push_back(static_cast<index_t>(src_i));
                 has_entry = true;
 
-                frac_a_acc[src_i] += overlap_area / area_src;
-                frac_b_acc[j] += overlap_area / area_dst;
+                record_coverage(src_i, j, overlap_area / area_src, overlap_area / area_dst);
             }
 
             // Throw for unmasked destination cells with zero coverage (Req 8.6)
             if (!has_entry && config.unmapped == UnmappedAction::Error) {
                 throw std::runtime_error("WeightGenerator::generate_conservative: unmapped destination cell " + std::to_string(j));
+            }
+        };
+        if (Kokkos::DefaultHostExecutionSpace().concurrency() == 1 || n_dst < 256) {
+            auto record = [&](std::size_t i, std::size_t j, double source_fraction, double destination_fraction) {
+                frac_a_acc[i] += source_fraction;
+                frac_b_acc[j] += destination_fraction;
+            };
+            for (std::size_t k = 0; k < n_dst; ++k) process(k, weights_vec, rows_vec, cols_vec, record, diagnostics_target);
+        } else {
+            struct SphericalRow {
+                std::vector<double> weights, source_fractions, destination_fractions;
+                std::vector<index_t> rows, cols;
+                PaperDiagnostics diagnostics;
+            };
+            constexpr std::size_t block_size = 128;
+            const auto n_blocks = (n_dst + block_size - 1) / block_size;
+            std::vector<SphericalRow> work(n_blocks);
+            detail::parallel_host_rows(
+                "axis::conservative::spherical_overlaps", n_blocks,
+                [&](std::size_t block) {
+                    auto &row = work[block];
+                    auto *diagnostics = diagnostics_target ? &row.diagnostics : nullptr;
+                    if (diagnostics) {
+                        diagnostics->candidates = 0;
+                        diagnostics->invalid = 0;
+                        diagnostics->zero_overlap = 0;
+                        diagnostics->discarded = 0;
+                    }
+                    auto record = [&](std::size_t, std::size_t, double source_fraction, double destination_fraction) {
+                        row.source_fractions.push_back(source_fraction);
+                        row.destination_fractions.push_back(destination_fraction);
+                    };
+                    const auto last = std::min(n_dst, (block + 1) * block_size);
+                    for (auto k = block * block_size; k < last; ++k) process(k, row.weights, row.rows, row.cols, record, diagnostics);
+                },
+                1);
+            std::size_t total = 0;
+            for (const auto &row : work) total += row.weights.size();
+            weights_vec.reserve(total);
+            rows_vec.reserve(total);
+            cols_vec.reserve(total);
+            for (const auto &row : work) {
+                for (std::size_t p = 0; p < row.weights.size(); ++p) {
+                    weights_vec.push_back(row.weights[p]);
+                    rows_vec.push_back(row.rows[p]);
+                    cols_vec.push_back(row.cols[p]);
+                    frac_a_acc[row.cols[p]] += row.source_fractions[p];
+                    frac_b_acc[row.rows[p]] += row.destination_fractions[p];
+                }
+                if (diagnostics_target) {
+                    diagnostics_target->candidates += row.diagnostics.candidates;
+                    diagnostics_target->invalid += row.diagnostics.invalid;
+                    diagnostics_target->zero_overlap += row.diagnostics.zero_overlap;
+                    diagnostics_target->discarded += row.diagnostics.discarded;
+                }
             }
         }
     }
@@ -3770,51 +4185,71 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// generate_conservative_2nd_order — ArborX AABB intersection + SphericalClipper
-//   + GradientReconstructor for second-order accuracy
-//
-// Algorithm:
-//   1. Find candidate overlapping source cells for each destination cell via
-//      ArborX BVH intersection queries (same as 1st-order).
-//   2. Compute exact overlap polygons using SphericalClipper (great-circle) or
-//      Sutherland-Hodgman (Cartesian).
-//   3. Build face-adjacency in CSR format from mesh connectivity.
-//   4. Compute per-cell gradients via GradientReconstructor (least-squares fit
-//      over face-adjacent neighbors, with optional Barth-Jespersen limiter).
-//   5. For each overlap pair (src_i, dst_j), compute the overlap polygon
-//      centroid and evaluate the linear reconstruction:
-//        contribution = overlap_area * (1 + grad_i · (centroid_overlap - centroid_i))
-//      Normalize by destination area.
-// ─────────────────────────────────────────────────────────────────────────────
-
-template <int Dimension, class MemorySpace>
-InterpolationMatrix<MemorySpace> generate_conservative_2nd_order_impl(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
-                                                                      const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
-                                                                      const RegridConfig &config);
-
-template <class MemorySpace>
-InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative_2nd_order(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
-                                                                                  const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
-                                                                                  const RegridConfig &config) {
-    if (config.line_type == LineType::GreatCircle) {
-        return generate_conservative_2nd_order_impl<3, MemorySpace>(src_mesh, dst_mesh, config);
-    } else {
-        return generate_conservative_2nd_order_impl<2, MemorySpace>(src_mesh, dst_mesh, config);
-    }
-}
-
+// generate_conservative_2nd_order — field-dependent mean-preserving reconstruction.
+// Host setup, reusable geometry; apply uses Kokkos kernels and actual field gradients.
 template <int Dimension, class MemorySpace>
 InterpolationMatrix<MemorySpace> generate_conservative_2nd_order_impl(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
                                                                       const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
                                                                       const RegridConfig &config) {
     using HostSpace = Kokkos::HostSpace;
-
-    const std::size_t n_src = src_mesh.n_cells();
-    const std::size_t n_dst = dst_mesh.n_cells();
-
-    // Determine whether to use the spherical clipping path.
-    const bool use_spherical = (config.line_type == LineType::GreatCircle);
-
+    using namespace axis::detail::linear;
+    if constexpr (!std::is_same_v<MemorySpace, HostSpace>)
+        throw std::invalid_argument("linear reconstruction setup currently requires HostSpace meshes");
+    if (config.extrap_method != ExtrapolationAction::None)
+        throw std::invalid_argument("linear conservative reconstruction requires extrap_method=None");
+    const bool spherical = Dimension == 3;
+    if (!spherical && src_mesh.coord_system() != topology::CoordinateSystem::Cartesian3D)
+        throw std::invalid_argument("Cartesian linear reconstruction requires Cartesian coordinates");
+    if (spherical && src_mesh.coord_system() == topology::CoordinateSystem::Cartesian3D)
+        throw std::invalid_argument("GreatCircle linear reconstruction requires spherical coordinates");
+    if (spherical && (src_mesh.geometry_metadata().boundary_model == topology::BoundaryModel::ConstantLatitude ||
+                      dst_mesh.geometry_metadata().boundary_model == topology::BoundaryModel::ConstantLatitude))
+        throw std::invalid_argument("linear reconstruction currently supports great-circle edges, not constant-latitude edges");
+    const std::size_t n_src = src_mesh.n_cells(), n_dst = dst_mesh.n_cells();
+    auto src_mask = src_mesh.cell_mask(), dst_mask = dst_mesh.cell_mask();
+    auto active_src = [&](std::size_t i) { return src_mask.extent(0) != n_src || src_mask[i] != 0; };
+    auto active_dst = [&](std::size_t j) { return dst_mask.extent(0) != n_dst || dst_mask[j] != 0; };
+    Point planar_origin{};
+    if (!spherical && src_mesh.n_nodes() > 0) {
+        auto coords = src_mesh.node_coords();
+        planar_origin = {coords(0, 0), coords(0, 1), coords.extent(1) > 2 ? coords(0, 2) : 0};
+    }
+    auto read_polygon = [&](const auto &mesh, std::size_t i) {
+        std::vector<Point> p;
+        if (spherical) {
+            for (auto v : extract_cell_polygon_spherical(mesh, i)) p.push_back({v.x, v.y, v.z});
+            // Convex intersection has at most n+m vertices; leave substantial
+            // headroom for coincident-boundary duplicates in the fixed clipper.
+            if (p.size() > 32) throw std::invalid_argument("linear reconstruction supports at most 32 vertices per spherical cell");
+        } else {
+            auto coords = mesh.node_coords();
+            auto offsets = mesh.conn_offsets();
+            auto indices = mesh.conn_indices();
+            for (index_t k = offsets[i]; k < offsets[i + 1]; ++k) {
+                if (coords.extent(1) > 2 && std::abs(coords(indices[k], 2) - planar_origin[2]) > 1e-12)
+                    throw std::invalid_argument("Cartesian linear reconstruction currently requires an XY plane");
+                p.push_back({coords(indices[k], 0) - planar_origin[0], coords(indices[k], 1) - planar_origin[1], 0});
+            }
+        }
+        orient_convex(p, spherical);
+        return p;
+    };
+    std::vector<std::vector<Point>> source(n_src), destination(n_dst);
+    std::vector<Moments> source_moments(n_src), destination_moments(n_dst);
+    std::vector<std::array<Point, 2>> basis(n_src);
+    for (std::size_t i = 0; i < n_src; ++i)
+        if (active_src(i)) {
+            source[i] = read_polygon(src_mesh, i);
+            source_moments[i] = spherical ? spherical_moments(source[i]) : planar_moments(source[i]);
+            if (!(source_moments[i].area > 0)) throw std::invalid_argument("linear reconstruction: degenerate source cell");
+            basis[i] = spherical ? tangent_basis(source_moments[i].mean) : std::array<Point, 2>{Point{1, 0, 0}, Point{0, 1, 0}};
+        }
+    for (std::size_t j = 0; j < n_dst; ++j)
+        if (active_dst(j)) {
+            destination[j] = read_polygon(dst_mesh, j);
+            destination_moments[j] = spherical ? spherical_moments(destination[j]) : planar_moments(destination[j]);
+            if (!(destination_moments[j].area > 0)) throw std::invalid_argument("linear reconstruction: degenerate destination cell");
+        }
     // ── Build ArborX BVH ──
     Kokkos::View<ArborX::PairValueIndex<ArborX::Box<Dimension>, unsigned int> *, HostSpace> values("values", 0);
     Kokkos::View<int *, HostSpace> offsets_view("offsets", 0);
@@ -3844,678 +4279,200 @@ InterpolationMatrix<MemorySpace> generate_conservative_2nd_order_impl(const topo
         tree.query(host_exec, queries, values, offsets_view);
     }
 
-    // ── Get cell areas (spherical or flat) ──
-    std::vector<double> src_areas;
-    std::vector<double> dst_areas;
-    if (use_spherical) {
-        src_areas = get_cell_areas_spherical(src_mesh);
-        dst_areas = get_cell_areas_spherical(dst_mesh);
-    } else {
-        src_areas = get_cell_areas(src_mesh);
-        dst_areas = get_cell_areas(dst_mesh);
-    }
-
-    // ── Compute source cell centroids in Cartesian (x, y, z) for gradient usage ──
-    const auto coords = src_mesh.node_coords();
-    const auto offsets = src_mesh.conn_offsets();
-    const auto indices = src_mesh.conn_indices();
-    auto src_csys = src_mesh.coord_system();
-
-    // Store centroids as (x, y, z) in Cartesian coordinates on the unit sphere.
-    Kokkos::View<double *[3], HostSpace> src_centroids("src_centroids", n_src);
-    for (std::size_t c = 0; c < n_src; ++c) {
-        auto start = static_cast<std::size_t>(offsets[c]);
-        auto end = static_cast<std::size_t>(offsets[c + 1]);
-        auto n_verts = end - start;
-
-        double sx = 0.0, sy = 0.0, sz = 0.0;
-        for (std::size_t i = start; i < end; ++i) {
-            auto ni = static_cast<std::size_t>(indices[i]);
-            double c0 = coords(ni, 0);
-            double c1 = coords(ni, 1);
-
-            if (src_csys == topology::CoordinateSystem::SphericalDeg) {
-                constexpr double deg2rad = 3.14159265358979323846 / 180.0;
-                double lon = c0 * deg2rad;
-                double lat = c1 * deg2rad;
-                sx += std::cos(lat) * std::cos(lon);
-                sy += std::cos(lat) * std::sin(lon);
-                sz += std::sin(lat);
-            } else if (src_csys == topology::CoordinateSystem::SphericalRad) {
-                sx += std::cos(c1) * std::cos(c0);
-                sy += std::cos(c1) * std::sin(c0);
-                sz += std::sin(c1);
-            } else {
-                sx += c0;
-                sy += c1;
-                double z_val = (coords.extent(1) > 2) ? coords(ni, 2) : 0.0;
-                sz += z_val;
-            }
+    // Deterministic vertex-neighbor stencils. Dry cells never enter a fit or
+    // limiter range. Expand through wet neighbors only if the first ring lacks rank.
+    auto conn = src_mesh.conn_indices(), offsets = src_mesh.conn_offsets();
+    std::vector<std::vector<index_t>> node_cells(src_mesh.n_nodes()), stencils(n_src);
+    for (std::size_t i = 0; i < n_src; ++i)
+        if (active_src(i))
+            for (index_t k = offsets[i]; k < offsets[i + 1]; ++k) node_cells[conn[k]].push_back(static_cast<index_t>(i));
+    for (std::size_t i = 0; i < n_src; ++i)
+        if (active_src(i)) {
+            auto &neighbors = stencils[i];
+            for (index_t k = offsets[i]; k < offsets[i + 1]; ++k)
+                for (auto other : node_cells[conn[k]])
+                    if (other != static_cast<index_t>(i)) neighbors.push_back(other);
+            std::sort(neighbors.begin(), neighbors.end());
+            neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
         }
-
-        double inv = (n_verts > 0) ? 1.0 / static_cast<double>(n_verts) : 0.0;
-        src_centroids(c, 0) = sx * inv;
-        src_centroids(c, 1) = sy * inv;
-        src_centroids(c, 2) = sz * inv;
-    }
-
-    // ── Build face-adjacency CSR from mesh connectivity ──
-    // Two cells are adjacent if they share at least 2 nodes (i.e., share a face/edge).
-    // Build node-to-cell map first, then derive cell-to-cell adjacency.
-
-    const std::size_t n_nodes = src_mesh.n_nodes();
-
-    // Step 1: Build node-to-cells map (CSR)
-    std::vector<std::size_t> node_cell_count(n_nodes, 0);
-    for (std::size_t c = 0; c < n_src; ++c) {
-        auto start = static_cast<std::size_t>(offsets[c]);
-        auto end = static_cast<std::size_t>(offsets[c + 1]);
-        for (std::size_t i = start; i < end; ++i) {
-            auto ni = static_cast<std::size_t>(indices[i]);
-            node_cell_count[ni]++;
+    auto deltas = [&](std::size_t i, const std::vector<index_t> &neighbors) {
+        std::vector<std::array<double, 2>> d;
+        for (auto other : neighbors) {
+            auto r = sub(source_moments[other].mean, source_moments[i].mean);
+            d.push_back({dot(basis[i][0], r), dot(basis[i][1], r)});
         }
-    }
-
-    std::vector<std::size_t> node_cell_offsets(n_nodes + 1, 0);
-    for (std::size_t n = 0; n < n_nodes; ++n) {
-        node_cell_offsets[n + 1] = node_cell_offsets[n] + node_cell_count[n];
-    }
-
-    std::vector<std::size_t> node_cell_indices(node_cell_offsets[n_nodes]);
-    std::vector<std::size_t> node_fill(n_nodes, 0);
-    for (std::size_t c = 0; c < n_src; ++c) {
-        auto start = static_cast<std::size_t>(offsets[c]);
-        auto end = static_cast<std::size_t>(offsets[c + 1]);
-        for (std::size_t i = start; i < end; ++i) {
-            auto ni = static_cast<std::size_t>(indices[i]);
-            node_cell_indices[node_cell_offsets[ni] + node_fill[ni]] = c;
-            node_fill[ni]++;
-        }
-    }
-
-    // Step 2: For each cell, find neighbors sharing >= 2 nodes (face-adjacent)
-    std::vector<index_t> adj_offsets_vec(n_src + 1, 0);
-    std::vector<index_t> adj_indices_vec;
-
-    for (std::size_t c = 0; c < n_src; ++c) {
-        auto start = static_cast<std::size_t>(offsets[c]);
-        auto end = static_cast<std::size_t>(offsets[c + 1]);
-
-        // Count shared nodes with each candidate neighbor
-        std::unordered_map<std::size_t, int> neighbor_shared;
-        for (std::size_t i = start; i < end; ++i) {
-            auto ni = static_cast<std::size_t>(indices[i]);
-            for (std::size_t k = node_cell_offsets[ni]; k < node_cell_offsets[ni] + node_cell_count[ni]; ++k) {
-                std::size_t other = node_cell_indices[k];
-                if (other != c) {
-                    neighbor_shared[other]++;
-                }
-            }
-        }
-
-        // Keep neighbors with >= 2 shared nodes (face adjacency)
-        for (const auto &[nbr, count] : neighbor_shared) {
-            if (count >= 2) {
-                adj_indices_vec.push_back(static_cast<index_t>(nbr));
-            }
-        }
-        adj_offsets_vec[c + 1] = static_cast<index_t>(adj_indices_vec.size());
-    }
-
-    // Convert adjacency to Kokkos views
-    Kokkos::View<index_t *, HostSpace> adj_offsets_kv("adj_offsets", n_src + 1);
-    Kokkos::View<index_t *, HostSpace> adj_indices_kv("adj_indices", adj_indices_vec.size());
-    for (std::size_t i = 0; i <= n_src; ++i) {
-        adj_offsets_kv(i) = adj_offsets_vec[i];
-    }
-    for (std::size_t i = 0; i < adj_indices_vec.size(); ++i) {
-        adj_indices_kv(i) = adj_indices_vec[i];
-    }
-
-    // ── Compute gradients using GradientReconstructor ──
-    // The gradient reconstructor needs a scalar field. For weight generation,
-    // we don't have the actual field — we compute "geometric weights" that will
-    // be applied to any field at apply-time. The 2nd-order correction uses the
-    // gradient of the source field at apply time. However, we pre-encode the
-    // geometric information (overlap centroid offset from cell centroid) into
-    // the weight matrix. The weight for entry (i,j) becomes:
-    //
-    //   raw_w_ij = overlap_area(i,j) / dst_area_j
-    //
-    // At apply time, the effective contribution from src cell i to dst cell j is:
-    //   val_j += w_ij * (val_i + grad_i · (centroid_overlap_ij - centroid_i))
-    //
-    // But since we can't encode gradient-dependent weights statically (weights
-    // depend on the field), we use the following approach:
-    //
-    // For weight generation, we compute the overlap integrals assuming a unit
-    // field with known gradient. The standard approach stores the same first-order
-    // weights but with a correction factor. Following ESMF's approach:
-    //
-    //   w_ij = overlap_area_ij / dst_area_j (same as 1st order)
-    //
-    // and the 2nd-order correction is applied at apply-time using stored gradient
-    // and offset data. However, since our InterpolationMatrix doesn't carry
-    // per-entry offset vectors, we pre-bake a representative correction.
-    //
-    // Standard approach: For static weight matrices, we compute per-entry
-    // correction multipliers based on geometric factors only:
-    //   effective_w_ij = (overlap_area_ij / dst_area_j)
-    //
-    // The actual 2nd-order reconstruction is done by providing the gradient
-    // reconstruction as a pre-multiply step. This function computes the
-    // geometric weight matrix including the positional correction factor:
-    //
-    //   w_ij = overlap_area_ij * correction_ij / (sum_k overlap_area_kj * correction_kj)
-    //
-    // where correction_ij accounts for the overlap centroid position.
-    //
-    // For a unit linear field f(x) = 1 + grad · (x - x_i), integrating over
-    // the overlap polygon gives:
-    //   integral = overlap_area * (1 + grad · (centroid_overlap - centroid_i))
-    //
-    // We approximate with a "self-consistent" field value = 1 for generation
-    // (the gradient term adjusts the effective area contribution).
-
-    // For 2nd-order, we need a dummy field to compute gradients (used during
-    // generation to test the weight correction). We use cell areas as a
-    // representative field for the gradient computation. The actual correction
-    // is purely geometric.
-    //
-    // Actually, the proper approach for pre-computed 2nd-order conservative
-    // weights is to encode the overlap centroid offset into the weights.
-    // Each weight w_ij will implicitly carry the spatial correction.
-    // We compute: for each overlap (i,j), the centroid of the overlap polygon
-    // relative to the source cell centroid, and scale the weight by the
-    // "effective area" = overlap_area * (1 + 0) = overlap_area (for constant
-    // fields, the correction vanishes). The correction is applied during apply.
-    //
-    // Per the design spec: the weight is
-    //   w_ij = overlap_area(i,j) * [1 + grad_i · (centroid_overlap - centroid_i)]
-    //          / (sum of weighted overlaps for j)
-    //
-    // Since we don't know grad at weight-generation time, we store the base
-    // weights (same as 1st order) plus auxiliary data. However, the simpler
-    // approach (used by ESMF, CDO, and the task description) is to pre-compute
-    // the weight matrix that is exact for linear fields. We do this by:
-    //   1. Using a synthetic linear test field
-    //   2. Computing gradients from that field
-    //   3. Incorporating the gradient correction into the weights
-    //
-    // BUT: The cleanest interpretation matching the task description and design
-    // is that the weight matrix itself is the same as 1st order conservative,
-    // and the gradient correction is computed and applied per-entry.
-    // Since the matrix must work for ANY field, the weight is purely geometric:
-    //   w_ij = overlap_area_ij / dst_area_j  (DstArea norm)
-    //
-    // The 2nd-order accuracy is achieved by the apply step using gradients.
-    // However, the task says "Produces an InterpolationMatrix with modified
-    // weights reflecting the 2nd-order correction." This means we encode
-    // the overlap centroid offset geometrically.
-    //
-    // Resolution: We follow the standard approach from finite-volume methods:
-    // The weight correction factor for each entry is purely geometric and
-    // computed from the overlap polygon centroid's displacement from the source
-    // cell centroid. For weight generation we don't know the field, so we
-    // produce weights that, when multiplied by source cell values, give the
-    // correct integral for a LINEAR field passing through each source cell.
-    //
-    // The formula is:
-    //   weight_ij = overlap_area_ij / dst_area_j (base, same as 1st order)
-    //
-    // Then the 2nd-order matrix entry applies as:
-    //   dst_j = sum_i weight_ij * src_i
-    //
-    // For 2nd-order to work properly, the field values themselves should be
-    // the cell-average values, and the gradient is applied internally.
-    //
-    // FINAL APPROACH (matching task spec "Produces an InterpolationMatrix with
-    // modified weights reflecting the 2nd-order correction"):
-    // We compute per-overlap a geometric correction factor based on the overlap
-    // centroid position. The weights are stored in the InterpolationMatrix such
-    // that applying them to cell averages yields 2nd-order accurate results
-    // for smooth fields. The correction factor per entry is dimensionless and
-    // modifies the base area weight.
-
-    // ── Compute overlap pairs and their correction factors ──
-
-    // Accumulators
-    std::vector<double> frac_a_acc(n_src, 0.0);
-    std::vector<double> frac_b_acc(n_dst, 0.0);
-
-    // Raw weight data (before normalization)
-    std::vector<OverlapEntry> overlap_entries;
-
-    for (std::size_t j = 0; j < n_dst; ++j) {
-        int begin = offsets_view(j);
-        int end = offsets_view(j + 1);
-
-        double area_dst = dst_areas[j];
-        if (area_dst <= 0.0) {
-            if (config.unmapped == UnmappedAction::Error) {
-                throw std::runtime_error("WeightGenerator::generate_conservative_2nd_order: unmapped destination cell " + std::to_string(j));
-            }
-            continue;
-        }
-
-        bool has_entry = false;
-
-        if (use_spherical) {
-            // ── Spherical path: SphericalClipper for exact overlap ──
-            // Note: Dateline-crossing cells and polar cells are inherently handled
-            // in XYZ space — no longitude discontinuity exists (Req 9.2, 9.5).
-            using axis::detail::SphericalClipper;
-            using axis::detail::SphericalPolygon;
-            using axis::detail::Vec3;
-
-            // Build destination polygon for SphericalClipper
-            auto dst_poly_raw = extract_cell_polygon_spherical(dst_mesh, j);
-            SphericalPolygon<32> dst_poly_sc;
-            for (const auto &v : dst_poly_raw) {
-                dst_poly_sc.push(Vec3{v.x, v.y, v.z});
-            }
-
-            for (int vi = begin; vi < end; ++vi) {
-                auto src_i = static_cast<std::size_t>(values(vi).index);
-                double area_src = src_areas[src_i];
-                if (area_src <= 0.0) continue;
-
-                // Build source polygon for SphericalClipper
-                auto src_poly_raw = extract_cell_polygon_spherical(src_mesh, src_i);
-                SphericalPolygon<32> src_poly_sc;
-                for (const auto &v : src_poly_raw) {
-                    src_poly_sc.push(Vec3{v.x, v.y, v.z});
-                }
-
-                // Clip source polygon against destination polygon
-                auto overlap_poly = SphericalClipper::clip(src_poly_sc, dst_poly_sc);
-                if (overlap_poly.empty()) continue;
-
-                double overlap_area = overlap_poly.area();
-                if (overlap_area <= 0.0) continue;
-
-                // Compute overlap polygon centroid (average of vertices)
-                double cx = 0.0, cy = 0.0, cz = 0.0;
-                for (int vi2 = 0; vi2 < overlap_poly.n; ++vi2) {
-                    cx += overlap_poly.verts[vi2].x;
-                    cy += overlap_poly.verts[vi2].y;
-                    cz += overlap_poly.verts[vi2].z;
-                }
-                double inv_n = 1.0 / static_cast<double>(overlap_poly.n);
-                cx *= inv_n;
-                cy *= inv_n;
-                cz *= inv_n;
-
-                // Offset from source cell centroid
-                double off_x = cx - src_centroids(src_i, 0);
-                double off_y = cy - src_centroids(src_i, 1);
-                double off_z = cz - src_centroids(src_i, 2);
-
-                overlap_entries.push_back({static_cast<index_t>(j), static_cast<index_t>(src_i), overlap_area, off_x, off_y, off_z});
-
-                has_entry = true;
-                frac_a_acc[src_i] += overlap_area / area_src;
-                frac_b_acc[j] += overlap_area / area_dst;
-            }
-        } else {
-            // ── Cartesian path: flat Sutherland-Hodgman clipping ──
-            auto dst_poly = extract_cell_polygon(dst_mesh, j);
-
-            for (int vi = begin; vi < end; ++vi) {
-                auto src_i = static_cast<std::size_t>(values(vi).index);
-                double area_src = src_areas[src_i];
-                if (area_src <= 0.0) continue;
-
-                auto src_poly = extract_cell_polygon(src_mesh, src_i);
-                double overlap_area = compute_polygon_overlap_area(src_poly, dst_poly);
-                if (overlap_area <= 0.0) continue;
-
-                // For Cartesian path, compute overlap centroid as midpoint
-                // of source and destination centroids weighted by overlap.
-                // (Simplified: use source centroid offset = 0 for flat case
-                //  since we don't have the actual overlap polygon vertices here)
-                // Use source cell centroid for the offset (zero correction in
-                // flat Cartesian — equivalent to 1st order for flat grids).
-                double off_x = 0.0;
-                double off_y = 0.0;
-                double off_z = 0.0;
-
-                overlap_entries.push_back({static_cast<index_t>(j), static_cast<index_t>(src_i), overlap_area, off_x, off_y, off_z});
-
-                has_entry = true;
-                frac_a_acc[src_i] += overlap_area / area_src;
-                frac_b_acc[j] += overlap_area / area_dst;
-            }
-        }
-
-        if (!has_entry && config.unmapped == UnmappedAction::Error) {
-            throw std::runtime_error("WeightGenerator::generate_conservative_2nd_order: unmapped destination cell " + std::to_string(j));
-        }
-    }
-
-    // ── Compute gradients via GradientReconstructor ──
-    // Use cell areas as a representative field to validate gradient computation.
-    // The actual gradient correction uses geometric offsets that are field-independent.
-    // For the weight matrix, we compute a correction factor per entry using a
-    // synthetic coordinate field (x-coordinate of centroids) to ensure the method
-    // can exactly reproduce linear fields.
-
-    // Compute gradients of source centroid coordinates (x, y, z independently)
-    // This gives us the geometric gradient that corrects for centroid offset.
-    Kokkos::View<double *, HostSpace> field_x("field_x", n_src);
-    Kokkos::View<double *, HostSpace> field_y("field_y", n_src);
-    Kokkos::View<double *, HostSpace> field_z("field_z", n_src);
+        return d;
+    };
+    std::vector<index_t> neighbor_offsets{0}, neighbors;
+    std::vector<std::array<double, 2>> coefficients;
+    // Copy original first rings so expansion does not depend on processing order.
+    const auto first_ring = stencils;
     for (std::size_t i = 0; i < n_src; ++i) {
-        field_x(i) = src_centroids(i, 0);
-        field_y(i) = src_centroids(i, 1);
-        field_z(i) = src_centroids(i, 2);
-    }
-
-    if constexpr (is_device_space_v<MemorySpace>) {
-        using exec_space = typename MemorySpace::execution_space;
-
-        // Copy centroids and adjacency CSR structures to device
-        Kokkos::View<double *[3], MemorySpace> d_centroids("d_centroids", n_src);
-        Kokkos::View<index_t *, MemorySpace> d_adj_offsets("d_adj_offsets", adj_offsets_kv.extent(0));
-        Kokkos::View<index_t *, MemorySpace> d_adj_indices("d_adj_indices", adj_indices_kv.extent(0));
-        Kokkos::View<double *, MemorySpace> d_field_x("d_field_x", n_src);
-        Kokkos::View<double *, MemorySpace> d_field_y("d_field_y", n_src);
-        Kokkos::View<double *, MemorySpace> d_field_z("d_field_z", n_src);
-
-        Kokkos::deep_copy(d_centroids, src_centroids);
-        Kokkos::deep_copy(d_adj_offsets, adj_offsets_kv);
-        Kokkos::deep_copy(d_adj_indices, adj_indices_kv);
-        Kokkos::deep_copy(d_field_x, field_x);
-        Kokkos::deep_copy(d_field_y, field_y);
-        Kokkos::deep_copy(d_field_z, field_z);
-
-        // Compute gradients natively on device
-        Kokkos::View<double *[3], MemorySpace> d_grad_x("d_grad_x", n_src);
-        Kokkos::View<double *[3], MemorySpace> d_grad_y("d_grad_y", n_src);
-        Kokkos::View<double *[3], MemorySpace> d_grad_z("d_grad_z", n_src);
-
-        GradientReconstructor<MemorySpace>::compute(d_field_x, d_centroids, d_adj_offsets, d_adj_indices, d_grad_x, config.use_limiter);
-        GradientReconstructor<MemorySpace>::compute(d_field_y, d_centroids, d_adj_offsets, d_adj_indices, d_grad_y, config.use_limiter);
-        GradientReconstructor<MemorySpace>::compute(d_field_z, d_centroids, d_adj_offsets, d_adj_indices, d_grad_z, config.use_limiter);
-
-        // Copy overlap entries and areas to device
-        const std::size_t nnz = overlap_entries.size();
-        Kokkos::View<OverlapEntry *, MemorySpace> d_overlap_entries("d_overlap_entries", nnz);
-        auto h_overlap_entries = Kokkos::create_mirror_view(d_overlap_entries);
-        for (std::size_t idx = 0; idx < nnz; ++idx) {
-            h_overlap_entries(idx) = overlap_entries[idx];
+        auto coeff = gradient_coefficients(deltas(i, stencils[i]));
+        bool ranked = false;
+        for (auto c : coeff) ranked = ranked || c[0] != 0 || c[1] != 0;
+        if (!ranked && active_src(i)) {
+            for (auto other : first_ring[i])
+                for (auto next : first_ring[other])
+                    if (next != static_cast<index_t>(i)) stencils[i].push_back(next);
+            auto &n = stencils[i];
+            std::sort(n.begin(), n.end());
+            n.erase(std::unique(n.begin(), n.end()), n.end());
+            coeff = gradient_coefficients(deltas(i, n));
         }
-        Kokkos::deep_copy(d_overlap_entries, h_overlap_entries);
-
-        Kokkos::View<double *, MemorySpace> d_src_areas("d_src_areas", n_src);
-        Kokkos::View<double *, MemorySpace> d_dst_areas("d_dst_areas", n_dst);
-        auto h_src_areas = Kokkos::create_mirror_view(d_src_areas);
-        auto h_dst_areas = Kokkos::create_mirror_view(d_dst_areas);
-        for (std::size_t i = 0; i < n_src; ++i) h_src_areas(i) = src_areas[i];
-        for (std::size_t j = 0; j < n_dst; ++j) h_dst_areas(j) = dst_areas[j];
-        Kokkos::deep_copy(d_src_areas, h_src_areas);
-        Kokkos::deep_copy(d_dst_areas, h_dst_areas);
-
-        // Allocate device output Views
-        Kokkos::View<double *, MemorySpace> factor_list("factor_list", nnz);
-        Kokkos::View<index_t *, MemorySpace> factor_row("factor_row", nnz);
-        Kokkos::View<index_t *, MemorySpace> factor_col("factor_col", nnz);
-        Kokkos::View<double *, MemorySpace> frac_a("frac_a", n_src);
-        Kokkos::View<double *, MemorySpace> frac_b("frac_b", n_dst);
-        Kokkos::View<double *, MemorySpace> area_a("area_a", n_src);
-        Kokkos::View<double *, MemorySpace> area_b("area_b", n_dst);
-
-        // Initialize accumulators for normalization
-        Kokkos::View<double *, MemorySpace> d_corrections("d_corrections", nnz);
-        Kokkos::View<double *, MemorySpace> d_dst_total_weight("d_dst_total_weight", n_dst);
-        Kokkos::View<double *, MemorySpace> d_dst_raw_overlap("d_dst_raw_overlap", n_dst);
-        Kokkos::View<double *, MemorySpace> d_frac_a_acc("d_frac_a_acc", n_src);
-        Kokkos::View<double *, MemorySpace> d_frac_b_acc("d_frac_b_acc", n_dst);
-
-        Kokkos::parallel_for(
-            "ComputeCorrectionFactorsDevice", Kokkos::RangePolicy<exec_space>(0, nnz), KOKKOS_LAMBDA(const std::size_t e) {
-                const auto &entry = d_overlap_entries(e);
-                auto src_i = entry.col;
-
-                double corr = d_grad_x(src_i, 0) * entry.offset_x + d_grad_x(src_i, 1) * entry.offset_y + d_grad_x(src_i, 2) * entry.offset_z +
-                              d_grad_y(src_i, 0) * entry.offset_x + d_grad_y(src_i, 1) * entry.offset_y + d_grad_y(src_i, 2) * entry.offset_z +
-                              d_grad_z(src_i, 0) * entry.offset_x + d_grad_z(src_i, 1) * entry.offset_y + d_grad_z(src_i, 2) * entry.offset_z;
-
-                d_corrections(e) = Kokkos::fmax(1.0 + corr, 0.0);
-            });
-
-        Kokkos::parallel_for(
-            "AccumulateDstTotalWeightDevice", Kokkos::RangePolicy<exec_space>(0, nnz), KOKKOS_LAMBDA(const std::size_t e) {
-                const auto &entry = d_overlap_entries(e);
-                auto j = entry.row;
-                Kokkos::atomic_add(&d_dst_total_weight(j), entry.area * d_corrections(e));
-                Kokkos::atomic_add(&d_dst_raw_overlap(j), entry.area);
-            });
-
-        const auto norm_type = config.norm_type;
-        Kokkos::parallel_for(
-            "BuildFinalWeightsDevice", Kokkos::RangePolicy<exec_space>(0, nnz), KOKKOS_LAMBDA(const std::size_t e) {
-                const auto &entry = d_overlap_entries(e);
-                auto j = entry.row;
-                auto src_i = entry.col;
-                double a_dst = d_dst_areas(j);
-
-                double w_ij = 0.0;
-                double total_corrected = d_dst_total_weight(j);
-                double total_raw = d_dst_raw_overlap(j);
-
-                if (total_corrected > 0.0) {
-                    double norm_corr = (entry.area * d_corrections(e)) / total_corrected;
-                    if (norm_type == NormType::FracArea) {
-                        w_ij = norm_corr;
-                    } else {
-                        w_ij = (a_dst > 0.0) ? norm_corr * (total_raw / a_dst) : 0.0;
+        neighbors.insert(neighbors.end(), stencils[i].begin(), stencils[i].end());
+        coefficients.insert(coefficients.end(), coeff.begin(), coeff.end());
+        neighbor_offsets.push_back(static_cast<index_t>(neighbors.size()));
+    }
+    std::vector<std::vector<std::array<double, 2>>> controls(n_src);
+    for (std::size_t i = 0; i < n_src; ++i)
+        if (config.use_limiter)
+            for (auto vertex : source[i]) {
+                auto r = sub(vertex, source_moments[i].mean);
+                controls[i].push_back({dot(basis[i][0], r), dot(basis[i][1], r)});
+            }
+    std::vector<double> weights, frac_a(n_src), frac_b(n_dst);
+    std::vector<index_t> rows, cols;
+    std::vector<std::array<double, 2>> moments;
+    struct LinearRow {
+        std::vector<double> weights, source_fractions;
+        std::vector<index_t> rows, cols;
+        std::vector<std::array<double, 2>> moments, deltas;
+    };
+    constexpr std::size_t block_size = 128;
+    const auto n_blocks = (n_dst + block_size - 1) / block_size;
+    std::vector<LinearRow> work(n_blocks);
+    detail::parallel_host_rows(
+        "axis::linear::overlaps", n_blocks,
+        [&](std::size_t block) {
+            auto &row = work[block];
+            auto &weights = row.weights;
+            auto &rows = row.rows;
+            auto &cols = row.cols;
+            auto &moments = row.moments;
+            const auto first = block * block_size;
+            const auto last = std::min(n_dst, first + block_size);
+            const auto candidates = static_cast<std::size_t>(offsets_view(last) - offsets_view(first));
+            weights.reserve(candidates);
+            rows.reserve(candidates);
+            cols.reserve(candidates);
+            moments.reserve(candidates);
+            if (config.use_limiter) row.deltas.reserve(candidates);
+            row.source_fractions.reserve(candidates);
+            std::vector<Point> overlap, scratch;
+            overlap.reserve(16);
+            if (!spherical) scratch.reserve(16);
+            for (auto j = first; j < last; ++j) {
+                if (active_dst(j)) {
+                    const auto first_entry = weights.size();
+                    for (int k = offsets_view(j); k < offsets_view(j + 1); ++k) {
+                        const auto i = static_cast<std::size_t>(values(k).index);
+                        if (!active_src(i)) continue;
+                        overlap.clear();
+                        if (spherical) {
+                            axis::detail::SphericalPolygon<128> a, b;
+                            for (auto v : source[i]) a.push({v[0], v[1], v[2]});
+                            for (auto v : destination[j]) b.push({v[0], v[1], v[2]});
+                            auto p = axis::detail::SphericalClipper::clip(a, b);
+                            if (p.n >= 128) throw std::runtime_error("linear reconstruction: overlap vertex capacity exhausted");
+                            for (int v = 0; v < p.n; ++v) overlap.push_back({p.verts[v].x, p.verts[v].y, p.verts[v].z});
+                        } else
+                            planar_clip_into(source[i], destination[j], overlap, scratch);
+                        auto m = spherical ? spherical_moments(overlap) : planar_moments(overlap);
+                        if (!(m.area > 0) || !std::isfinite(m.area)) continue;
+                        auto r = sub(m.mean, source_moments[i].mean);
+                        std::array<double, 2> delta{dot(basis[i][0], r), dot(basis[i][1], r)};
+                        if (!std::isfinite(delta[0]) || !std::isfinite(delta[1]))
+                            throw std::runtime_error("linear reconstruction: nonfinite overlap moment");
+                        weights.push_back(m.area / destination_moments[j].area);
+                        rows.push_back(static_cast<index_t>(j));
+                        cols.push_back(static_cast<index_t>(i));
+                        moments.push_back({weights.back() * delta[0], weights.back() * delta[1]});
+                        if (config.use_limiter) row.deltas.push_back(delta);
+                        row.source_fractions.push_back(m.area / source_moments[i].area);
+                        frac_b[j] += weights.back();
                     }
+                    if (weights.size() == first_entry && config.unmapped == UnmappedAction::Error)
+                        throw std::runtime_error("linear reconstruction: unmapped destination cell " + std::to_string(j));
+                    if (config.norm_type == NormType::FracArea && frac_b[j] > 0)
+                        for (std::size_t k = first_entry; k < weights.size(); ++k) {
+                            weights[k] /= frac_b[j];
+                            moments[k][0] /= frac_b[j];
+                            moments[k][1] /= frac_b[j];
+                        }
                 }
-
-                w_ij = Kokkos::fmax(w_ij, 0.0);
-                factor_list(e) = w_ij;
-                factor_row(e) = j;
-                factor_col(e) = src_i;
-
-                double a_src = d_src_areas(src_i);
-                if (a_src > 0.0) {
-                    Kokkos::atomic_add(&d_frac_a_acc(src_i), entry.area / a_src);
-                }
-                if (a_dst > 0.0) {
-                    Kokkos::atomic_add(&d_frac_b_acc(j), entry.area / a_dst);
-                }
-            });
-
-        Kokkos::parallel_for(
-            "ClampFractionsDevice", Kokkos::RangePolicy<exec_space>(0, n_src),
-            KOKKOS_LAMBDA(const std::size_t i) { frac_a(i) = Kokkos::fmin(d_frac_a_acc(i), 1.0); });
-        Kokkos::parallel_for(
-            "ClampFractionsBDevice", Kokkos::RangePolicy<exec_space>(0, n_dst),
-            KOKKOS_LAMBDA(const std::size_t j) { frac_b(j) = Kokkos::fmin(d_frac_b_acc(j), 1.0); });
-
-        Kokkos::deep_copy(area_a, d_src_areas);
-        Kokkos::deep_copy(area_b, d_dst_areas);
-
-        return InterpolationMatrix<MemorySpace>(std::move(factor_list), std::move(factor_row), std::move(factor_col), std::move(frac_a),
-                                                std::move(frac_b), std::move(area_a), std::move(area_b), n_src, n_dst);
-    }
-
-    // Cast centroids to const view for GradientReconstructor
-    Kokkos::View<const double *[3], HostSpace> centroids_const(src_centroids);
-    Kokkos::View<const index_t *, HostSpace> adj_off_const(adj_offsets_kv);
-    Kokkos::View<const index_t *, HostSpace> adj_idx_const(adj_indices_kv);
-
-    // Compute gradient of x-coordinate field
-    Kokkos::View<double *[3], HostSpace> grad_x("grad_x", n_src);
-    Kokkos::View<double *[3], HostSpace> grad_y("grad_y", n_src);
-    Kokkos::View<double *[3], HostSpace> grad_z("grad_z", n_src);
-
-    Kokkos::View<const double *, HostSpace> field_x_const(field_x);
-    Kokkos::View<const double *, HostSpace> field_y_const(field_y);
-    Kokkos::View<const double *, HostSpace> field_z_const(field_z);
-
-    GradientReconstructor<HostSpace>::compute(field_x_const, centroids_const, adj_off_const, adj_idx_const, grad_x, config.use_limiter);
-
-    GradientReconstructor<HostSpace>::compute(field_y_const, centroids_const, adj_off_const, adj_idx_const, grad_y, config.use_limiter);
-
-    GradientReconstructor<HostSpace>::compute(field_z_const, centroids_const, adj_off_const, adj_idx_const, grad_z, config.use_limiter);
-
-    // ── Apply gradient correction to overlap weights ──
-    // For each overlap entry, the correction factor is:
-    //   correction = 1 + (grad_of_coordinate_field) · offset
-    // But since we're using the coordinate field itself as the test field,
-    // the gradient of x w.r.t. position gives us the Jacobian. For a proper
-    // implementation, the weight becomes:
-    //
-    //   w_ij = overlap_area_ij / dst_area_j  (base weight, DstArea norm)
-    //
-    // The 2nd-order "modified" weight encodes the correction for the
-    // overlap centroid position. We use:
-    //   modified_w_ij = overlap_area_ij / dst_area_j
-    //                   * (1 + grad_i · (centroid_overlap_ij - centroid_i) / |centroid_i|^2)
-    //
-    // Simplified: the correction factor per entry uses the gradient
-    // dot product with the offset vector directly:
-    //   correction_ij = 1 (no field-dependent correction in weight matrix)
-    //
-    // The proper 2nd-order conservative approach stores the geometric correction:
-    //   w_ij = overlap_area_ij * correction_ij / sum_k(overlap_area_kj * correction_kj)
-    //
-    // where correction_ij = 1.0 for the weight matrix (the gradient correction
-    // is applied at field-apply time).
-    //
-    // HOWEVER: following the task description which says "Produces an
-    // InterpolationMatrix with modified weights", we store corrected weights
-    // that approximate 2nd-order for smooth fields. The correction uses the
-    // "geometric gradient" — how much the reconstructed value changes at the
-    // overlap centroid vs. the cell centroid. This is encoded as:
-    //
-    //   w_ij_corrected = overlap_area_ij * C_ij / (sum_k overlap_area_kj * C_kj)
-    //   where C_ij = 1 + sum_dim grad_dim[i] · offset_dim_ij / field_i
-    //
-    // For generality (field-independent weights), we use the geometric norm:
-    //   C_ij = 1 + (grad_x[i] · offset_x + grad_y[i] · offset_y + grad_z[i] · offset_z)
-    //          where grad_x[i] is gradient of the x-coordinate field at cell i
-
-    // Compute per-entry effective weights with geometric correction
-    std::vector<double> weights_vec;
-    std::vector<index_t> rows_vec;
-    std::vector<index_t> cols_vec;
-    weights_vec.reserve(overlap_entries.size());
-    rows_vec.reserve(overlap_entries.size());
-    cols_vec.reserve(overlap_entries.size());
-
-    // Group entries by destination and compute corrected weights
-    // First, compute correction factors
-    std::vector<double> corrections(overlap_entries.size());
-    for (std::size_t e = 0; e < overlap_entries.size(); ++e) {
-        const auto &entry = overlap_entries[e];
-        auto src_i = static_cast<std::size_t>(entry.col);
-
-        // Compute gradient-based correction:
-        // For source cell i with gradient of coordinate fields grad_x, grad_y, grad_z:
-        // The correction represents how much a linear field deviates at the
-        // overlap centroid compared to the source cell centroid.
-        // correction = 1 + grad_x_i · offset_x + grad_y_i · offset_y + grad_z_i · offset_z
-        // where grad_dim_i = [dg/dx, dg/dy, dg/dz] for the dim-coordinate field
-        //
-        // Simplified: dot product of offset with the "position gradient"
-        double corr = grad_x(src_i, 0) * entry.offset_x + grad_x(src_i, 1) * entry.offset_y + grad_x(src_i, 2) * entry.offset_z +
-                      grad_y(src_i, 0) * entry.offset_x + grad_y(src_i, 1) * entry.offset_y + grad_y(src_i, 2) * entry.offset_z +
-                      grad_z(src_i, 0) * entry.offset_x + grad_z(src_i, 1) * entry.offset_y + grad_z(src_i, 2) * entry.offset_z;
-
-        // The correction factor: 1 + correction_term
-        // Clamp to prevent negative weights (physical constraint)
-        corrections[e] = std::max(1.0 + corr, 0.0);
-    }
-
-    // Compute per-destination normalization (sum of area * correction and sum of raw area)
-    std::unordered_map<std::size_t, double> dst_total_weight;
-    std::unordered_map<std::size_t, double> dst_raw_overlap;
-    for (std::size_t e = 0; e < overlap_entries.size(); ++e) {
-        auto j = static_cast<std::size_t>(overlap_entries[e].row);
-        dst_total_weight[j] += overlap_entries[e].area * corrections[e];
-        dst_raw_overlap[j] += overlap_entries[e].area;
-    }
-
-    // Build final weights
-    for (std::size_t e = 0; e < overlap_entries.size(); ++e) {
-        const auto &entry = overlap_entries[e];
-        auto j = static_cast<std::size_t>(entry.row);
-        double area_dst = dst_areas[j];
-
-        double w_ij = 0.0;
-        double total_corrected = dst_total_weight[j];
-        double total_raw = dst_raw_overlap[j];
-
-        if (total_corrected > 0.0) {
-            double norm_corr = (entry.area * corrections[e]) / total_corrected;
-            if (config.norm_type == NormType::FracArea) {
-                w_ij = norm_corr;
-            } else {
-                w_ij = (area_dst > 0.0) ? norm_corr * (total_raw / area_dst) : 0.0;
             }
+        },
+        1);
+    std::size_t total = 0;
+    for (const auto &row : work) total += row.weights.size();
+    weights.reserve(total);
+    rows.reserve(total);
+    cols.reserve(total);
+    moments.reserve(total);
+    for (const auto &row : work)
+        for (std::size_t k = 0; k < row.weights.size(); ++k) {
+            weights.push_back(row.weights[k]);
+            rows.push_back(row.rows[k]);
+            cols.push_back(row.cols[k]);
+            moments.push_back(row.moments[k]);
+            auto i = static_cast<std::size_t>(row.cols[k]);
+            frac_a[i] += row.source_fractions[k];
+            if (config.use_limiter) controls[i].push_back(row.deltas[k]);
         }
-
-        w_ij = std::max(w_ij, 0.0);
-        weights_vec.push_back(w_ij);
-        rows_vec.push_back(entry.row);
-        cols_vec.push_back(entry.col);
+    if (config.use_limiter)
+        for (auto &points : controls) prune_linear_controls(points);
+    // Do not clamp coverage: the recorded fractions must match the actual
+    // weights/moments. Partial-domain integrals include the reconstructed slope.
+    auto copy_indices = [](const char *name, const auto &v) {
+        Kokkos::View<index_t *, HostSpace> host(name, v.size());
+        for (std::size_t k = 0; k < v.size(); ++k) host(k) = v[k];
+        return Kokkos::create_mirror_view_and_copy(MemorySpace{}, host);
+    };
+    auto copy_values = [](const char *name, const auto &v) {
+        Kokkos::View<double *, HostSpace> host(name, v.size());
+        for (std::size_t k = 0; k < v.size(); ++k) host(k) = v[k];
+        return Kokkos::create_mirror_view_and_copy(MemorySpace{}, host);
+    };
+    auto copy_pairs = [](const char *name, const auto &v) {
+        Kokkos::View<double *[2], HostSpace> host(name, v.size());
+        for (std::size_t k = 0; k < v.size(); ++k)
+            for (int d = 0; d < 2; ++d) host(k, d) = v[k][d];
+        return Kokkos::create_mirror_view_and_copy(MemorySpace{}, host);
+    };
+    std::vector<double> area_a(n_src), area_b(n_dst);
+    for (std::size_t i = 0; i < n_src; ++i) area_a[i] = source_moments[i].area;
+    for (std::size_t j = 0; j < n_dst; ++j) area_b[j] = destination_moments[j].area;
+    InterpolationMatrix<MemorySpace> matrix(copy_values("linear_weights", weights), copy_indices("linear_rows", rows),
+                                            copy_indices("linear_cols", cols), copy_values("linear_frac_a", frac_a),
+                                            copy_values("linear_frac_b", frac_b), copy_values("linear_area_a", area_a),
+                                            copy_values("linear_area_b", area_b), n_src, n_dst);
+    LinearReconstruction<MemorySpace> data;
+    data.enabled = true;
+    data.limited = config.use_limiter;
+    data.moments = copy_pairs("linear_moments", moments);
+    data.neighbor_offsets = copy_indices("linear_neighbor_offsets", neighbor_offsets);
+    data.neighbors = copy_indices("linear_neighbors", neighbors);
+    data.gradient_coefficients = copy_pairs("linear_coefficients", coefficients);
+    std::vector<index_t> control_offsets{0};
+    std::vector<std::array<double, 2>> points;
+    for (auto &c : controls) {
+        points.insert(points.end(), c.begin(), c.end());
+        control_offsets.push_back(static_cast<index_t>(points.size()));
     }
+    data.control_offsets = copy_indices("linear_control_offsets", control_offsets);
+    data.control_points = copy_pairs("linear_control_points", points);
+    matrix.set_linear_reconstruction(std::move(data));
+    return matrix;
+}
 
-    // Clamp fractions to [0, 1]
-    for (std::size_t i = 0; i < n_src; ++i) {
-        frac_a_acc[i] = std::min(frac_a_acc[i], 1.0);
-    }
-    for (std::size_t j = 0; j < n_dst; ++j) {
-        frac_b_acc[j] = std::min(frac_b_acc[j], 1.0);
-    }
-
-    // ── Pack into InterpolationMatrix ──
-    const std::size_t nnz = weights_vec.size();
-
-    Kokkos::View<double *, MemorySpace> factor_list("factor_list", nnz);
-    Kokkos::View<index_t *, MemorySpace> factor_row("factor_row", nnz);
-    Kokkos::View<index_t *, MemorySpace> factor_col("factor_col", nnz);
-    Kokkos::View<double *, MemorySpace> frac_a("frac_a", n_src);
-    Kokkos::View<double *, MemorySpace> frac_b("frac_b", n_dst);
-    Kokkos::View<double *, MemorySpace> area_a("area_a", n_src);
-    Kokkos::View<double *, MemorySpace> area_b("area_b", n_dst);
-
-    auto h_factor_list = Kokkos::create_mirror_view(factor_list);
-    auto h_factor_row = Kokkos::create_mirror_view(factor_row);
-    auto h_factor_col = Kokkos::create_mirror_view(factor_col);
-    auto h_frac_a = Kokkos::create_mirror_view(frac_a);
-    auto h_frac_b = Kokkos::create_mirror_view(frac_b);
-    auto h_area_a = Kokkos::create_mirror_view(area_a);
-    auto h_area_b = Kokkos::create_mirror_view(area_b);
-
-    for (std::size_t k = 0; k < nnz; ++k) {
-        h_factor_list(k) = weights_vec[k];
-        h_factor_row(k) = rows_vec[k];
-        h_factor_col(k) = cols_vec[k];
-    }
-
-    for (std::size_t i = 0; i < n_src; ++i) {
-        h_area_a(i) = src_areas[i];
-        h_frac_a(i) = frac_a_acc[i];
-    }
-    for (std::size_t j = 0; j < n_dst; ++j) {
-        h_area_b(j) = dst_areas[j];
-        h_frac_b(j) = frac_b_acc[j];
-    }
-
-    Kokkos::deep_copy(factor_list, h_factor_list);
-    Kokkos::deep_copy(factor_row, h_factor_row);
-    Kokkos::deep_copy(factor_col, h_factor_col);
-    Kokkos::deep_copy(frac_a, h_frac_a);
-    Kokkos::deep_copy(frac_b, h_frac_b);
-    Kokkos::deep_copy(area_a, h_area_a);
-    Kokkos::deep_copy(area_b, h_area_b);
-
-    return InterpolationMatrix<MemorySpace>(std::move(factor_list), std::move(factor_row), std::move(factor_col), std::move(frac_a),
-                                            std::move(frac_b), std::move(area_a), std::move(area_b), n_src, n_dst);
+template <class MemorySpace>
+InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative_2nd_order(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
+                                                                                  const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
+                                                                                  const RegridConfig &config) {
+    paper_path("host_linear_conservative");
+    if (config.line_type == LineType::GreatCircle) return generate_conservative_2nd_order_impl<3, MemorySpace>(src_mesh, dst_mesh, config);
+    return generate_conservative_2nd_order_impl<2, MemorySpace>(src_mesh, dst_mesh, config);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4529,6 +4486,9 @@ std::pair<InterpolationMatrix<MemorySpace>, HaloPattern> WeightGenerator::genera
                                                                                    Kokkos::View<const index_t *, MemorySpace> src_global_ids,
                                                                                    Kokkos::View<const index_t *, MemorySpace> dst_global_ids,
                                                                                    const std::vector<int> &owner_of_src) {
+    if (config.method == InterpolationMethod::Conservative2ndOrder)
+        throw std::invalid_argument("distributed linear reconstruction requires gradient-stencil halos");
+
     // ── Step 1: Produce local InterpolationMatrix via single-rank generate ──
     auto local_matrix = generate(src_mesh, dst_mesh, config);
 
@@ -4685,3 +4645,61 @@ template std::pair<InterpolationMatrix<Kokkos::HostSpace>, HaloPattern> WeightGe
     Kokkos::View<const index_t *, Kokkos::HostSpace>, Kokkos::View<const index_t *, Kokkos::HostSpace>, const std::vector<int> &);
 
 }  // namespace axis::solver
+
+#include "../distributed/search_geometry.hpp"
+namespace axis::distributed::detail {
+SearchGeometry search_geometry(const HostMesh &mesh, const solver::RegridConfig &config, bool wet_search) {
+    SearchGeometry out;
+    out.points = decltype(out.points)("distributed_centroids", mesh.n_cells());
+    out.boxes = decltype(out.boxes)("distributed_boxes", mesh.n_cells());
+    Kokkos::View<double *, Kokkos::HostSpace> x, y;
+    solver::compute_cell_centroids_xy(mesh, x, y);
+    const bool spherical =
+        mesh.coord_system() == topology::CoordinateSystem::SphericalDeg || mesh.coord_system() == topology::CoordinateSystem::SphericalRad;
+    const bool nearest3 = spherical && config.method == solver::InterpolationMethod::NearestNeighbor && !wet_search;
+    for (std::size_t i = 0; i < mesh.n_cells(); ++i) {
+        double a = x(i), b = y(i);
+        if (nearest3) {
+            if (mesh.coord_system() == topology::CoordinateSystem::SphericalDeg) {
+                a *= std::acos(-1.0) / 180;
+                b *= std::acos(-1.0) / 180;
+            }
+            out.points(i, 0) = std::cos(b) * std::cos(a);
+            out.points(i, 1) = std::cos(b) * std::sin(a);
+            out.points(i, 2) = std::sin(b);
+        } else {
+            out.points(i, 0) = a;
+            out.points(i, 1) = b;
+            out.points(i, 2) = 0;
+        }
+    }
+    if (spherical && mesh.geometry_metadata().boundary_model == topology::BoundaryModel::ConstantLatitude) {
+        auto cells = solver::extract_constant_latitude_cells(mesh, true, mesh.geometry_metadata().longitude_periodicity.period);
+        for (std::size_t i = 0; i < cells.size(); ++i) {
+            out.boxes(i, 0) = cells[i].west;
+            out.boxes(i, 1) = cells[i].south;
+            out.boxes(i, 2) = 0;
+            out.boxes(i, 3) = cells[i].east;
+            out.boxes(i, 4) = cells[i].north;
+            out.boxes(i, 5) = 0;
+        }
+    } else if (config.line_type == solver::LineType::GreatCircle) {
+        auto boxes = solver::compute_cell_aabbs_3d(mesh);
+        for (std::size_t i = 0; i < mesh.n_cells(); ++i)
+            for (int d = 0; d < 3; ++d) {
+                out.boxes(i, d) = boxes(i).minCorner()[d];
+                out.boxes(i, d + 3) = boxes(i).maxCorner()[d];
+            }
+    } else {
+        auto boxes = solver::compute_cell_aabbs(mesh);
+        for (std::size_t i = 0; i < mesh.n_cells(); ++i) {
+            for (int d = 0; d < 2; ++d) {
+                out.boxes(i, d) = boxes(i).minCorner()[d];
+                out.boxes(i, d + 3) = boxes(i).maxCorner()[d];
+            }
+            out.boxes(i, 2) = out.boxes(i, 5) = 0;
+        }
+    }
+    return out;
+}
+}  // namespace axis::distributed::detail

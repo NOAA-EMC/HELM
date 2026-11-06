@@ -84,12 +84,12 @@ double spherical_excess_triangle(double ax, double ay, double az, double bx, dou
     const double bc = dot3(bx, by, bz, cx, cy, cz);
     const double den = 1.0 + ab + ac + bc;
 
-    // Degenerate case: collinear points → zero area
-    if (den <= 0.0) {
-        // This can happen for hemispheric or larger cells; use PI as fallback.
-        return PI;
-    }
-
+    // atan2 must receive the signed denominator: a negative value is valid and
+    // identifies a spherical excess larger than a hemisphere. Replacing it
+    // with a fixed fallback loses the geometry (and can turn a valid polygon
+    // into exactly pi steradians). Exact antipodal/degenerate configurations
+    // remain branch-ambiguous and are rejected by source-grid validation when
+    // strict geometry is required.
     return 2.0 * Kokkos::atan2(num, den);
 }
 
@@ -138,6 +138,9 @@ void UnstructuredMesh<MemorySpace>::compute_areas() {
                 // ─────────────────────────────────────────────────────────────
                 double nx = 0.0, ny = 0.0, nz = 0.0;
 
+                // Compact two-column Cartesian3D meshes carry an implied z == 0;
+                // only read column 2 when the coordinate table actually stores it.
+                const bool coords_have_z = coords.extent(1) > 2;
                 for (int i = 0; i < nv; ++i) {
                     const int j = (i + 1) % nv;
                     const index_t vi = indices(start + i);
@@ -145,10 +148,10 @@ void UnstructuredMesh<MemorySpace>::compute_areas() {
 
                     const double vix = coords(vi, 0);
                     const double viy = coords(vi, 1);
-                    const double viz = coords(vi, 2);
+                    const double viz = coords_have_z ? coords(vi, 2) : 0.0;
                     const double vjx = coords(vj, 0);
                     const double vjy = coords(vj, 1);
-                    const double vjz = coords(vj, 2);
+                    const double vjz = coords_have_z ? coords(vj, 2) : 0.0;
 
                     // Accumulate cross product
                     double cx, cy, cz;
@@ -205,6 +208,7 @@ void UnstructuredMesh<MemorySpace>::compute_areas() {
 
     // Fence to ensure areas are fully computed before any subsequent host access
     Kokkos::fence("UnstructuredMesh::compute_areas fence");
+    geometry_.area_model = coord_sys_ == CoordinateSystem::Cartesian3D ? AreaModel::PlanarPolygon : AreaModel::SphericalExcess;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

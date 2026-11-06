@@ -93,6 +93,7 @@ def esmf_regrid(src_lon, src_lat, smooth_src):
         np.arange(1, ne + 1, dtype=np.int32),
         np.full(ne, esmpy.MeshElemType.QUAD, dtype=np.int32),
         np.array(elem_conn, dtype=np.int32),
+        element_coords=np.column_stack((src_lon, src_lat)).astype(np.float64).ravel(),
     )
 
     grid = esmpy.Grid(

@@ -17,14 +17,19 @@
 
 #include <Kokkos_Core.hpp>
 #include <axis/detail/memory_traits.hpp>
+#include <axis/topology/mesh_builder.hpp>
 #include <axis/topology/mesh_factory.hpp>
 #include <axis/topology/named_grid_registry.hpp>
 #include <axis/topology/projection_builder.hpp>
+#include <axis/topology/reduced_gaussian_grid.hpp>
 #include <axis/topology/rule_generator.hpp>
 #include <axis/topology/structured_grid.hpp>
 #include <cstddef>
+#include <limits>
+#include <numbers>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace axis::topology {
 
@@ -43,6 +48,8 @@ const char *convention_kind_str(ingest::ConventionKind kind) {
             return "UGRID";
         case ingest::ConventionKind::GRIB:
             return "GRIB";
+        case ingest::ConventionKind::ReducedGaussian:
+            return "ReducedGaussian";
         case ingest::ConventionKind::Projected:
             return "Projected";
         case ingest::ConventionKind::NamedGrid:
@@ -153,6 +160,34 @@ void validate_grib(const ingest::GridDescriptor &desc) {
             "MeshFactory::from_descriptor(GRIB): inconsistent buffer extents — "
             "center_y.extent(0)=" +
             std::to_string(b.center_y.extent(0)) + " but ni*nj=" + std::to_string(expected));
+    }
+}
+
+void validate_reduced_gaussian(const ingest::GridDescriptor &desc) {
+    const auto &b = desc.buffers;
+    const std::size_t rows = desc.reduced_gaussian.n_rows;
+    if (rows == 0) throw std::invalid_argument("MeshFactory::from_descriptor(ReducedGaussian): missing required field 'n_rows'");
+    if (b.latitude_bounds.data_handle() == nullptr || b.latitude_bounds.extent(0) != rows + 1) {
+        throw std::invalid_argument("MeshFactory::from_descriptor(ReducedGaussian): latitude_bounds must have n_rows+1 values");
+    }
+    if (b.row_cell_offsets.data_handle() == nullptr || b.row_cell_offsets.extent(0) != rows + 1) {
+        throw std::invalid_argument("MeshFactory::from_descriptor(ReducedGaussian): row_cell_offsets must have n_rows+1 values");
+    }
+    if (b.row_longitude_boundaries.data_handle() == nullptr || b.row_longitude_boundaries.extent(0) == 0) {
+        throw std::invalid_argument("MeshFactory::from_descriptor(ReducedGaussian): missing required buffer 'row_longitude_boundaries'");
+    }
+    if (b.row_cell_offsets(0) != 0) throw std::invalid_argument("MeshFactory::from_descriptor(ReducedGaussian): row_cell_offsets must start at zero");
+    for (std::size_t j = 0; j < rows; ++j) {
+        if (b.row_cell_offsets(j + 1) <= b.row_cell_offsets(j)) {
+            throw std::invalid_argument("MeshFactory::from_descriptor(ReducedGaussian): every row must contain at least one cell");
+        }
+    }
+    const auto n_cells = static_cast<std::size_t>(b.row_cell_offsets(rows));
+    if (n_cells > std::numeric_limits<std::size_t>::max() - rows || b.row_longitude_boundaries.extent(0) != n_cells + rows) {
+        throw std::invalid_argument("MeshFactory::from_descriptor(ReducedGaussian): flattened boundary extent must equal total_cells+n_rows");
+    }
+    if (desc.coord_system != ingest::CoordinateSystem::SphericalDeg && desc.coord_system != ingest::CoordinateSystem::SphericalRad) {
+        throw std::invalid_argument("MeshFactory::from_descriptor(ReducedGaussian): only spherical coordinates are supported");
     }
 }
 
@@ -285,6 +320,14 @@ CoordinateSystem map_coord_system(ingest::CoordinateSystem cs) {
     return CoordinateSystem::SphericalDeg;
 }
 
+LongitudePeriodicity map_longitude_periodicity(const ingest::GridDescriptor &desc) {
+    double period = desc.longitude_period;
+    if (period == 0.0) {
+        period = desc.coord_system == ingest::CoordinateSystem::SphericalRad ? 2.0 * std::numbers::pi : 360.0;
+    }
+    return LongitudePeriodicity{desc.longitude_periodic, period, desc.longitude_increasing};
+}
+
 /// Build an UnstructuredMesh from a CF descriptor.
 /// CF: use buffers.center_x/y + ni/nj to build StructuredGrid, then to_unstructured().
 template <class MemorySpace>
@@ -305,8 +348,16 @@ UnstructuredMesh<MemorySpace> build_from_cf(const ingest::GridDescriptor &desc) 
         auto corner_lat = adopt_or_copy_1d<MemorySpace, double>("cf_corner_lat", b.corner_y);
         grid.set_corners(std::move(corner_lon), std::move(corner_lat));
     }
-
-    return grid.to_unstructured();
+    if (b.longitude_bounds.extent(0) > 0 && b.latitude_bounds.extent(0) > 0) {
+        grid.set_rectilinear_bounds(adopt_or_copy_1d<MemorySpace, double>("cf_longitude_bounds", b.longitude_bounds),
+                                    adopt_or_copy_1d<MemorySpace, double>("cf_latitude_bounds", b.latitude_bounds));
+    }
+    if (b.gaussian_latitude_weights.extent(0) > 0) {
+        grid.set_gaussian_latitude_weights(adopt_or_copy_1d<MemorySpace, double>("cf_gaussian_weights", b.gaussian_latitude_weights));
+        return grid.to_unstructured(CornerPolicy::GaussianLatLon, map_longitude_periodicity(desc));
+    }
+    const auto policy = desc.curvilinear_centers ? CornerPolicy::CurvilinearApproximate : CornerPolicy::RectilinearMidpoint;
+    return grid.to_unstructured(policy, map_longitude_periodicity(desc));
 }
 
 /// Build an UnstructuredMesh from a UGRID descriptor.
@@ -317,6 +368,24 @@ UnstructuredMesh<MemorySpace> build_from_ugrid(const ingest::GridDescriptor &des
 
     // Copy node coordinates [n_nodes, ndim].
     auto node_coords = adopt_or_copy_2d<MemorySpace, double>("ugrid_node_coords", b.node_coords);
+    if (map_coord_system(desc.coord_system) == CoordinateSystem::Cartesian3D && node_coords.extent(1) == 2) {
+        // Legacy UGRID descriptors commonly use Cartesian3D for a planar
+        // x/y mesh. Preserve that accepted convention while presenting the
+        // generic builder with the declared three-coordinate shape.
+        Kokkos::View<double **, Kokkos::LayoutLeft, MemorySpace> embedded("ugrid_node_coords_3d", node_coords.extent(0), 3);
+        using exec_space = typename MemorySpace::execution_space;
+        exec_space exec{};
+        const auto n_nodes = node_coords.extent(0);
+        Kokkos::parallel_for(
+            "ugrid_embed_planar_coordinates", Kokkos::RangePolicy<exec_space, Kokkos::IndexType<std::size_t>>(exec, 0, n_nodes),
+            KOKKOS_LAMBDA(const std::size_t node) {
+                embedded(node, 0) = node_coords(node, 0);
+                embedded(node, 1) = node_coords(node, 1);
+                embedded(node, 2) = 0.0;
+            });
+        exec.fence("ugrid_embed_planar_coordinates_fence");
+        node_coords = std::move(embedded);
+    }
 
     // Copy CSR connectivity.
     auto conn_offsets = adopt_or_copy_1d<MemorySpace, index_t>("ugrid_conn_offsets", b.conn_offsets);
@@ -334,8 +403,10 @@ UnstructuredMesh<MemorySpace> build_from_ugrid(const ingest::GridDescriptor &des
         mask = adopt_or_copy_1d<MemorySpace, int>("ugrid_mask", b.cell_mask);
     }
 
-    return UnstructuredMesh<MemorySpace>(std::move(node_coords), std::move(conn_offsets), std::move(conn_indices),
-                                         map_coord_system(desc.coord_system), std::move(areas), std::move(mask));
+    const AreaModel supplied_area_model = areas.extent(0) == 0 ? AreaModel::Unspecified : AreaModel::SourceSupplied;
+    return make_unstructured(std::move(node_coords), std::move(conn_offsets), std::move(conn_indices), map_coord_system(desc.coord_system),
+                             std::move(areas), std::move(mask),
+                             GeometryMetadata{GeometryProvenance::SourceAuthoritative, BoundaryModel::Unspecified, supplied_area_model});
 }
 
 /// Build an UnstructuredMesh from a GRIB descriptor.
@@ -361,8 +432,40 @@ UnstructuredMesh<MemorySpace> build_from_grib(const ingest::GridDescriptor &desc
         auto corner_lat = adopt_or_copy_1d<MemorySpace, double>("grib_corner_lat", b.corner_y);
         grid.set_corners(std::move(corner_lon), std::move(corner_lat));
     }
+    if (b.longitude_bounds.extent(0) > 0 && b.latitude_bounds.extent(0) > 0) {
+        grid.set_rectilinear_bounds(adopt_or_copy_1d<MemorySpace, double>("grib_longitude_bounds", b.longitude_bounds),
+                                    adopt_or_copy_1d<MemorySpace, double>("grib_latitude_bounds", b.latitude_bounds));
+    }
+    if (b.gaussian_latitude_weights.extent(0) > 0) {
+        grid.set_gaussian_latitude_weights(adopt_or_copy_1d<MemorySpace, double>("grib_gaussian_weights", b.gaussian_latitude_weights));
+        return grid.to_unstructured(CornerPolicy::GaussianLatLon, map_longitude_periodicity(desc));
+    }
+    const auto policy = desc.curvilinear_centers ? CornerPolicy::CurvilinearApproximate : CornerPolicy::RectilinearMidpoint;
+    return grid.to_unstructured(policy, map_longitude_periodicity(desc));
+}
 
-    return grid.to_unstructured();
+template <class MemorySpace>
+UnstructuredMesh<MemorySpace> build_from_reduced_gaussian(const ingest::GridDescriptor &desc) {
+    const auto &b = desc.buffers;
+    const std::size_t rows = desc.reduced_gaussian.n_rows;
+    std::vector<double> latitude_bounds(rows + 1);
+    for (std::size_t j = 0; j <= rows; ++j) latitude_bounds[j] = b.latitude_bounds(j);
+    std::vector<ReducedGaussianRow> row_geometry(rows);
+    for (std::size_t j = 0; j < rows; ++j) {
+        const std::size_t cell_start = static_cast<std::size_t>(b.row_cell_offsets(j));
+        const std::size_t cell_count = static_cast<std::size_t>(b.row_cell_offsets(j + 1) - b.row_cell_offsets(j));
+        const std::size_t boundary_start = cell_start + j;
+        row_geometry[j].longitude_boundaries.resize(cell_count + 1);
+        for (std::size_t i = 0; i <= cell_count; ++i) {
+            row_geometry[j].longitude_boundaries[i] = b.row_longitude_boundaries(boundary_start + i);
+        }
+    }
+    const double period = desc.longitude_period == 0.0
+                              ? (desc.coord_system == ingest::CoordinateSystem::SphericalRad ? 2.0 * std::numbers::pi : 360.0)
+                              : desc.longitude_period;
+    ReducedGaussianGrid provider(std::move(latitude_bounds), std::move(row_geometry), map_coord_system(desc.coord_system),
+                                 LongitudePeriodicity{desc.longitude_periodic, period, desc.longitude_increasing});
+    return provider.template to_unstructured<MemorySpace>();
 }
 
 /// Build an UnstructuredMesh from a Projected descriptor.
@@ -370,7 +473,7 @@ UnstructuredMesh<MemorySpace> build_from_grib(const ingest::GridDescriptor &desc
 template <class MemorySpace>
 UnstructuredMesh<MemorySpace> build_from_projected(const ingest::GridDescriptor &desc) {
     auto grid = ProjectionBuilder::build<MemorySpace>(desc.projected, desc.buffers);
-    return grid.to_unstructured();
+    return grid.to_unstructured(CornerPolicy::CurvilinearApproximate, map_longitude_periodicity(desc));
 }
 
 /// Build an UnstructuredMesh from a NamedGrid descriptor.
@@ -410,6 +513,10 @@ UnstructuredMesh<MemorySpace> MeshFactory::from_descriptor(const ingest::GridDes
         case ingest::ConventionKind::GRIB:
             validate_grib(descriptor);
             return build_from_grib<MemorySpace>(descriptor);
+
+        case ingest::ConventionKind::ReducedGaussian:
+            validate_reduced_gaussian(descriptor);
+            return build_from_reduced_gaussian<MemorySpace>(descriptor);
 
         case ingest::ConventionKind::Projected:
             validate_projected(descriptor);

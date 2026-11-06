@@ -10,6 +10,7 @@
 #include <axis/topology/structured_grid.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
+#include <vector>
 
 namespace {
 class KokkosEnv : public ::testing::Environment {
@@ -118,6 +119,29 @@ TEST(DescriptorRoundtrip, PreservesCoordinateSystem) {
 
     auto rebuilt = topology::MeshFactory::from_descriptor<MemSpace>(desc);
     EXPECT_EQ(rebuilt.coord_system(), topology::CoordinateSystem::Cartesian3D);
+}
+
+TEST(DescriptorRoundtrip, ReducedGaussianRaggedRowsRouteThroughMeshFactory) {
+    std::vector<double> latitude_bounds{-90.0, 0.0, 90.0};
+    std::vector<index_t> row_offsets{0, 2, 5};
+    std::vector<double> longitude_bounds{0.0, 180.0, 360.0, 0.0, 120.0, 240.0, 360.0};
+    ingest::GridDescriptor desc;
+    desc.kind = ingest::ConventionKind::ReducedGaussian;
+    desc.coord_system = ingest::CoordinateSystem::SphericalDeg;
+    desc.reduced_gaussian.n_rows = 2;
+    desc.longitude_periodic = true;
+    desc.longitude_period = 360.0;
+    desc.buffers.latitude_bounds = field_view<const double, 1>(latitude_bounds.data(), latitude_bounds.size());
+    desc.buffers.row_cell_offsets = field_view<const index_t, 1>(row_offsets.data(), row_offsets.size());
+    desc.buffers.row_longitude_boundaries = field_view<const double, 1>(longitude_bounds.data(), longitude_bounds.size());
+
+    const auto mesh = topology::MeshFactory::from_descriptor<MemSpace>(desc);
+    EXPECT_EQ(mesh.n_cells(), 5u);
+    EXPECT_GT(mesh.n_nodes(), 0u);
+    EXPECT_EQ(mesh.geometry_metadata().boundary_model, topology::BoundaryModel::ConstantLatitude);
+    double area = 0.0;
+    for (std::size_t cell = 0; cell < mesh.n_cells(); ++cell) area += mesh.cell_areas()(cell);
+    EXPECT_NEAR(area, 4.0 * 3.14159265358979323846, 1e-12);
 }
 
 }  // namespace axis::test

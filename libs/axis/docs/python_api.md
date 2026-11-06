@@ -35,6 +35,71 @@ axis.batch_apply()        # Multi-field interpolation
 
 ## Mesh Construction
 
+### Structured grids and center-only geometry
+
+`RectilinearGrid` extrapolates outer bounds from the center coordinates and
+uses the C++ structured-grid converter. Longitude periodicity is explicit and
+defaults to nonperiodic; set it only for a global/repeating longitude axis.
+`CurvilinearGrid` uses the C++ `CurvilinearApproximate` corner policy by default,
+which extrapolates the outer quadratures. Supply authoritative corners through
+`axis.axis_py.StructuredGrid.set_corners()` or request `CornerPolicy.RequireExplicit`
+when approximation is not acceptable.
+
+```python
+import axis
+import numpy as np
+
+rect = axis.RectilinearGrid(lon_centers, lat_centers, longitude_periodic=True)
+mesh = rect.to_mesh()
+
+# Gaussian-Legendre latitude centers: exact latitude-band boundaries are
+# reconstructed from the quadrature weights (derived and validated by default).
+gaussian = axis.GaussianGrid(lon_centers, gaussian_latitudes)
+gaussian_mesh = gaussian.to_mesh()
+
+# For lower-level control, declare the policy and longitude seam explicitly.
+grid = axis.axis_py.StructuredGrid(ni, nj, center_lon, center_lat)
+mesh = grid.to_unstructured(
+    axis.CornerPolicy.CurvilinearApproximate,
+    axis.LongitudePeriodicity(periodic=True, period=360.0, increasing=True),
+)
+```
+
+Gaussian centers alone determine exact latitude quadrature bands only when they
+are Gaussian-Legendre nodes. If a dataset uses another Gaussian convention,
+provide authoritative positive weights (summing to 2) or explicit bounds;
+AXIS does not silently treat arbitrary latitudes as Gaussian quadrature nodes.
+
+### Reduced Gaussian and multi-face grids
+
+Reduced Gaussian rows accept their own longitude-boundary vectors, preserving
+cell ordering and allowing different row origins/counts. Periodic rows must span
+the declared period. Multi-face inputs require explicit oriented edge
+connections; coordinate proximity is never used to invent adjacency. Optional
+vertex-equivalence groups are triples `(face, i, j)` for corners shared by
+three or more faces.
+
+```python
+reduced = axis.ReducedGaussianGrid(
+    latitude_bounds,
+    [row0_longitude_bounds, row1_longitude_bounds, ...],
+    longitude_periodic=True,
+).to_mesh()
+
+faces = [
+    {"ni": nx, "nj": ny, "node_coords": face0_nodes},
+    {"ni": nx, "nj": ny, "node_coords": face1_nodes},
+]
+connections = [{"face_a": 0, "edge_a": "east", "face_b": 1, "edge_b": "west", "reversed": True}]
+multi_face = axis.MultiFaceGrid(faces, connections).to_mesh()
+```
+
+Both builders return AXIS's ordinary mixed-arity CSR `Mesh`; there is no
+grid-family-specific Python mesh format. Reduced Gaussian `conforming=True`
+splits edges at neighboring-row boundary points. Multi-face layouts support
+different local face dimensions only when each connected edge has a matching
+vertex count.
+
 ### From Numpy Arrays (GridDescriptor)
 
 ```python

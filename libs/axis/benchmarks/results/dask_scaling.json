@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "created_utc": "2026-10-15T19:51:24.002334+00:00",
+  "environment": {
+    "python": "3.14.7",
+    "platform": "macOS-26.3.1-arm64-arm-64bit-Mach-O",
+    "processor": "arm",
+    "logical_cpu_count": 10,
+    "dask": "2026.7.1",
+    "distributed": "2026.7.1",
+    "xarray": "2026.7.0",
+    "omp_num_threads": "1",
+    "omp_proc_bind": "false",
+    "native_extension": "/Users/barry/Documents/HELM-Project/libs/axis/.venv/lib/python3.14/site-packages/axis/__init__.py"
+  },
+  "methodology": {
+    "method": "bilinear",
+    "execution": "single-node Dask Distributed, process workers, one native thread each",
+    "source_shape": [
+      360,
+      720
+    ],
+    "target_shape": [
+      180,
+      360
+    ],
+    "horizontal_core_chunks": "each complete source spatial dimension per task",
+    "time_chunk": 1,
+    "input": "persisted to workers before timed runs; transfer time reported separately",
+    "compute_timing": "Dask compute wall time, including task scheduling, native regridding, and output gather",
+    "warmups": "1 per workload size, excluded from timed samples",
+    "repeats_per_point": 5,
+    "weight_generation": {
+      "median_seconds": 0.09624049998819828,
+      "q25_seconds": 0.08517116649454692,
+      "q75_seconds": 0.11694937499123625,
+      "samples_seconds": [
+        0.13765824999427423,
+        0.09624049998819828,
+        0.07410183300089557
+      ]
+    },
+    "strong_scaling": "fixed number of time steps while worker count increases",
+    "weak_scaling": "time steps increase in proportion to worker count"
+  },
+  "results": [
+    {
+      "workers": 1,
+      "threads_per_worker": 1,
+      "time_steps": 128,
+      "source_cells_per_step": 259200,
+      "target_cells_per_step": 64800,
+      "input_persist_seconds": 0.8205095419980353,
+      "graph_build_and_weight_registration_seconds": 0.06580487500468735,
+      "cluster_start_seconds": 1.8891274579946185,
+      "task_graph_keys": 512,
+      "compute": {
+        "median_seconds": 0.6906800830038264,
+        "q25_seconds": 0.5874799170123879,
+        "q75_seconds": 0.7076478749950184,
+        "samples_seconds": [
+          0.5874799170123879,
+          0.5308294999995269,
+          0.6906800830038264,
+          0.7076478749950184,
+          0.8481814160040813
+        ]
+      },
+      "source_cells_per_second": 48036132.52565181,
+      "target_cells_per_second": 12009033.131412953,
+      "validation": "pass",
+      "mode": "strong",
+      "speedup_vs_one_worker": 1.0,
+      "parallel_efficiency": 1.0
+    },
+    {
+      "workers": 1,
+      "threads_per_worker": 1,
+      "time_steps": 32,
+      "source_cells_per_step": 259200,
+      "target_cells_per_step": 64800,
+      "input_persist_seconds": 0.20259091698972043,
+      "graph_build_and_weight_registration_seconds": 0.06023633301083464,
+      "cluster_start_seconds": 1.5140029169997433,
+      "task_graph_keys": 128,
+      "compute": {
+        "median_seconds": 0.1719089590042131,
+        "q25_seconds": 0.17015291600546334,
+        "q75_seconds": 0.18635108300077263,
+        "samples_seconds": [
+          0.17015291600546334,
+          0.2188694590004161,
+          0.1719089590042131,
+          0.15806870799860917,
+          0.18635108300077263
+        ]
+      },
+      "source_cells_per_second": 48248794.29231331,
+      "target_cells_per_second": 12062198.573078327,
+      "validation": "pass",
+      "mode": "weak",
+      "throughput_scale_vs_one_worker": 1.0,
+      "weak_scaling_efficiency": 1.0
+    },
+    {
+      "workers": 2,
+      "threads_per_worker": 1,
+      "time_steps": 128,
+      "source_cells_per_step": 259200,
+      "target_cells_per_step": 64800,
+      "input_persist_seconds": 0.7071738749946235,
+      "graph_build_and_weight_registration_seconds": 0.09304300000076182,
+      "cluster_start_seconds": 1.4373758750007255,
+      "task_graph_keys": 512,
+      "compute": {
+        "median_seconds": 0.6377846250106813,
+        "q25_seconds": 0.6103476249991218,
+        "q75_seconds": 0.7041035419970285,
+        "samples_seconds": [
+          0.8877058749931166,
+          0.7041035419970285,
+          0.5542735419876408,
+          0.6103476249991218,
+          0.6377846250106813
+        ]
+      },
+      "source_cells_per_second": 52020068.68610913,
+      "target_cells_per_second": 13005017.171527283,
+      "validation": "pass",
+      "mode": "strong",
+      "speedup_vs_one_worker": 1.0829362388474937,
+      "parallel_efficiency": 0.5414681194237468
+    },
+    {
+      "workers": 2,
+      "threads_per_worker": 1,
+      "time_steps": 64,
+      "source_cells_per_step": 259200,
+      "target_cells_per_step": 64800,
+      "input_persist_seconds": 0.24551741698815022,
+      "graph_build_and_weight_registration_seconds": 0.12078399999882095,
+      "cluster_start_seconds": 1.963123125009588,
+      "task_graph_keys": 256,
+      "compute": {
+        "median_seconds": 0.38149570900714025,
+        "q25_seconds": 0.35684704199957196,
+        "q75_seconds": 0.4645159999927273,
+        "samples_seconds": [
+          0.35684704199957196,
+          1.0215515419986332,
+          0.4645159999927273,
+          0.34473604199592955,
+          0.38149570900714025
+        ]
+      },
+      "source_cells_per_second": 43483582.143487535,
+      "target_cells_per_second": 10870895.535871884,
+      "validation": "pass",
+      "mode": "weak",
+      "throughput_scale_vs_one_worker": 0.9012366584757345,
+      "weak_scaling_efficiency": 0.45061832923786727
+    },
+    {
+      "workers": 4,
+      "threads_per_worker": 1,
+      "time_steps": 128,
+      "source_cells_per_step": 259200,
+      "target_cells_per_step": 64800,
+      "input_persist_seconds": 0.31134387500060257,
+      "graph_build_and_weight_registration_seconds": 0.13455287499527913,
+      "cluster_start_seconds": 2.0630430419987533,
+      "task_graph_keys": 512,
+      "compute": {
+        "median_seconds": 0.6126786669919966,
+        "q25_seconds": 0.5167222919990309,
+        "q75_seconds": 0.6625815000006696,
+        "samples_seconds": [
+          0.6625815000006696,
+          0.5052163749933243,
+          0.5167222919990309,
+          0.770978999993531,
+          0.6126786669919966
+        ]
+      },
+      "source_cells_per_second": 54151714.08348285,
+      "target_cells_per_second": 13537928.520870712,
+      "validation": "pass",
+      "mode": "strong",
+      "speedup_vs_one_worker": 1.1273121135338122,
+      "parallel_efficiency": 0.28182802838345306
+    },
+    {
+      "workers": 4,
+      "threads_per_worker": 1,
+      "time_steps": 128,
+      "source_cells_per_step": 259200,
+      "target_cells_per_step": 64800,
+      "input_persist_seconds": 0.3508807500038529,
+      "graph_build_and_weight_registration_seconds": 0.13031391700496897,
+      "cluster_start_seconds": 2.506815665998147,
+      "task_graph_keys": 512,
+      "compute": {
+        "median_seconds": 0.5320628749905154,
+        "q25_seconds": 0.4677460420061834,
+        "q75_seconds": 0.6945832500059623,
+        "samples_seconds": [
+          0.7891772500006482,
+          0.6945832500059623,
+          0.5320628749905154,
+          0.4615704170137178,
+          0.4677460420061834
+        ]
+      },
+      "source_cells_per_second": 62356540.099873394,
+      "target_cells_per_second": 15589135.024968348,
+      "validation": "pass",
+      "mode": "weak",
+      "throughput_scale_vs_one_worker": 1.292395820755414,
+      "weak_scaling_efficiency": 0.3230989551888535
+    },
+    {
+      "workers": 8,
+      "threads_per_worker": 1,
+      "time_steps": 128,
+      "source_cells_per_step": 259200,
+      "target_cells_per_step": 64800,
+      "input_persist_seconds": 0.5604398339928593,
+      "graph_build_and_weight_registration_seconds": 0.31837016699137166,
+      "cluster_start_seconds": 2.9294121249986347,
+      "task_graph_keys": 512,
+      "compute": {
+        "median_seconds": 0.5296999999991385,
+        "q25_seconds": 0.460756999993464,
+        "q75_seconds": 0.7828719999961322,
+        "samples_seconds": [
+          0.460756999993464,
+          0.7828719999961322,
+          0.4369366250029998,
+          0.5296999999991385,
+          0.7860084169951733
+        ]
+      },
+      "source_cells_per_second": 62634698.88626385,
+      "target_cells_per_second": 15658674.721565962,
+      "validation": "pass",
+      "mode": "strong",
+      "speedup_vs_one_worker": 1.3039080290824046,
+      "parallel_efficiency": 0.16298850363530057
+    },
+    {
+      "workers": 8,
+      "threads_per_worker": 1,
+      "time_steps": 256,
+      "source_cells_per_step": 259200,
+      "target_cells_per_step": 64800,
+      "input_persist_seconds": 0.8344700829911744,
+      "graph_build_and_weight_registration_seconds": 0.2306860420067096,
+      "cluster_start_seconds": 2.753160833992297,
+      "task_graph_keys": 1024,
+      "compute": {
+        "median_seconds": 0.9405777920037508,
+        "q25_seconds": 0.8969235000113258,
+        "q75_seconds": 1.4665793749882141,
+        "samples_seconds": [
+          1.7324579999985872,
+          1.4665793749882141,
+          0.8565629170043394,
+          0.9405777920037508,
+          0.8969235000113258
+        ]
+      },
+      "source_cells_per_second": 70547274.83905488,
+      "target_cells_per_second": 17636818.70976372,
+      "validation": "pass",
+      "mode": "weak",
+      "throughput_scale_vs_one_worker": 1.462156223254972,
+      "weak_scaling_efficiency": 0.1827695279068715
+    }
+  ]
+}

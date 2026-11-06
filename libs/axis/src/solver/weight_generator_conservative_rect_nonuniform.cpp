@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <axis/detail/regular_grid_detector.hpp>
 #include <axis/solver/interpolation_matrix.hpp>
+#include <axis/solver/paper_diagnostics.hpp>
 #include <axis/solver/regrid_config.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
@@ -54,6 +55,7 @@ InterpolationMatrix<MemorySpace> generate_conservative_rect_nonuniform(const top
                                                                        const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
                                                                        const RegridConfig &config, const detail::RectilinearGridInfo &src_rect_info,
                                                                        const detail::RectilinearGridInfo &dst_rect_info) {
+    paper_overlap_begin();
     const std::size_t n_src = src_mesh.n_cells();
     const std::size_t n_dst = dst_mesh.n_cells();
 
@@ -183,6 +185,7 @@ InterpolationMatrix<MemorySpace> generate_conservative_rect_nonuniform(const top
                         overlap_area = rect_overlap_nonuniform(s_lo_x, s_hi_x, s_lo_y, s_hi_y, d_lo_x_norm, d_hi_x_norm, d_lo_y, d_hi_y);
                     }
 
+                    paper_overlap_observation(overlap_area, 1e-12);
                     if (overlap_area > 1e-12) {
                         double area_src = 0.0;
                         if (has_src_areas) {

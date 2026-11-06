@@ -176,3 +176,28 @@ TEST(RegularGridDetector, DefaultStructIsNotRegular) {
 }
 
 }  // namespace axis::test
+
+namespace axis::test {
+TEST(RegularGridDetector, PermutedCellConnectivityRejectsArithmeticIndexing) {
+    auto mesh = make_regular_grid(4, 3, 0, 1, 0, 1);
+    auto reordered = Kokkos::View<index_t *, MemSpace>("permuted_connectivity", mesh.conn_indices_view().extent(0));
+    auto original = mesh.conn_indices_view();
+    for (std::size_t c = 0; c < mesh.n_cells(); ++c)
+        for (std::size_t k = 0; k < 4; ++k) reordered(c * 4 + k) = original((mesh.n_cells() - 1 - c) * 4 + k);
+    topology::UnstructuredMesh<MemSpace> permuted(mesh.node_coords_view(), mesh.conn_offsets_view(), reordered, mesh.coord_system());
+    EXPECT_TRUE(detail::detect_regular_grid(mesh).is_regular);
+    EXPECT_TRUE(detail::detect_rectilinear_grid(mesh).is_rectilinear);
+    EXPECT_FALSE(detail::detect_regular_grid(permuted).is_regular);
+    EXPECT_FALSE(detail::detect_rectilinear_grid(permuted).is_rectilinear);
+}
+
+TEST(RegularGridDetector, DuplicateCellsRejectCoordinateSetOnlyDetection) {
+    auto mesh = make_regular_grid(4, 3, 0, 1, 0, 1);
+    auto broken = Kokkos::View<index_t *, MemSpace>("duplicated_connectivity", mesh.conn_indices_view().extent(0));
+    Kokkos::deep_copy(broken, mesh.conn_indices_view());
+    for (int k = 0; k < 4; ++k) broken(4 + k) = broken(k);
+    topology::UnstructuredMesh<MemSpace> duplicate(mesh.node_coords_view(), mesh.conn_offsets_view(), broken, mesh.coord_system());
+    EXPECT_FALSE(detail::detect_regular_grid(duplicate).is_regular);
+    EXPECT_FALSE(detail::detect_rectilinear_grid(duplicate).is_rectilinear);
+}
+}  // namespace axis::test
