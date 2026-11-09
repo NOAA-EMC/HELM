@@ -24,6 +24,8 @@
 #include <cstring>
 #include <string>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 
 // ─── RapidCheck Generators ───────────────────────────────────────────────────
@@ -140,22 +142,5 @@ RC_GTEST_PROP(PropNamedGridDeterministic, IdenticalCsrConnectivity, ()) {
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
 // RapidCheck/GTest property tests need Kokkos initialized for View allocation
 // and parallel kernel execution in the named-grid generators.
-
-class KokkosEnvironment : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) {
-            Kokkos::initialize();
-        }
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) {
-            Kokkos::finalize();
-        }
-    }
-};
-
-// Register the Kokkos environment with GTest
-static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnvironment);
 
 }  // namespace

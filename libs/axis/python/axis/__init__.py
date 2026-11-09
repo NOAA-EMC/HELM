@@ -9,7 +9,17 @@ from . import axis_py  # noqa: F401
 
 # Register the custom .axis xarray accessor
 from . import accessors  # noqa: F401
-from .grid import CurvilinearGrid, Geometry, GridFactory, RectilinearGrid, UnstructuredMesh, RuleGeometry
+from .grid import (
+    CurvilinearGrid,
+    GaussianGrid,
+    Geometry,
+    GridFactory,
+    MultiFaceGrid,
+    RectilinearGrid,
+    ReducedGaussianGrid,
+    UnstructuredMesh,
+    RuleGeometry,
+)
 from .regridder import Regridder
 from .vector import VectorRegridder
 from .vertical import VerticalRegridder, regrid_3d
@@ -17,6 +27,9 @@ from .vertical import VerticalRegridder, regrid_3d
 # Expose C++ Mesh construction and Matrix serialization APIs directly on the axis package
 from .axis_py import (
     LineType,
+    CoordinateSystem,
+    CornerPolicy,
+    LongitudePeriodicity,
     Matrix,
     Mesh,
     Method,
@@ -30,8 +43,10 @@ from .axis_py import (
     detect_tripolar_grid,
     generate_vector_weights,
     make_named_mesh,
+    make_multiface_mesh,
     make_projected_mesh,
     make_regular_mesh,
+    make_reduced_gaussian_mesh,
     make_ugrid_mesh,
     reconstruct_gradient,
     write_gmsh,
@@ -42,6 +57,9 @@ __all__ = [
     "Geometry",
     "RectilinearGrid",
     "CurvilinearGrid",
+    "GaussianGrid",
+    "ReducedGaussianGrid",
+    "MultiFaceGrid",
     "UnstructuredMesh",
     "RuleGeometry",
     "GridFactory",
@@ -54,6 +72,8 @@ __all__ = [
     "make_projected_mesh",
     "make_ugrid_mesh",
     "make_named_mesh",
+    "make_reduced_gaussian_mesh",
+    "make_multiface_mesh",
     "apply_weights",
     "batch_apply",
     "write_gmsh",
@@ -67,4 +87,7 @@ __all__ = [
     "NormType",
     "UnmappedAction",
     "LineType",
+    "CoordinateSystem",
+    "CornerPolicy",
+    "LongitudePeriodicity",
 ]
