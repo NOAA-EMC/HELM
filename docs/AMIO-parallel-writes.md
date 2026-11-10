@@ -100,7 +100,9 @@ assigning disjoint regions.
 
 For Fortran, `amio_mod` exports `amio_write_region_t` and
 `amio_write_region`, along with `amio_region_write_t` and
-`amio_write_region_batch`. Reverse Fortran array dimension order when populating
+`amio_write_region_batch`, plus `AMIO_WRITE_VARIABLE_VERSION`,
+`amio_write_variable_t`, and `amio_prepare_write_schema` required before the
+first batched region write. Reverse Fortran array dimension order when populating
 the local shape and global destination, following the existing AMIO shape
 convention. Batch descriptor pointer fields use `c_loc()` for a NUL-terminated
 character name, contiguous interoperable host data, and target shape/region
@@ -237,7 +239,7 @@ The evolution collection API is additive and has a separate capability
 surface from the legacy shared-dataset and `amio_write_region` path above.
 The current supported matrix and qualification evidence are maintained in the
 [AMIO evolution configuration guide](../libs/amio/docs/site/user-guide/configuration.md)
-and [feature acceptance evidence](../specs/001-evolve-amio-engine/evidence/acceptance.md).
+and [release qualification guide](../libs/amio/docs/site/development/qualification.md).
 In particular, an MPI transport test does not establish persistent aggregated
 output, and legacy parallel NetCDF support does not establish certified
 object-store durability or shared Zarr guarantees.

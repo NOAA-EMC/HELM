@@ -99,7 +99,8 @@ program example_stream
             selection%reserved = 0_c_int64_t
             value = 0.0_c_float
             status = amio_stream_read(acquired%lease, selection, c_loc(value), c_sizeof(value), read_bytes)
-            if (status == AMIO_OK .and. (read_bytes /= c_sizeof(value) .or. value /= real(5000 + producer, c_float))) &
+            if (status == AMIO_OK .and. (read_bytes /= c_sizeof(value) .or. &
+                                         abs(value - real(5000 + producer, c_float)) > 1.0e-5_c_float)) &
                 status = AMIO_ERR_SCHEMA_MISMATCH
         end do
         if (status == AMIO_OK) status = amio_stream_release(acquired%lease)

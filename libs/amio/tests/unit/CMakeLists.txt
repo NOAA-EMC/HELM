@@ -31,6 +31,10 @@ target_link_libraries(test_amio_strerror PRIVATE AMIO::public_headers AMIO::amio
 # The harness uses std::thread; on most Unix toolchains this requires linking pthreads.  CMake's Threads module exposes that portably.
 find_package(Threads QUIET)
 
+# Unit tests use assert() for checks and setup calls. Keep assertions enabled even when the production build type defines NDEBUG.
+add_compile_options("$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang,IntelLLVM,Intel>:-UNDEBUG>")
+target_compile_options(test_amio_strerror PRIVATE "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang,IntelLLVM,Intel>:-UNDEBUG>")
+
 if(Threads_FOUND)
     target_link_libraries(test_amio_strerror PRIVATE Threads::Threads)
 endif()
@@ -189,9 +193,6 @@ endif()
 if(AMIO_HAS_TENSORSTORE)
     add_executable(test_evolution_zarr test_evolution_zarr.cpp)
     target_link_libraries(test_evolution_zarr PRIVATE AMIO::amio_core)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang|IntelLLVM|Intel")
-        target_compile_options(test_evolution_zarr PRIVATE -UNDEBUG)
-    endif()
     if(MPI_CXX_FOUND)
         target_compile_definitions(test_evolution_zarr PRIVATE AMIO_TEST_HAS_MPI=1)
         target_link_libraries(test_evolution_zarr PRIVATE MPI::MPI_CXX)
@@ -623,6 +624,20 @@ target_include_directories(test_async_write PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_async_write PRIVATE AMIO::public_headers Threads::Threads HELM::CONF HELM::HALO HELM::LOGS)
 add_test(NAME unit.async_write COMMAND test_async_write)
 set_tests_properties(unit.async_write PROPERTIES LABELS "unit;write;parallel" TIMEOUT 30)
+
+# ####################################################################################################################################################
+# test_batch_staging_ordering
+#
+# White-box regression for the staging-acquisition ordering in amio::detail::write_region_batch(): the buffer must be acquired before the collective
+# agreement reductions and a failed acquisition must surface through them (not an early return), so a backpressured rank cannot leave peers blocked in
+# NC_COLLECTIVE nc_put_vara_*. The test exhausts its own core's pool, asserts the batch returns AMIO_ERR_STAGING_BACKPRESSURE without marking writes
+# started, and succeeds after release.
+# ####################################################################################################################################################
+add_executable(test_batch_staging_ordering test_batch_staging_ordering.cpp ${_async_write_sources})
+target_include_directories(test_batch_staging_ordering PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_batch_staging_ordering PRIVATE AMIO::public_headers Threads::Threads HELM::CONF HELM::HALO HELM::LOGS)
+add_test(NAME unit.batch_staging_ordering COMMAND test_batch_staging_ordering)
+set_tests_properties(unit.batch_staging_ordering PROPERTIES LABELS "unit;write;staging" TIMEOUT 30)
 
 # ####################################################################################################################################################
 # test_read_prefetch

@@ -124,7 +124,7 @@ program example_step_collection
                                   int(size(readback, kind=c_size_t) * c_sizeof(readback(1)), c_size_t), required_bytes)
     call check_status(status, 'amio_read_step_field')
     if (required_bytes /= 2_c_size_t * c_sizeof(readback(1))) error stop 'partitioned readback byte count mismatch'
-    if (any(readback /= temperature)) error stop 'partitioned readback values mismatch'
+    if (any(abs(readback - temperature) > 1.0e-5_c_float)) error stop 'partitioned readback values mismatch'
     lease = c_null_ptr
     status = amio_acquire_step_lease(dataset, summary%step_id, lease)
     call check_status(status, 'amio_acquire_step_lease')

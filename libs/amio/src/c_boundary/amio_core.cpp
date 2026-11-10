@@ -693,6 +693,57 @@ static bool validate_shape(const amio_shape_t *shape) noexcept {
     return true;
 }
 
+// ---------------------------------------------------------------
+// Shared collective agreement helpers for the write-schema protocol.
+//
+// prepare_write_schema() and write_region_batch() both hash their
+// variable descriptors with FNV-1a and then agree on a status and a
+// schema hash across the IO communicator.  Keeping the hashing and
+// the MPI reductions in one place ensures every rank participates in
+// every collective exactly once, in the same order.
+// ---------------------------------------------------------------
+
+// FNV-1a byte hashing step; updates `hash` in place (offset 14695981039346656037ULL, prime 1099511628211ULL).
+static void hash_schema_bytes(std::uint64_t &hash, const void *data, std::size_t size) noexcept {
+    const auto *bytes = static_cast<const unsigned char *>(data);
+    for (std::size_t i = 0; i < size; ++i) {
+        hash ^= bytes[i];
+        hash *= 1099511628211ULL;
+    }
+}
+
+// Allreduce-max of a status code over the IO communicator when its size > 1; returns `status` unchanged for single-rank (or null core).
+static amio_status_t agree_collective_status(AMIO_Core *core, amio_status_t status) noexcept {
+#ifdef AMIO_HAS_MPI
+    if (core != nullptr && core->io_communicator.size_value > 1) {
+        int initialized = 0;
+        if (MPI_Initialized(&initialized) != MPI_SUCCESS || !initialized) return AMIO_ERR_COMM_SPLIT_FAILED;
+        int local = static_cast<int>(status), global = 0;
+        if (MPI_Allreduce(&local, &global, 1, MPI_INT, MPI_MAX, core->io_communicator.handle()) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
+        return static_cast<amio_status_t>(global);
+    }
+#else
+    (void)core;
+#endif
+    return status;
+}
+
+// MIN/MAX Allreduce pair over the IO communicator; AMIO_ERR_COMM_SPLIT_FAILED on MPI error, AMIO_ERR_SCHEMA_MISMATCH when hashes differ,
+// AMIO_OK when every rank agrees (or for single-rank / no MPI build).
+static amio_status_t agree_collective_hash(AMIO_Core *core, std::uint64_t hash) noexcept {
+#ifdef AMIO_HAS_MPI
+    if (core != nullptr && core->io_communicator.size_value > 1) {
+        std::uint64_t minimum_hash = 0, maximum_hash = 0;
+        const MPI_Comm communicator = core->io_communicator.handle();
+        if (MPI_Allreduce(&hash, &minimum_hash, 1, MPI_UINT64_T, MPI_MIN, communicator) != MPI_SUCCESS ||
+            MPI_Allreduce(&hash, &maximum_hash, 1, MPI_UINT64_T, MPI_MAX, communicator) != MPI_SUCCESS)
+            return AMIO_ERR_COMM_SPLIT_FAILED;
+        if (minimum_hash != maximum_hash) return AMIO_ERR_SCHEMA_MISMATCH;
+    }
+#endif
+    return AMIO_OK;
+}
+
 amio_status_t prepare_write_schema(void *dataset_payload, const amio_write_variable_t *variables, std::size_t variable_count) {
     auto *record = static_cast<DatasetRecord *>(dataset_payload);
     auto *core = record->core;
@@ -702,13 +753,6 @@ amio_status_t prepare_write_schema(void *dataset_payload, const amio_write_varia
     std::vector<VarMeta> driver_schema;
     std::unordered_map<std::string, DatasetRecord::PreparedWriteVariable> prepared_schema;
     std::uint64_t hash = 14695981039346656037ULL;
-    const auto hash_bytes = [&hash](const void *data, std::size_t size) {
-        const auto *bytes = static_cast<const unsigned char *>(data);
-        for (std::size_t i = 0; i < size; ++i) {
-            hash ^= bytes[i];
-            hash *= 1099511628211ULL;
-        }
-    };
 
     if (record->mode != AMIO_MODE_WRITE)
         local_status = AMIO_ERR_INVALID_POLICY;
@@ -723,7 +767,7 @@ amio_status_t prepare_write_schema(void *dataset_payload, const amio_write_varia
         try {
             driver_schema.reserve(variable_count);
             prepared_schema.reserve(variable_count);
-            hash_bytes(&variable_count, sizeof(variable_count));
+            hash_schema_bytes(hash, &variable_count, sizeof(variable_count));
             for (std::size_t i = 0; i < variable_count; ++i) {
                 const auto &input = variables[i];
                 if (input.struct_size < sizeof(amio_write_variable_t) || input.version != AMIO_WRITE_VARIABLE_VERSION || input.reserved[0] != 0 ||
@@ -768,11 +812,11 @@ amio_status_t prepare_write_schema(void *dataset_payload, const amio_write_varia
                     break;
                 }
 
-                hash_bytes(&name_length, sizeof(name_length));
-                hash_bytes(name.data(), name.size());
-                hash_bytes(&input.dtype, sizeof(input.dtype));
-                hash_bytes(&input.rank, sizeof(input.rank));
-                hash_bytes(input.global_extents, input.rank * sizeof(input.global_extents[0]));
+                hash_schema_bytes(hash, &name_length, sizeof(name_length));
+                hash_schema_bytes(hash, name.data(), name.size());
+                hash_schema_bytes(hash, &input.dtype, sizeof(input.dtype));
+                hash_schema_bytes(hash, &input.rank, sizeof(input.rank));
+                hash_schema_bytes(hash, input.global_extents, input.rank * sizeof(input.global_extents[0]));
                 driver_schema.push_back(std::move(meta));
             }
         } catch (const std::bad_alloc &) {
@@ -782,34 +826,11 @@ amio_status_t prepare_write_schema(void *dataset_payload, const amio_write_varia
         }
     }
 
-    const auto agree_status = [&](amio_status_t status) -> amio_status_t {
-#ifdef AMIO_HAS_MPI
-        if (core != nullptr && core->io_communicator.size_value > 1) {
-            int initialized = 0;
-            if (MPI_Initialized(&initialized) != MPI_SUCCESS || !initialized) return AMIO_ERR_COMM_SPLIT_FAILED;
-            int local = static_cast<int>(status), global = 0;
-            if (MPI_Allreduce(&local, &global, 1, MPI_INT, MPI_MAX, core->io_communicator.handle()) != MPI_SUCCESS) return AMIO_ERR_COMM_SPLIT_FAILED;
-            return static_cast<amio_status_t>(global);
-        }
-#else
-        (void)core;
-#endif
-        return status;
-    };
-
-    auto status = agree_status(local_status);
+    auto status = agree_collective_status(core, local_status);
     if (status != AMIO_OK) return status;
 
-#ifdef AMIO_HAS_MPI
-    if (core != nullptr && core->io_communicator.size_value > 1) {
-        std::uint64_t minimum_hash = 0, maximum_hash = 0;
-        const MPI_Comm communicator = core->io_communicator.handle();
-        if (MPI_Allreduce(&hash, &minimum_hash, 1, MPI_UINT64_T, MPI_MIN, communicator) != MPI_SUCCESS ||
-            MPI_Allreduce(&hash, &maximum_hash, 1, MPI_UINT64_T, MPI_MAX, communicator) != MPI_SUCCESS)
-            return AMIO_ERR_COMM_SPLIT_FAILED;
-        if (minimum_hash != maximum_hash) return AMIO_ERR_SCHEMA_MISMATCH;
-    }
-#endif
+    status = agree_collective_hash(core, hash);
+    if (status != AMIO_OK) return status;
 
     try {
         record->driver->prepare_write_schema(driver_schema);
@@ -822,7 +843,7 @@ amio_status_t prepare_write_schema(void *dataset_payload, const amio_write_varia
         core->logger.log(logs::Severity_Level::ERROR, "prepare write schema failed: unknown exception");
         local_status = AMIO_ERR_BACKEND_FAILURE;
     }
-    status = agree_status(local_status);
+    status = agree_collective_status(core, local_status);
     if (status != AMIO_OK) {
         record->write_schema_failed = true;
         return status;
@@ -1105,13 +1126,7 @@ amio_status_t write_region_batch(void *dataset_payload, const amio_region_write_
     std::vector<BatchItem> items;
     std::size_t total_bytes = 0;
     std::uint64_t schema_hash = 14695981039346656037ULL;
-    const auto hash_bytes = [&schema_hash](const void *data, std::size_t size) {
-        const auto *bytes = static_cast<const unsigned char *>(data);
-        for (std::size_t i = 0; i < size; ++i) {
-            schema_hash ^= bytes[i];
-            schema_hash *= 1099511628211ULL;
-        }
-    };
+    StagingBuffer *staging_buf = nullptr;
 
     {
         std::unique_lock<std::mutex> schema_lock(record->write_schema_mu);
@@ -1127,7 +1142,7 @@ amio_status_t write_region_batch(void *dataset_payload, const amio_region_write_
         if (local_status == AMIO_OK) {
             try {
                 items.reserve(write_count);
-                hash_bytes(&write_count, sizeof(write_count));
+                hash_schema_bytes(schema_hash, &write_count, sizeof(write_count));
                 for (std::size_t i = 0; i < write_count; ++i) {
                     const auto &input = writes[i];
                     if (input.var_name == nullptr || input.host_data == nullptr || input.shape == nullptr || input.region == nullptr ||
@@ -1208,11 +1223,11 @@ amio_status_t write_region_batch(void *dataset_payload, const amio_region_write_
                     items.push_back(std::move(item));
                     total_bytes += payload_bytes;
 
-                    hash_bytes(&name_length, sizeof(name_length));
-                    hash_bytes(name.data(), name.size());
-                    hash_bytes(&input.dtype, sizeof(input.dtype));
-                    hash_bytes(&input.shape->rank, sizeof(input.shape->rank));
-                    hash_bytes(input.region->global_extents, input.shape->rank * sizeof(input.region->global_extents[0]));
+                    hash_schema_bytes(schema_hash, &name_length, sizeof(name_length));
+                    hash_schema_bytes(schema_hash, name.data(), name.size());
+                    hash_schema_bytes(schema_hash, &input.dtype, sizeof(input.dtype));
+                    hash_schema_bytes(schema_hash, &input.shape->rank, sizeof(input.shape->rank));
+                    hash_schema_bytes(schema_hash, input.region->global_extents, input.shape->rank * sizeof(input.region->global_extents[0]));
                 }
             } catch (const std::bad_alloc &) {
                 local_status = AMIO_ERR_BACKEND_FAILURE;
@@ -1221,40 +1236,34 @@ amio_status_t write_region_batch(void *dataset_payload, const amio_region_write_
             }
         }
 
-        const auto agree_status = [&](amio_status_t status) -> amio_status_t {
-#ifdef AMIO_HAS_MPI
-            if (core != nullptr && core->io_communicator.size_value > 1) {
-                int initialized = 0;
-                if (MPI_Initialized(&initialized) != MPI_SUCCESS || !initialized) return AMIO_ERR_COMM_SPLIT_FAILED;
-                int local = static_cast<int>(status), global = 0;
-                if (MPI_Allreduce(&local, &global, 1, MPI_INT, MPI_MAX, core->io_communicator.handle()) != MPI_SUCCESS)
-                    return AMIO_ERR_COMM_SPLIT_FAILED;
-                return static_cast<amio_status_t>(global);
+        // Acquire the staging buffer BEFORE the collective agreement below.  Returning AMIO_ERR_STAGING_BACKPRESSURE after the Allreduce
+        // calls would leave the peer ranks waiting forever inside collective nc_put_vara_* (the prepared schema marks every variable
+        // NC_COLLECTIVE) for the rank that bailed out.  Recording an acquisition failure as a local status keeps every rank participating
+        // in the same reductions, and ranks that did acquire release their buffer when the collective reports a failure.
+        if (local_status == AMIO_OK) {
+            if (total_bytes == 0 || core == nullptr || core->staging_pool == nullptr) {
+                local_status = AMIO_ERR_INVALID_INPUT;
+            } else {
+                staging_buf = core->staging_pool.get()->acquire(total_bytes);
+                if (staging_buf == nullptr) local_status = AMIO_ERR_STAGING_BACKPRESSURE;
             }
-#else
-            (void)core;
-#endif
-            return status;
-        };
-        auto status = agree_status(local_status);
-        if (status != AMIO_OK) return status;
-
-#ifdef AMIO_HAS_MPI
-        if (core != nullptr && core->io_communicator.size_value > 1) {
-            std::uint64_t minimum_hash = 0, maximum_hash = 0;
-            const MPI_Comm communicator = core->io_communicator.handle();
-            if (MPI_Allreduce(&schema_hash, &minimum_hash, 1, MPI_UINT64_T, MPI_MIN, communicator) != MPI_SUCCESS ||
-                MPI_Allreduce(&schema_hash, &maximum_hash, 1, MPI_UINT64_T, MPI_MAX, communicator) != MPI_SUCCESS)
-                return AMIO_ERR_COMM_SPLIT_FAILED;
-            if (minimum_hash != maximum_hash) return AMIO_ERR_SCHEMA_MISMATCH;
         }
-#endif
+
+        auto status = agree_collective_status(core, local_status);
+        if (status != AMIO_OK) {
+            if (staging_buf != nullptr) core->staging_pool.get()->release(staging_buf);
+            return status;
+        }
+
+        status = agree_collective_hash(core, schema_hash);
+        if (status != AMIO_OK) {
+            if (staging_buf != nullptr) core->staging_pool.get()->release(staging_buf);
+            return status;
+        }
+
         record->writes_started = true;
     }
 
-    if (total_bytes == 0 || core == nullptr || core->staging_pool == nullptr) return AMIO_ERR_INVALID_INPUT;
-    StagingBuffer *staging_buf = core->staging_pool.get()->acquire(total_bytes);
-    if (staging_buf == nullptr) return AMIO_ERR_STAGING_BACKPRESSURE;
     for (std::size_t i = 0; i < write_count; ++i) std::memcpy(staging_buf->data + items[i].offset, writes[i].host_data, items[i].bytes);
     staging_buf->used_bytes = total_bytes;
 

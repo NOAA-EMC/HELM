@@ -85,7 +85,25 @@ if(MPI_Fortran_FOUND)
     add_executable(example_aggregated_steps_f90 fortran/example_aggregated_steps.f90)
     target_link_libraries(example_aggregated_steps_f90 PRIVATE AMIO::amio_fortran MPI::MPI_Fortran)
     set_target_properties(example_aggregated_steps_f90 PROPERTIES LINKER_LANGUAGE Fortran)
+
+    add_executable(example_region_batch_write_f90 fortran/example_region_batch_write.f90)
+    target_link_libraries(example_region_batch_write_f90 PRIVATE AMIO::amio_fortran MPI::MPI_Fortran)
+    set_target_properties(example_region_batch_write_f90 PROPERTIES LINKER_LANGUAGE Fortran)
     if(AMIO_BUILD_TESTING AND MPIEXEC_EXECUTABLE)
+        add_test(NAME example.region_batch_write_fortran COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                                 $<TARGET_FILE:example_region_batch_write_f90> ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(
+            example.region_batch_write_fortran
+            PROPERTIES LABELS
+                       "examples;amio_region;amio_fortran;integration;mpi"
+                       WORKING_DIRECTORY
+                       "${CMAKE_BINARY_DIR}"
+                       TIMEOUT
+                       60
+                       ENVIRONMENT
+                       "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1")
+    endif()
+    if(AMIO_BUILD_TESTING)
         add_test(NAME example.aggregated_steps_fortran COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                                                                $<TARGET_FILE:example_aggregated_steps_f90> ${MPIEXEC_POSTFLAGS})
         set_tests_properties(example.aggregated_steps_fortran PROPERTIES LABELS "examples;amio_aggregate;amio_fortran" TIMEOUT 60 ENVIRONMENT
@@ -96,6 +114,8 @@ if(MPI_Fortran_FOUND)
         file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/examples/manifests")
         configure_file("${CMAKE_CURRENT_SOURCE_DIR}/manifests/netcdf4_manifest.yaml" "${CMAKE_BINARY_DIR}/examples/manifests/netcdf4_manifest.yaml"
                        COPYONLY)
+        configure_file("${CMAKE_CURRENT_SOURCE_DIR}/manifests/netcdf4_region_batch_manifest.yaml"
+                       "${CMAKE_BINARY_DIR}/examples/manifests/netcdf4_region_batch_manifest.yaml" COPYONLY)
         add_test(NAME example.netcdf4_write_fortran COMMAND example_netcdf4_write_f90)
         set_tests_properties(example.netcdf4_write_fortran PROPERTIES LABELS "examples" WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
         add_test(NAME example.step_collection_fortran COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}

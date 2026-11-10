@@ -610,11 +610,7 @@ int NetCDF_Driver::define_variable_in_define_mode(const VarMeta &meta) {
     }
 
     if (!active_codec_.empty()) {
-        if (active_codec_ == "zstandard" || active_codec_ == "zstd" || active_codec_ == "blosc") {
-            status = nc_def_var_deflate(ncid_, varid, 1, 1, 4);
-        } else {
-            status = nc_def_var_deflate(ncid_, varid, 1, 1, 4);
-        }
+        status = nc_def_var_deflate(ncid_, varid, 1, 1, 4);
         nc_check(status, "nc_def_var_deflate('" + meta.name + "')");
     }
     return varid;

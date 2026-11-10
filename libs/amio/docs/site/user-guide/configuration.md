@@ -104,7 +104,7 @@ execution requires a Kokkos device backend and an actual supported device.
 Catalog durability and object enumeration are destination-specific; an
 `UNSUPPORTED` result does not establish shared-object-store durability or a
 complete orphan scan. See the
-[release acceptance matrix](../../../../../specs/001-evolve-amio-engine/evidence/acceptance.md)
+[release qualification guide](../development/qualification.md)
 for current qualification results and remaining platform gates.
 
 ## Backend: NetCDF-4

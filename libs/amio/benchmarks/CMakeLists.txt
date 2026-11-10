@@ -25,6 +25,9 @@ target_sources(
             ${CMAKE_SOURCE_DIR}/src/workers/exception_bridge.cpp
             ${CMAKE_SOURCE_DIR}/src/c_boundary/amio_strerror.cpp)
 target_include_directories(amio_benchmark PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(AMIO_NETCDF_MPI_INCLUDE_DIR)
+    target_include_directories(amio_benchmark BEFORE PRIVATE ${AMIO_NETCDF_MPI_INCLUDE_DIR})
+endif()
 target_compile_definitions(amio_benchmark PRIVATE AMIO_HAS_MPI=1)
 target_link_libraries(amio_benchmark PRIVATE HELM::HALO HELM::CONF HELM::LOGS Threads::Threads)
 set_target_properties(amio_benchmark PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/amio/bin")

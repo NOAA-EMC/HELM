@@ -1,0 +1,17 @@
+# AMIO Manifest: NetCDF-4 schema-prepared batched region writes (Fortran example)
+#
+# Two MPI ranks write disjoint slab regions of shared variables through
+# amio_prepare_write_schema() + amio_write_region_batch(). The enhanced data
+# model keeps the file open across submissions, as required by the batched
+# region-write path; see docs/AMIO-parallel-writes.md.
+
+backend: netcdf4
+path: output_netcdf4_batch.nc
+data_model: enhanced
+
+staging_pool:
+  buffer_count: 8
+  buffer_capacity_bytes: 1048576 # 1 MiB per buffer
+
+worker_pool:
+  threads: 2

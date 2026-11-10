@@ -26,6 +26,59 @@ using Clock = std::chrono::steady_clock;
 double seconds(Clock::duration duration) {
     return std::chrono::duration<double>(duration).count();
 }
+
+void check_amio(amio_status_t status, const char *where) {
+    if (status != AMIO_OK) throw std::runtime_error(std::string(where) + ": AMIO status " + std::to_string(static_cast<int>(status)));
+}
+
+void check_nc(int status, const char *where) {
+    if (status != NC_NOERR) throw std::runtime_error(std::string(where) + ": " + nc_strerror(status));
+}
+
+// Step:field variable names shared by the NetCDF reference and AMIO region benchmarks.
+std::vector<std::string> build_step_field_names(std::uint64_t steps, std::uint64_t fields) {
+    std::vector<std::string> names;
+    names.reserve(static_cast<std::size_t>(steps * fields));
+    for (std::uint64_t step = 0; step < steps; ++step)
+        for (std::uint64_t field = 0; field < fields; ++field) names.push_back("s" + std::to_string(step) + "_f" + std::to_string(field));
+    return names;
+}
+
+// Reopen the shared NetCDF-4 output collectively (or serially on one rank) and validate every rank's
+// hyperslab against the reference generator, outside the timed region.
+void validate_netcdf_benchmark_readback(const std::string &path, const std::vector<std::string> &names, const amio::benchmark::Workload &w,
+                                        std::uint64_t first, std::uint64_t count, bool parallel_io, const char *mismatch_label,
+                                        double &validate_seconds) {
+    const auto validate_begin = Clock::now();
+    std::vector<float> values(static_cast<std::size_t>(count));
+    const std::size_t start_index = static_cast<std::size_t>(first);
+    const std::size_t count_size = static_cast<std::size_t>(count);
+    int readid = -1;
+    if (parallel_io)
+        check_nc(nc_open_par(path.c_str(), NC_NOWRITE | NC_MPIIO, MPI_COMM_WORLD, MPI_INFO_NULL, &readid), "reopen");
+    else
+        check_nc(nc_open(path.c_str(), NC_NOWRITE, &readid), "reopen");
+    for (std::size_t r = 0; r < names.size(); ++r) {
+        int varid = -1;
+        check_nc(nc_inq_varid(readid, names[r].c_str(), &varid), "inquire variable");
+        if (parallel_io) check_nc(nc_var_par_access(readid, varid, NC_COLLECTIVE), "read collective access");
+        check_nc(nc_get_vara_float(readid, varid, &start_index, &count_size, values.data()), "read");
+        const std::uint64_t step = r / w.fields, field = r % w.fields;
+        for (std::uint64_t i = 0; i < count; ++i)
+            if (values[static_cast<std::size_t>(i)] != amio::benchmark::value(w.seed, step, field, first + i))
+                throw std::runtime_error(mismatch_label);
+    }
+    check_nc(nc_close(readid), "reopen close");
+    validate_seconds = seconds(Clock::now() - validate_begin);
+}
+
+// Cross-rank maximum of a per-phase wall time (meaningful on rank 0, where the JSON report prints).
+double reduce_max_time(double seconds_value) {
+    double max_value = 0.0;
+    MPI_Reduce(&seconds_value, &max_value, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    return max_value;
+}
+
 int aggregated(const amio::benchmark::Workload &w, const std::filesystem::path &output) {
     int initialized = 0;
     MPI_Initialized(&initialized);
@@ -333,9 +386,6 @@ int parallel_netcdf(const amio::benchmark::Workload &w, const std::filesystem::p
         const std::uint64_t count = w.cells / ranks + (me < w.cells % ranks ? 1 : 0);
         const std::size_t start_index = static_cast<std::size_t>(first);
         const std::size_t count_size = static_cast<std::size_t>(count);
-        const auto check = [](int status, const char *where) {
-            if (status != NC_NOERR) throw std::runtime_error(std::string(where) + ": " + nc_strerror(status));
-        };
 
         if (rank == 0) {
             std::error_code ec;
@@ -345,23 +395,21 @@ int parallel_netcdf(const amio::benchmark::Workload &w, const std::filesystem::p
         MPI_Barrier(MPI_COMM_WORLD);
         const std::string path = (output / "parallel.nc").string();
 
-        std::vector<std::string> names;
-        for (std::uint64_t step = 0; step < w.steps; ++step)
-            for (std::uint64_t field = 0; field < w.fields; ++field) names.push_back("s" + std::to_string(step) + "_f" + std::to_string(field));
+        const std::vector<std::string> names = build_step_field_names(w.steps, w.fields);
 
         int ncid = -1, cell_dim = -1;
         std::vector<int> vars(names.size());
         const auto setup_begin = Clock::now();
         if (parallel_io)
-            check(nc_create_par(path.c_str(), NC_NETCDF4 | NC_MPIIO | NC_CLOBBER, MPI_COMM_WORLD, MPI_INFO_NULL, &ncid), "create");
+            check_nc(nc_create_par(path.c_str(), NC_NETCDF4 | NC_MPIIO | NC_CLOBBER, MPI_COMM_WORLD, MPI_INFO_NULL, &ncid), "create");
         else
-            check(nc_create(path.c_str(), NC_NETCDF4 | NC_CLOBBER, &ncid), "create");
-        check(nc_def_dim(ncid, "cell", static_cast<std::size_t>(w.cells), &cell_dim), "define cell");
+            check_nc(nc_create(path.c_str(), NC_NETCDF4 | NC_CLOBBER, &ncid), "create");
+        check_nc(nc_def_dim(ncid, "cell", static_cast<std::size_t>(w.cells), &cell_dim), "define cell");
         for (std::size_t v = 0; v < names.size(); ++v) {
-            check(nc_def_var(ncid, names[v].c_str(), NC_FLOAT, 1, &cell_dim, &vars[v]), "define variable");
-            if (parallel_io) check(nc_var_par_access(ncid, vars[v], NC_COLLECTIVE), "set collective access");
+            check_nc(nc_def_var(ncid, names[v].c_str(), NC_FLOAT, 1, &cell_dim, &vars[v]), "define variable");
+            if (parallel_io) check_nc(nc_var_par_access(ncid, vars[v], NC_COLLECTIVE), "set collective access");
         }
-        check(nc_enddef(ncid), "enddef");
+        check_nc(nc_enddef(ncid), "enddef");
         setup_seconds = seconds(Clock::now() - setup_begin);
 
         std::vector<float> values(static_cast<std::size_t>(count));
@@ -372,36 +420,17 @@ int parallel_netcdf(const amio::benchmark::Workload &w, const std::filesystem::p
             for (std::uint64_t field = 0; field < w.fields; ++field, ++v) {
                 for (std::uint64_t i = 0; i < count; ++i)
                     values[static_cast<std::size_t>(i)] = amio::benchmark::value(w.seed, step, field, first + i);
-                check(nc_put_vara_float(ncid, vars[v], &start_index, &count_size, values.data()), "write");
+                check_nc(nc_put_vara_float(ncid, vars[v], &start_index, &count_size, values.data()), "write");
             }
-        check(nc_close(ncid), "close");
+        check_nc(nc_close(ncid), "close");
         MPI_Barrier(MPI_COMM_WORLD);
         write_seconds = seconds(Clock::now() - write_begin);
 
-        // Read-back validation happens outside the timed region.
-        const auto validate_begin = Clock::now();
-        int readid = -1;
-        if (parallel_io)
-            check(nc_open_par(path.c_str(), NC_NOWRITE | NC_MPIIO, MPI_COMM_WORLD, MPI_INFO_NULL, &readid), "reopen");
-        else
-            check(nc_open(path.c_str(), NC_NOWRITE, &readid), "reopen");
-        for (std::size_t r = 0; r < names.size(); ++r) {
-            int varid = -1;
-            check(nc_inq_varid(readid, names[r].c_str(), &varid), "inquire variable");
-            if (parallel_io) check(nc_var_par_access(readid, varid, NC_COLLECTIVE), "read collective access");
-            check(nc_get_vara_float(readid, varid, &start_index, &count_size, values.data()), "read");
-            const std::uint64_t step = r / w.fields, field = r % w.fields;
-            for (std::uint64_t i = 0; i < count; ++i)
-                if (values[static_cast<std::size_t>(i)] != amio::benchmark::value(w.seed, step, field, first + i))
-                    throw std::runtime_error("parallel-netcdf reference mismatch");
-        }
-        check(nc_close(readid), "reopen close");
-        validate_seconds = seconds(Clock::now() - validate_begin);
+        validate_netcdf_benchmark_readback(path, names, w, first, count, parallel_io, "parallel-netcdf reference mismatch", validate_seconds);
 
-        double max_setup = 0, max_write = 0, max_validate = 0;
-        MPI_Reduce(&setup_seconds, &max_setup, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&write_seconds, &max_write, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&validate_seconds, &max_validate, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        const double max_setup = reduce_max_time(setup_seconds);
+        const double max_write = reduce_max_time(write_seconds);
+        const double max_validate = reduce_max_time(validate_seconds);
         if (rank == 0) {
             std::cout << "{\"mode\":\"parallel-netcdf\",\"status\":\"PASS\",\"logical_layout\":\"steps-fields-cells-1d\","
                       << "\"layout\":\"one-netcdf4-hdf5-file-" << (parallel_io ? "collective" : "serial")
@@ -420,13 +449,6 @@ int parallel_netcdf(const amio::benchmark::Workload &w, const std::filesystem::p
     if (!initialized) MPI_Finalize();
     return global_result;
 }
-void check_amio(amio_status_t status, const char *where) {
-    if (status != AMIO_OK) throw std::runtime_error(std::string(where) + ": AMIO status " + std::to_string(static_cast<int>(status)));
-}
-
-void check_nc(int status, const char *where) {
-    if (status != NC_NOERR) throw std::runtime_error(std::string(where) + ": " + nc_strerror(status));
-}
 
 // Same variables, layout, rank decomposition, and timing boundaries as parallel_netcdf.
 // The experimental batch path groups all variable snapshots into one AMIO task.
@@ -443,6 +465,7 @@ int amio_region(const amio::benchmark::Workload &w, const std::filesystem::path 
     int rank = 0, size = 0;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
+    const bool parallel_io = size > 1;
     int result = 0;
     double setup_seconds = 0.0, write_seconds = 0.0, validate_seconds = 0.0;
     try {
@@ -464,9 +487,7 @@ int amio_region(const amio::benchmark::Workload &w, const std::filesystem::path 
         MPI_Barrier(MPI_COMM_WORLD);
         const std::string path = (output / "amio.nc").string();
 
-        std::vector<std::string> names;
-        for (std::uint64_t step = 0; step < w.steps; ++step)
-            for (std::uint64_t field = 0; field < w.fields; ++field) names.push_back("s" + std::to_string(step) + "_f" + std::to_string(field));
+        const std::vector<std::string> names = build_step_field_names(w.steps, w.fields);
 
         // Staging holds every write of a rank at once, so admission never waits on the pool.
         const std::uint64_t buffer_count = batch ? 1 : writes;
@@ -546,29 +567,11 @@ int amio_region(const amio::benchmark::Workload &w, const std::filesystem::path 
         write_seconds = seconds(Clock::now() - write_begin);
         check_amio(amio_finalize(core), "finalize");
 
-        // Read-back validation happens outside the timed region.
-        const auto validate_begin = Clock::now();
-        const std::size_t start_index = static_cast<std::size_t>(first);
-        const std::size_t count_size = static_cast<std::size_t>(count);
-        int readid = -1;
-        check_nc(nc_open_par(path.c_str(), NC_NOWRITE | NC_MPIIO, MPI_COMM_WORLD, MPI_INFO_NULL, &readid), "reopen");
-        for (std::size_t r = 0; r < names.size(); ++r) {
-            int varid = -1;
-            check_nc(nc_inq_varid(readid, names[r].c_str(), &varid), "inquire variable");
-            check_nc(nc_var_par_access(readid, varid, NC_COLLECTIVE), "read collective access");
-            check_nc(nc_get_vara_float(readid, varid, &start_index, &count_size, values.data()), "read");
-            const std::uint64_t step = r / w.fields, field = r % w.fields;
-            for (std::uint64_t i = 0; i < count; ++i)
-                if (values[static_cast<std::size_t>(i)] != amio::benchmark::value(w.seed, step, field, first + i))
-                    throw std::runtime_error("amio-region reference mismatch");
-        }
-        check_nc(nc_close(readid), "reopen close");
-        validate_seconds = seconds(Clock::now() - validate_begin);
+        validate_netcdf_benchmark_readback(path, names, w, first, count, parallel_io, "amio-region reference mismatch", validate_seconds);
 
-        double max_setup = 0, max_write = 0, max_validate = 0;
-        MPI_Reduce(&setup_seconds, &max_setup, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&write_seconds, &max_write, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&validate_seconds, &max_validate, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        const double max_setup = reduce_max_time(setup_seconds);
+        const double max_write = reduce_max_time(write_seconds);
+        const double max_validate = reduce_max_time(validate_seconds);
         if (rank == 0) {
             std::cout << "{\"mode\":\"" << (batch ? "amio-region-batched" : "amio-region")
                       << "\",\"status\":\"PASS\",\"logical_layout\":\"steps-fields-cells-1d\","

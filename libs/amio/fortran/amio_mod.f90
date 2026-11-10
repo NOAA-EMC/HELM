@@ -72,6 +72,7 @@ module amio_mod
     ! Derived types
     public :: amio_write_region_t, amio_write_region
     public :: amio_region_write_t, amio_write_region_batch
+    public :: AMIO_WRITE_VARIABLE_VERSION, amio_write_variable_t, amio_prepare_write_schema
     public :: amio_field_partition_descriptor_t
     public :: amio_shape_t
     public :: amio_bbox_t
@@ -237,6 +238,20 @@ module amio_mod
         type(c_ptr) :: shape
         type(c_ptr) :: region
     end type amio_region_write_t
+
+    integer(c_int32_t), parameter :: AMIO_WRITE_VARIABLE_VERSION = 1
+
+    !> One fixed-shape variable declaration for a schema-prepared write (C amio_write_variable_t).
+    !> Names are NUL-terminated; entries beyond rank in global_extents must be zero; reserved must be zero.
+    type, bind(C) :: amio_write_variable_t
+        integer(c_int32_t) :: struct_size
+        integer(c_int32_t) :: version
+        type(c_ptr) :: name
+        integer(c_int32_t) :: dtype
+        integer(c_int32_t) :: rank
+        integer(c_int64_t) :: global_extents(AMIO_MAX_RANK)
+        integer(c_int64_t) :: reserved(2)
+    end type amio_write_variable_t
 
     !> Fortran equivalent of C amio_bbox_t
     type, bind(C) :: amio_bbox_t
@@ -796,6 +811,16 @@ module amio_mod
             type(c_ptr), intent(out) :: out_io
             integer(c_int32_t) :: status
         end function amio_write_region_batch
+
+        !> amio_prepare_write_schema -- declare the fixed global schema before the first batch region write.
+        function amio_prepare_write_schema(dataset, variables, variable_count) result(status) &
+            bind(C, name="amio_prepare_write_schema")
+            import :: c_ptr, c_size_t, c_int32_t, amio_write_variable_t
+            type(c_ptr), value, intent(in) :: dataset
+            type(amio_write_variable_t), intent(in) :: variables(*)
+            integer(c_size_t), value, intent(in) :: variable_count
+            integer(c_int32_t) :: status
+        end function amio_prepare_write_schema
 
         !> amio_read -- return a Memory_View for a prefetched timestep.
         !! C signature:
