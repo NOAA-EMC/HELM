@@ -30,6 +30,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 
 // ─── RapidCheck Generators ───────────────────────────────────────────────────
@@ -310,21 +312,5 @@ RC_GTEST_PROP(PropProducerEquivalence, UgridProducerEquivalence, ()) {
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
 // Property tests need Kokkos initialized for MeshFactory (uses StructuredGrid
 // conversion kernel and Kokkos::deep_copy).
-
-class KokkosEnvironment : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) {
-            Kokkos::initialize();
-        }
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) {
-            Kokkos::finalize();
-        }
-    }
-};
-
-static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnvironment);
 
 }  // namespace

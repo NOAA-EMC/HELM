@@ -13,6 +13,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 
 class KokkosEnv : public ::testing::Environment {

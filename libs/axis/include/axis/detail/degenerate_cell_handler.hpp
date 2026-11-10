@@ -94,6 +94,45 @@ struct DegenerateCellHandler {
     /// Default warning fraction: warn when degenerate cells exceed this ratio.
     static constexpr double DEFAULT_WARNING_FRACTION = 0.01;
 
+   private:
+    template <class CoordinatesView, class IndicesView>
+    static DegenerateType classify_cartesian_cell(CoordinatesView coords, IndicesView indices, index_t start, int n_verts, double area_threshold,
+                                                  double edge_threshold) {
+        if (n_verts < 3) return DegenerateType::ZeroArea;
+
+        double nx = 0.0, ny = 0.0, nz = 0.0;
+        int unique_vertices = 0;
+        // Compact two-column Cartesian3D meshes carry an implied z == 0; only
+        // read column 2 when the coordinate table actually stores it.
+        const bool coords_have_z = coords.extent(1) > 2;
+        for (int vi = 0; vi < n_verts; ++vi) {
+            const std::size_t node = static_cast<std::size_t>(indices[start + vi]);
+            const std::size_t next_node = static_cast<std::size_t>(indices[start + (vi + 1) % n_verts]);
+            const double x = coords(node, 0), y = coords(node, 1), z = coords_have_z ? coords(node, 2) : 0.0;
+            const double xn = coords(next_node, 0), yn = coords(next_node, 1), zn = coords_have_z ? coords(next_node, 2) : 0.0;
+            nx += y * zn - z * yn;
+            ny += z * xn - x * zn;
+            nz += x * yn - y * xn;
+
+            bool duplicate = false;
+            for (int previous = 0; previous < vi; ++previous) {
+                const std::size_t prior_node = static_cast<std::size_t>(indices[start + previous]);
+                const double dx = x - coords(prior_node, 0);
+                const double dy = y - coords(prior_node, 1);
+                const double dz = z - (coords_have_z ? coords(prior_node, 2) : 0.0);
+                if (dx * dx + dy * dy + dz * dz < edge_threshold * edge_threshold) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) ++unique_vertices;
+        }
+        const double area = 0.5 * Kokkos::sqrt(nx * nx + ny * ny + nz * nz);
+        if (area < area_threshold) return DegenerateType::ZeroArea;
+        return unique_vertices < 3 ? DegenerateType::CollapsedEdge : DegenerateType::None;
+    }
+
+   public:
     // ─────────────────────────────────────────────────────────────────────────
     // Device-portable classification
     // ─────────────────────────────────────────────────────────────────────────
@@ -192,42 +231,7 @@ struct DegenerateCellHandler {
             // unit-sphere vectors. Classifying those values with SphericalPolygon
             // can discard valid planar cells (and suppress UnmappedAction::Error).
             if (cartesian) {
-                if (n_verts < 3) {
-                    report.excluded_indices.push_back(static_cast<index_t>(ci));
-                    report.excluded_types.push_back(DegenerateType::ZeroArea);
-                    ++report.degenerate_count;
-                    continue;
-                }
-                double nx = 0.0, ny = 0.0, nz = 0.0;
-                int unique_vertices = 0;
-                // Compact two-column Cartesian3D meshes carry an implied z == 0;
-                // only read column 2 when the coordinate table actually stores it.
-                const bool coords_have_z = ndim >= 3;
-                for (int vi = 0; vi < n_verts; ++vi) {
-                    const std::size_t node = static_cast<std::size_t>(indices_view[start + vi]);
-                    const std::size_t next_node = static_cast<std::size_t>(indices_view[start + (vi + 1) % n_verts]);
-                    const double x = coords_view(node, 0), y = coords_view(node, 1), z = coords_have_z ? coords_view(node, 2) : 0.0;
-                    const double xn = coords_view(next_node, 0), yn = coords_view(next_node, 1), zn = coords_have_z ? coords_view(next_node, 2) : 0.0;
-                    nx += y * zn - z * yn;
-                    ny += z * xn - x * zn;
-                    nz += x * yn - y * xn;
-
-                    bool duplicate = false;
-                    for (int previous = 0; previous < vi; ++previous) {
-                        const std::size_t prior_node = static_cast<std::size_t>(indices_view[start + previous]);
-                        const double dx = x - coords_view(prior_node, 0);
-                        const double dy = y - coords_view(prior_node, 1);
-                        const double dz = z - (coords_have_z ? coords_view(prior_node, 2) : 0.0);
-                        if (dx * dx + dy * dy + dz * dz < edge_threshold * edge_threshold) {
-                            duplicate = true;
-                            break;
-                        }
-                    }
-                    if (!duplicate) ++unique_vertices;
-                }
-                const double area = 0.5 * Kokkos::sqrt(nx * nx + ny * ny + nz * nz);
-                const DegenerateType dtype =
-                    area < area_threshold ? DegenerateType::ZeroArea : (unique_vertices < 3 ? DegenerateType::CollapsedEdge : DegenerateType::None);
+                const DegenerateType dtype = classify_cartesian_cell(coords_view, indices_view, start, n_verts, area_threshold, edge_threshold);
                 if (dtype != DegenerateType::None) {
                     report.excluded_indices.push_back(static_cast<index_t>(ci));
                     report.excluded_types.push_back(dtype);
@@ -250,13 +254,14 @@ struct DegenerateCellHandler {
                     v.y = coords_view(node_idx, 1);
                     v.z = coords_view(node_idx, 2);
                 } else {
-                    // Spherical coordinates (lon, lat) in degrees — convert to
-                    // unit-sphere Cartesian.
-                    double lon_deg = coords_view(node_idx, 0);
-                    double lat_deg = coords_view(node_idx, 1);
+                    // Convert spherical coordinates to radians before projecting
+                    // them onto the unit sphere. SphericalRad coordinates are
+                    // already in radians.
+                    const bool in_degrees = (mesh.coord_system() == topology::CoordinateSystem::SphericalDeg);
                     constexpr double deg2rad = 3.14159265358979323846 / 180.0;
-                    double lon = lon_deg * deg2rad;
-                    double lat = lat_deg * deg2rad;
+                    const double to_rad = in_degrees ? deg2rad : 1.0;
+                    double lon = coords_view(node_idx, 0) * to_rad;
+                    double lat = coords_view(node_idx, 1) * to_rad;
                     double cos_lat = Kokkos::cos(lat);
                     v.x = cos_lat * Kokkos::cos(lon);
                     v.y = cos_lat * Kokkos::sin(lon);

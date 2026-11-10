@@ -12,6 +12,8 @@
 #include <cmath>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 using Space = Kokkos::HostSpace;
 using Mesh = axis::topology::UnstructuredMesh<Space>;
@@ -86,13 +88,5 @@ RC_GTEST_PROP(PropConservative2ndOrder, MonotonicityLimiterPreventsNewExtrema, (
         RC_ASSERT(value <= hi + 2e-12);
     }
 }
-class LinearPropertyEnv : public testing::Environment {
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) Kokkos::initialize();
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) Kokkos::finalize();
-    }
-};
-auto *const env = testing::AddGlobalTestEnvironment(new LinearPropertyEnv);
+
 }  // namespace

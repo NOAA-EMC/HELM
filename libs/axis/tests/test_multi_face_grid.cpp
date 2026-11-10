@@ -11,17 +11,9 @@
 #include <utility>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
-class KokkosEnv : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) Kokkos::initialize();
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) Kokkos::finalize();
-    }
-};
-static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnv);
 
 using Space = Kokkos::HostSpace;
 using namespace axis::topology;

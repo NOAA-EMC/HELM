@@ -1,0 +1,50 @@
+[
+  {
+    "name": "bilinear_O48_to_O96",
+    "wall_clock_ms": 19.930,
+    "date": "2026-10-08T18:51:54Z",
+    "commit": "de8cbfc"
+  },
+  {
+    "name": "conservative_O48_to_O96",
+    "wall_clock_ms": 7.315,
+    "date": "2026-10-08T18:51:54Z",
+    "commit": "de8cbfc"
+  },
+  {
+    "name": "batch_apply_10vars_O96_to_O96",
+    "wall_clock_ms": 1.191,
+    "date": "2026-10-08T18:51:54Z",
+    "commit": "de8cbfc"
+  },
+  {
+    "name": "csr_apply_O96_to_O96",
+    "wall_clock_ms": 0.059,
+    "date": "2026-10-08T18:51:54Z",
+    "commit": "de8cbfc"
+  },
+  {
+    "name": "conservative_1440x720_to_720x360",
+    "wall_clock_ms": 573.431,
+    "date": "2026-10-08T18:51:54Z",
+    "commit": "de8cbfc"
+  },
+  {
+    "name": "conservative_3600x1800_to_1440x720",
+    "wall_clock_ms": 7561.167,
+    "date": "2026-10-08T18:51:54Z",
+    "commit": "de8cbfc"
+  },
+  {
+    "name": "bilinear_3600x1800_to_1440x720",
+    "wall_clock_ms": 1804.962,
+    "date": "2026-10-08T18:51:54Z",
+    "commit": "de8cbfc"
+  },
+  {
+    "name": "bilinear_1440x720_to_720x360",
+    "wall_clock_ms": 195.239,
+    "date": "2026-10-08T18:51:54Z",
+    "commit": "de8cbfc"
+  }
+]
