@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-// AXIS Python bindings via nanobind
-//
-// Exposes the AXIS interpolation engine to Python for benchmarking and
-// interactive use. Uses numpy arrays as the zero-copy buffer interface.
-//
-// Bindings cover:
-//   - Mesh construction (regular lat-lon, named grids, from_descriptor)
-//   - Weight generation with full RegridConfig dictionary
-//   - Single-field apply and multi-field batch_apply
-//   - Weight cache serialize/deserialize (to_bytes / from_bytes)
-//   - Conservation check
-//
-// Links only against AXIS + nanobind — no AMIO/HALO dependency (Req 12.8).
+/// @file axis_py.cpp
+/// @brief nanobind bindings exposing the AXIS interpolation engine to Python.
+///
+/// Uses numpy arrays as the zero-copy buffer interface.
+///
+/// Bindings cover:
+///   - Mesh construction (regular lat-lon, named grids, from_descriptor)
+///   - Weight generation with full RegridConfig dictionary
+///   - Single-field apply and multi-field batch_apply
+///   - Weight cache serialize/deserialize (to_bytes / from_bytes)
+///   - Conservation check
+///
+/// Links only against AXIS + nanobind — no AMIO/HALO dependency.
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
@@ -45,9 +45,11 @@
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -64,14 +66,30 @@ using HostMatrix = axis::solver::InterpolationMatrix<Kokkos::HostSpace>;
 
 // ─── Kokkos lifecycle ────────────────────────────────────────────────────────
 
-static bool kokkos_initialized = false;
+// Own the Kokkos runtime only when AXIS is the code that initializes it.
+static std::mutex kokkos_lifecycle_mutex;
 
-void ensure_kokkos() {
-    if (!kokkos_initialized && !Kokkos::is_initialized()) {
-        Kokkos::initialize();
-        kokkos_initialized = true;
+void finalize_owned_kokkos() {
+    if (Kokkos::is_initialized()) {
+        Kokkos::finalize();
     }
 }
+
+void ensure_kokkos() {
+    std::lock_guard<std::mutex> lock(kokkos_lifecycle_mutex);
+    if (!Kokkos::is_initialized()) {
+        Kokkos::initialize();
+        // Register after initialize: Kokkos' OpenMP internals may register
+        // their own process-exit destructors during initialization, and the
+        // atexit stack runs in reverse order. Finalize before those destructors.
+        if (std::atexit(finalize_owned_kokkos) != 0) {
+            Kokkos::finalize();
+            throw std::runtime_error("AXIS could not register Kokkos shutdown cleanup.");
+        }
+    }
+}
+
+#include "vertical_conservative_bindings.hpp"
 
 // ─── Helper: Build a regular lat-lon mesh from numpy arrays ──────────────────
 
@@ -307,6 +325,7 @@ axis::solver::RegridConfig parse_regrid_config(const nb::dict &config) {
         cfg.use_limiter = nb::cast<bool>(config["use_limiter"]);
     }
 
+    if (cfg.method == axis::solver::InterpolationMethod::Conservative2ndOrder) cfg.extrap_method = axis::solver::ExtrapolationAction::None;
     return cfg;
 }
 
@@ -444,6 +463,7 @@ NB_MODULE(axis_py, m) {
         .def_prop_ro("n_src", &HostMatrix::n_src)
         .def_prop_ro("n_dst", &HostMatrix::n_dst)
         .def_prop_ro("is_csr", &HostMatrix::is_csr)
+        .def_prop_ro("has_linear_reconstruction", &HostMatrix::has_linear_reconstruction)
 
         .def_prop_ro(
             "factor_list",
@@ -452,7 +472,7 @@ NB_MODULE(axis_py, m) {
                 std::size_t shape[1] = {view.extent(0)};
                 return nb::ndarray<nb::numpy, const double>(view.data_handle(), 1, shape, nb::handle());
             },
-            nb::keep_alive<0, 1>(), "Interpolation weights list")
+            nb::keep_alive<0, 1>(), "Base weights; use apply for field-dependent linear reconstruction")
         .def_prop_ro(
             "factor_col",
             [](const HostMatrix &matrix) -> nb::ndarray<nb::numpy, const axis::index_t> {
@@ -1158,6 +1178,8 @@ NB_MODULE(axis_py, m) {
         },
         "filepath"_a, "Read the interpolation weights matrix from an ESMF netCDF file");
 #endif
+
+    bind_vertical_conservative(m);
 
     // ─── Vertical Tension Spline interpolation ──────────────────────────────
 

@@ -13,6 +13,7 @@
 /// the C++ standard library, MPI, and Kokkos. It has zero compile-time
 /// dependencies on other HELM libraries (TICK, LOGS, AXIS, AMIO, SPAN, DAGR).
 
+#include <halo/bounded_peer_exchange.hpp>
 #include <halo/collectives.hpp>
 #include <halo/communicator.hpp>
 #include <halo/diagnostics.hpp>
@@ -23,6 +24,7 @@
 #include <halo/gather_replicated.hpp>
 #include <halo/halo_handle.hpp>
 #include <halo/halo_plan.hpp>
+#include <halo/indexed_gather_plan.hpp>
 #include <halo/persistent_halo_handle.hpp>
 #include <halo/replicated_gather_plan.hpp>
 #include <halo/request_guard.hpp>

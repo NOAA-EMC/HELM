@@ -2,6 +2,12 @@
 // AXIS — Arbitrary eXgrid Interpolation Solver
 // Copyright (c) HELM Project Contributors
 
+/// @file src/topology/multi_face_grid.cpp
+/// @brief Multi-face (cubed-sphere) grid assembly into a single CSR mesh.
+///
+/// Merges equivalent corner nodes across faces, applies edge connections, and
+/// emits the combined unstructured mesh with overflow-checked sizing.
+
 #include <Kokkos_Core.hpp>
 #include <axis/detail/memory_traits.hpp>
 #include <axis/topology/mesh_builder.hpp>

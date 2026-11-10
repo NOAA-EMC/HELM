@@ -21,7 +21,12 @@
 #include <stdexcept>
 
 #ifdef AXIS_ENABLE_PROJ
-#include <proj.h>
+// Keep the public RAII wrapper independent of PROJ's include directories.
+// The implementation includes proj.h where the API functions are used.
+struct PJconsts;
+typedef struct PJconsts PJ;
+struct pj_ctx;
+typedef struct pj_ctx PJ_CONTEXT;
 #endif
 
 namespace axis::detail {

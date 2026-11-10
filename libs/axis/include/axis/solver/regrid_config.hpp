@@ -27,7 +27,7 @@ enum class InterpolationMethod : std::uint8_t {
     Bicubic,               ///< Bicubic: 4×4 stencil cubic interpolation (CDO remapbic equivalent)
     Patch,                 ///< Patch recovery: least-squares polynomial fit over local patch (ESMF REGRID_METHOD_PATCH)
     Conservative1stOrder,  ///< Area-weighted first-order conservative (overlap-based via ArborX BVH + Sutherland-Hodgman)
-    Conservative2ndOrder   ///< Second-order conservative: linear gradient reconstruction + overlap integrals (requires GradientReconstructor)
+    Conservative2ndOrder   ///< Second-order conservative: field-dependent linear reconstruction + overlap moments
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,10 +82,12 @@ struct RegridConfig {
     NormType norm_type = NormType::DstArea;
     LineType line_type = LineType::GreatCircle;
     UnmappedAction unmapped = UnmappedAction::Ignore;
-    bool use_limiter = false;  ///< Enable Barth-Jespersen monotonicity limiter (Conservative2ndOrder only)
+    bool use_limiter = false;  ///< Enable vertex/overlap-average slope limiter (Conservative2ndOrder only)
 
     /// @brief Extrapolation method when a destination cell has zero wet source overlaps.
+    // Conservative2ndOrder requires None: extrapolation does not preserve integrals.
     ExtrapolationAction extrap_method = ExtrapolationAction::NearestWet;
+    bool use_structured_fast_paths = true;  ///< Disable when source geometry is a selective distributed closure.
 };
 
 }  // namespace axis::solver

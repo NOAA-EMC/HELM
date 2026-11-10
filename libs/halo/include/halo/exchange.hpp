@@ -106,6 +106,10 @@ void exchange_blocking(const Halo_Plan &plan, ViewType &view) {
         mpi_dtype = MPI_LONG_LONG;
     } else if constexpr (std::is_same_v<value_type, unsigned int>) {
         mpi_dtype = MPI_UNSIGNED;
+    } else if constexpr (std::is_same_v<value_type, unsigned long>) {
+        mpi_dtype = MPI_UNSIGNED_LONG;
+    } else if constexpr (std::is_same_v<value_type, unsigned long long>) {
+        mpi_dtype = MPI_UNSIGNED_LONG_LONG;
     } else if constexpr (std::is_same_v<value_type, char>) {
         mpi_dtype = MPI_CHAR;
     } else {
@@ -340,6 +344,10 @@ template <typename ViewType>
         mpi_dtype = MPI_LONG_LONG;
     } else if constexpr (std::is_same_v<value_type, unsigned int>) {
         mpi_dtype = MPI_UNSIGNED;
+    } else if constexpr (std::is_same_v<value_type, unsigned long>) {
+        mpi_dtype = MPI_UNSIGNED_LONG;
+    } else if constexpr (std::is_same_v<value_type, unsigned long long>) {
+        mpi_dtype = MPI_UNSIGNED_LONG_LONG;
     } else if constexpr (std::is_same_v<value_type, char>) {
         mpi_dtype = MPI_CHAR;
     } else {
