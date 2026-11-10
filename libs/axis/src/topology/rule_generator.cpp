@@ -7,6 +7,7 @@
 ///        Kokkos parallel kernels. Zero file I/O, zero YAML/JSON parsing.
 
 #include <Kokkos_Core.hpp>
+#include <axis/topology/mesh_builder.hpp>
 #include <axis/topology/rule_generator.hpp>
 #include <cmath>
 #include <cstddef>
@@ -95,6 +96,26 @@ std::vector<double> compute_gaussian_latitudes(int N) {
     return lats;
 }
 
+/// Gauss-Legendre quadrature weights associated with the latitude roots above,
+/// ordered north-to-south. These determine exact equal-area boundaries in mu.
+std::vector<double> compute_gaussian_weights(int N, const std::vector<double> &latitudes) {
+    const int degree = 2 * N;
+    std::vector<double> weights(latitudes.size());
+    for (std::size_t j = 0; j < latitudes.size(); ++j) {
+        const double x = std::sin(latitudes[j] * (M_PI / 180.0));
+        double p0 = 1.0;
+        double p1 = x;
+        for (int k = 2; k <= degree; ++k) {
+            const double pk = ((2.0 * k - 1.0) * x * p1 - (k - 1.0) * p0) / k;
+            p0 = p1;
+            p1 = pk;
+        }
+        const double derivative = degree * (x * p1 - p0) / (x * x - 1.0);
+        weights[j] = 2.0 / ((1.0 - x * x) * derivative * derivative);
+    }
+    return weights;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // RegularLatLon generation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -165,7 +186,7 @@ UnstructuredMesh<MemorySpace> generate_regular_latlon(const ingest::GridRulesPar
 
     Kokkos::fence();
 
-    return UnstructuredMesh<MemorySpace>(std::move(node_coords), std::move(conn_offsets), std::move(conn_indices), CoordinateSystem::SphericalDeg);
+    return make_unstructured<MemorySpace>(std::move(node_coords), std::move(conn_offsets), std::move(conn_indices), CoordinateSystem::SphericalDeg);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -189,14 +210,16 @@ UnstructuredMesh<MemorySpace> generate_gaussian_regular(const ingest::GridRulesP
     // Compute Gaussian latitudes on host
     auto gauss_lats = compute_gaussian_latitudes(N);
 
-    // We need n_lat + 1 latitude boundaries for cell corners.
-    // Use midpoints between Gaussian latitudes, with poles at +/-90.
+    // Gaussian quadrature weights define equal-area strips in mu=sin(latitude).
+    const auto gauss_weights = compute_gaussian_weights(N, gauss_lats);
     std::vector<double> lat_bounds(n_lat + 1);
+    double mu_boundary = 1.0;
     lat_bounds[0] = 90.0;
-    for (std::size_t j = 1; j < n_lat; ++j) {
-        lat_bounds[j] = 0.5 * (gauss_lats[j - 1] + gauss_lats[j]);
+    for (std::size_t j = 0; j < n_lat; ++j) {
+        mu_boundary -= gauss_weights[j];
+        lat_bounds[j + 1] = std::asin(std::max(-1.0, std::min(1.0, mu_boundary))) * (180.0 / M_PI);
     }
-    lat_bounds[n_lat] = -90.0;
+    lat_bounds[n_lat] = -90.0;  // close exactly at the southern pole despite roundoff
 
     // Longitude bounds: regular spacing from 0 to 360
     const double dlon = 360.0 / static_cast<double>(n_lon);
@@ -205,6 +228,7 @@ UnstructuredMesh<MemorySpace> generate_gaussian_regular(const ingest::GridRulesP
     Kokkos::View<double **, Kokkos::LayoutLeft, MemorySpace> node_coords("rule_gr_coords", n_nodes, 2);
     Kokkos::View<index_t *, MemorySpace> conn_offsets("rule_gr_offsets", n_cells + 1);
     Kokkos::View<index_t *, MemorySpace> conn_indices("rule_gr_indices", n_cells * 4);
+    Kokkos::View<double *, MemorySpace> areas("rule_gr_areas", n_cells);
 
     // Copy latitude bounds to device
     Kokkos::View<double *, MemorySpace> lat_bounds_d("rule_gr_lat_bounds", n_lat + 1);
@@ -247,9 +271,22 @@ UnstructuredMesh<MemorySpace> generate_gaussian_regular(const ingest::GridRulesP
     conn_offsets_h(n_cells) = static_cast<index_t>(n_cells * 4);
     Kokkos::deep_copy(conn_offsets, conn_offsets_h);
 
+    auto area_bounds = lat_bounds_d;
+    auto cell_areas = areas;
+    Kokkos::parallel_for(
+        "RuleGen_GR_Areas", Kokkos::RangePolicy<typename MemorySpace::execution_space>(0, n_cells), KOKKOS_LAMBDA(const std::size_t c) {
+            const std::size_t j = c / n_lon_cap;
+            const double south = area_bounds(j + 1) * (M_PI / 180.0);
+            const double north = area_bounds(j) * (M_PI / 180.0);
+            cell_areas(c) = dlon * (M_PI / 180.0) * (Kokkos::sin(north) - Kokkos::sin(south));
+        });
+
     Kokkos::fence();
 
-    return UnstructuredMesh<MemorySpace>(std::move(node_coords), std::move(conn_offsets), std::move(conn_indices), CoordinateSystem::SphericalDeg);
+    return make_unstructured<MemorySpace>(std::move(node_coords), std::move(conn_offsets), std::move(conn_indices), CoordinateSystem::SphericalDeg,
+                                          std::move(areas), {},
+                                          GeometryMetadata{GeometryProvenance::DeclaredGridModel, BoundaryModel::ConstantLatitude,
+                                                           AreaModel::ConstantLatitudeStrip, LongitudePeriodicity{true, 360.0, true}});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -400,7 +437,7 @@ UnstructuredMesh<MemorySpace> generate_gaussian_reduced(const ingest::GridRulesP
 
     Kokkos::fence();
 
-    return UnstructuredMesh<MemorySpace>(std::move(node_coords), std::move(conn_offsets), std::move(conn_indices), CoordinateSystem::SphericalDeg);
+    return make_unstructured<MemorySpace>(std::move(node_coords), std::move(conn_offsets), std::move(conn_indices), CoordinateSystem::SphericalDeg);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

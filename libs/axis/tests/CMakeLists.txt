@@ -82,6 +82,10 @@ set(AXIS_UNIT_TEST_SOURCES
     test_conservation_norm.cpp
     test_raii_handles.cpp
     test_spherical_geometry.cpp
+    test_mesh_builder.cpp
+    test_structured_grid_conversion.cpp
+    test_reduced_gaussian_grid.cpp
+    test_multi_face_grid.cpp
     test_gnomonic_projector.cpp
     test_masking.cpp
     test_morton_sort.cpp
@@ -128,6 +132,20 @@ gtest_discover_tests(axis_unit_tests
     DISCOVERY_TIMEOUT 30
 )
 
+# Keep this suite in its own executable: several legacy AXIS suites finalize
+# Kokkos from their global test environments, so combining another Kokkos
+# lifecycle into axis_unit_tests can leave later suites running after finalize.
+add_executable(axis_sample_position_tests test_sample_position_weights.cpp)
+target_link_libraries(axis_sample_position_tests PRIVATE axis GTest::gtest_main)
+set_target_properties(axis_sample_position_tests PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+)
+gtest_discover_tests(axis_sample_position_tests
+    PROPERTIES LABELS "unit"
+    DISCOVERY_TIMEOUT 30
+)
+
 # ##############################################################################
 # Property-based test sources (RapidCheck + GTest)
 # ##############################################################################
@@ -138,6 +156,7 @@ if(rapidcheck_FOUND)
         prop_raii_handles.cpp
         prop_structured_to_unstructured.cpp
         prop_band_corner_synthesis.cpp
+        prop_reduced_gaussian_grid.cpp
         prop_csr_connectivity.cpp
         prop_named_grid_deterministic.cpp
         prop_named_grid_registration.cpp

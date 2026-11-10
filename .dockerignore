@@ -1,5 +1,4 @@
 .git
-.gitignore
 .dockerignore
 build/
 .build-*/
@@ -34,3 +33,12 @@ libs/*/build-*/
 **/coverage/
 **/docs/_build/
 **/docs/site/site/
+.agents/
+.specify/
+build/
+build-*/
+libs/axis/build*/
+libs/axis/.venv/
+libs/axis/.pytest_cache/
+libs/axis/.mypy_cache/
+.DS_Store

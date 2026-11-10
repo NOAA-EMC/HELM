@@ -147,3 +147,4 @@ docs/superpowers/
 specs/
 .github/agents/
 .github/prompts/
+.agents/

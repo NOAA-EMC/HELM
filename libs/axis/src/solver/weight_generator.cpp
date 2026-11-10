@@ -35,6 +35,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -43,6 +44,217 @@
 #include <vector>
 
 namespace axis::solver {
+
+namespace {
+
+topology::UnstructuredMesh<Kokkos::HostSpace> make_sample_point_mesh(const SampleGrid &samples, topology::CoordinateSystem coordinate_system) {
+    const std::size_t n = samples.positions.extent(0);
+    if (samples.positions.extent(1) != 2 || (n > 0 && samples.positions.data() == nullptr)) {
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: positions must have shape [n, 2]");
+    }
+    if ((samples.nx == 0) != (samples.ny == 0) ||
+        (samples.nx != 0 && (samples.nx > std::numeric_limits<std::size_t>::max() / samples.ny || samples.nx * samples.ny != n))) {
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: logical shape must be empty or match the number of positions");
+    }
+    if (samples.mask.extent(0) != 0 && samples.mask.extent(0) != n) {
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: mask length must match the number of positions");
+    }
+    const bool spherical =
+        coordinate_system == topology::CoordinateSystem::SphericalDeg || coordinate_system == topology::CoordinateSystem::SphericalRad;
+    const double lat_limit = coordinate_system == topology::CoordinateSystem::SphericalDeg ? 90.0 : (3.14159265358979323846 / 2.0);
+    for (std::size_t i = 0; i < n; ++i) {
+        const double x = samples.positions(i, 0), y = samples.positions(i, 1);
+        if (!std::isfinite(x) || !std::isfinite(y) || (spherical && std::abs(y) > lat_limit)) {
+            throw std::invalid_argument("WeightGenerator::generate_from_samples: coordinates must be finite and spherical latitude must be valid");
+        }
+        if (samples.mask.extent(0) != 0 && samples.mask(i) != 0 && samples.mask(i) != 1) {
+            throw std::invalid_argument("WeightGenerator::generate_from_samples: mask values must be zero or one");
+        }
+    }
+    if (n > static_cast<std::size_t>(std::numeric_limits<index_t>::max())) {
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: too many positions");
+    }
+    Kokkos::View<index_t *, Kokkos::HostSpace> offsets("sample_offsets", n + 1);
+    Kokkos::View<index_t *, Kokkos::HostSpace> indices("sample_indices", n);
+    for (std::size_t i = 0; i <= n; ++i) offsets(i) = static_cast<index_t>(i);
+    for (std::size_t i = 0; i < n; ++i) indices(i) = static_cast<index_t>(i);
+    return topology::UnstructuredMesh<Kokkos::HostSpace>(samples.positions, std::move(offsets), std::move(indices), coordinate_system, {},
+                                                         samples.mask);
+}
+
+InterpolationMatrix<Kokkos::HostSpace> empty_sample_matrix(std::size_t n_src, std::size_t n_dst) {
+    Kokkos::View<double *, Kokkos::HostSpace> weights("sample_weights", 0), frac_a("sample_frac_a", n_src), frac_b("sample_frac_b", n_dst),
+        area_a("sample_area_a", n_src), area_b("sample_area_b", n_dst);
+    Kokkos::View<index_t *, Kokkos::HostSpace> rows("sample_rows", 0), cols("sample_cols", 0);
+    for (std::size_t i = 0; i < n_src; ++i) {
+        frac_a(i) = 0.0;
+        area_a(i) = 0.0;
+    }
+    for (std::size_t i = 0; i < n_dst; ++i) {
+        frac_b(i) = 0.0;
+        area_b(i) = 0.0;
+    }
+    return InterpolationMatrix<Kokkos::HostSpace>(std::move(weights), std::move(rows), std::move(cols), std::move(frac_a), std::move(frac_b),
+                                                  std::move(area_a), std::move(area_b), n_src, n_dst);
+}
+
+}  // namespace
+
+InterpolationMatrix<Kokkos::HostSpace> WeightGenerator::generate_from_samples(const SampleGrid &src, const SampleGrid &dst,
+                                                                              topology::CoordinateSystem coordinate_system,
+                                                                              const RegridConfig &config) {
+    if (config.method != InterpolationMethod::NearestNeighbor && config.method != InterpolationMethod::Bilinear &&
+        config.method != InterpolationMethod::Bicubic) {
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: method requires cell geometry");
+    }
+    if ((config.method == InterpolationMethod::Bilinear || config.method == InterpolationMethod::Bicubic) && (src.nx == 0 || src.ny == 0))
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: bilinear and bicubic methods require structured source topology");
+    if (config.method == InterpolationMethod::Bicubic && (src.nx < 4 || src.ny < 4))
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: bicubic interpolation requires at least a 4 by 4 source stencil");
+    if (config.method != InterpolationMethod::NearestNeighbor) {
+        const auto contains_masked_sample = [](const SampleGrid &grid) {
+            for (std::size_t i = 0; i < grid.mask.extent(0); ++i)
+                if (grid.mask(i) == 0) return true;
+            return false;
+        };
+        if (contains_masked_sample(src) || contains_masked_sample(dst))
+            throw std::invalid_argument("WeightGenerator::generate_from_samples: masked structured bilinear/bicubic stencils are not supported");
+    }
+    auto src_mesh = make_sample_point_mesh(src, coordinate_system);
+    auto dst_mesh = make_sample_point_mesh(dst, coordinate_system);
+    const std::size_t local_source_count = src_mesh.n_cells();
+    std::vector<index_t> global_source_ids(local_source_count);
+    std::size_t global_source_count = src.global_source_count;
+    std::vector<bool> seen;
+    if (src.global_indices.extent(0) != 0 && src.global_indices.extent(0) != local_source_count)
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: global source index length must match source positions");
+    if (src.global_indices.extent(0) == 0 && global_source_count == 0) global_source_count = local_source_count;
+    if (src.global_indices.extent(0) == 0 && global_source_count < local_source_count)
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: global source count is smaller than the local source count");
+    seen.assign(global_source_count, false);
+    for (std::size_t i = 0; i < local_source_count; ++i) {
+        const index_t id = src.global_indices.extent(0) == 0 ? static_cast<index_t>(i) : src.global_indices(i);
+        if (id < 0 || static_cast<std::size_t>(id) >= global_source_count || seen[static_cast<std::size_t>(id)])
+            throw std::invalid_argument(
+                "WeightGenerator::generate_from_samples: global source indices must be unique and within global_source_count");
+        global_source_ids[i] = id;
+        seen[static_cast<std::size_t>(id)] = true;
+    }
+    const std::size_t local_destination_count = dst_mesh.n_cells();
+    std::vector<index_t> global_destination_ids(local_destination_count);
+    std::size_t global_destination_count = dst.global_destination_count;
+    if (dst.global_indices.extent(0) != 0 && dst.global_indices.extent(0) != local_destination_count)
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: global destination index length must match destination positions");
+    if (dst.global_indices.extent(0) == 0 && global_destination_count == 0) global_destination_count = local_destination_count;
+    if (dst.global_indices.extent(0) == 0 && global_destination_count < local_destination_count)
+        throw std::invalid_argument("WeightGenerator::generate_from_samples: global destination count is smaller than the local destination count");
+    seen.assign(global_destination_count, false);
+    for (std::size_t j = 0; j < local_destination_count; ++j) {
+        const index_t id = dst.global_indices.extent(0) == 0 ? static_cast<index_t>(j) : dst.global_indices(j);
+        if (id < 0 || static_cast<std::size_t>(id) >= global_destination_count || seen[static_cast<std::size_t>(id)])
+            throw std::invalid_argument(
+                "WeightGenerator::generate_from_samples: global destination indices must be unique and within global_destination_count");
+        global_destination_ids[j] = id;
+        seen[static_cast<std::size_t>(id)] = true;
+    }
+    auto with_global_indices = [&](const InterpolationMatrix<Kokkos::HostSpace> &local_matrix) {
+        if (src.global_indices.extent(0) == 0 && global_source_count == local_source_count && dst.global_indices.extent(0) == 0 &&
+            global_destination_count == local_destination_count)
+            return local_matrix;
+        const std::size_t nnz = local_matrix.nnz();
+        Kokkos::View<double *, Kokkos::HostSpace> weights("global_sample_weights", nnz), frac_a("global_sample_frac_a", global_source_count),
+            frac_b("global_sample_frac_b", global_destination_count), area_a("global_sample_area_a", global_source_count),
+            area_b("global_sample_area_b", global_destination_count);
+        Kokkos::View<index_t *, Kokkos::HostSpace> rows("global_sample_rows", nnz), cols("global_sample_cols", nnz);
+        for (std::size_t i = 0; i < global_source_count; ++i) frac_a(i) = area_a(i) = 0.0;
+        for (std::size_t j = 0; j < global_destination_count; ++j) frac_b(j) = area_b(j) = 0.0;
+        for (std::size_t j = 0; j < local_destination_count; ++j) {
+            frac_b(static_cast<std::size_t>(global_destination_ids[j])) = local_matrix.frac_b()(j);
+            area_b(static_cast<std::size_t>(global_destination_ids[j])) = local_matrix.area_b()(j);
+        }
+        for (std::size_t i = 0; i < local_source_count; ++i) {
+            frac_a(static_cast<std::size_t>(global_source_ids[i])) = local_matrix.frac_a()(i);
+            area_a(static_cast<std::size_t>(global_source_ids[i])) = local_matrix.area_a()(i);
+        }
+        for (std::size_t k = 0; k < nnz; ++k) {
+            weights(k) = local_matrix.factor_list()(k);
+            rows(k) = global_destination_ids[static_cast<std::size_t>(local_matrix.factor_row()(k))];
+            cols(k) = global_source_ids[static_cast<std::size_t>(local_matrix.factor_col()(k))];
+        }
+        return InterpolationMatrix<Kokkos::HostSpace>(std::move(weights), std::move(rows), std::move(cols), std::move(frac_a), std::move(frac_b),
+                                                      std::move(area_a), std::move(area_b), global_source_count, global_destination_count);
+    };
+    if (dst_mesh.n_cells() == 0 || src_mesh.n_cells() == 0) {
+        if (src_mesh.n_cells() == 0 && dst_mesh.n_cells() != 0 && config.unmapped == UnmappedAction::Error) {
+            throw std::runtime_error("WeightGenerator::generate_from_samples: no source samples for nonempty destination");
+        }
+        return with_global_indices(empty_sample_matrix(src_mesh.n_cells(), dst_mesh.n_cells()));
+    }
+    if (config.method == InterpolationMethod::NearestNeighbor && (src.mask.extent(0) != 0 || dst.mask.extent(0) != 0)) {
+        std::vector<std::size_t> source_indices, destination_indices;
+        source_indices.reserve(src_mesh.n_cells());
+        destination_indices.reserve(dst_mesh.n_cells());
+        for (std::size_t i = 0; i < src_mesh.n_cells(); ++i)
+            if (src.mask.extent(0) == 0 || src.mask(i) == 1) source_indices.push_back(i);
+        for (std::size_t j = 0; j < dst_mesh.n_cells(); ++j)
+            if (dst.mask.extent(0) == 0 || dst.mask(j) == 1) destination_indices.push_back(j);
+
+        SampleGrid active_src, active_dst;
+        active_src.positions = Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace>("active_source_positions", source_indices.size(), 2);
+        active_dst.positions =
+            Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace>("active_destination_positions", destination_indices.size(), 2);
+        for (std::size_t i = 0; i < source_indices.size(); ++i)
+            for (int d = 0; d < 2; ++d) active_src.positions(i, d) = src.positions(source_indices[i], d);
+        for (std::size_t j = 0; j < destination_indices.size(); ++j)
+            for (int d = 0; d < 2; ++d) active_dst.positions(j, d) = dst.positions(destination_indices[j], d);
+
+        auto active_src_mesh = make_sample_point_mesh(active_src, coordinate_system);
+        auto active_dst_mesh = make_sample_point_mesh(active_dst, coordinate_system);
+        InterpolationMatrix<Kokkos::HostSpace> active_matrix;
+        if (active_dst_mesh.n_cells() == 0 || active_src_mesh.n_cells() == 0) {
+            if (active_src_mesh.n_cells() == 0 && active_dst_mesh.n_cells() != 0 && config.unmapped == UnmappedAction::Error)
+                throw std::runtime_error("WeightGenerator::generate_from_samples: no active source samples for active destination");
+            active_matrix = empty_sample_matrix(active_src_mesh.n_cells(), active_dst_mesh.n_cells());
+        } else {
+            active_matrix = generate_nearest(active_src_mesh, active_dst_mesh, config);
+        }
+
+        const std::size_t nnz = active_matrix.nnz();
+        Kokkos::View<double *, Kokkos::HostSpace> weights("sample_weights", nnz), frac_a("sample_frac_a", src_mesh.n_cells()),
+            frac_b("sample_frac_b", dst_mesh.n_cells()), area_a("sample_area_a", src_mesh.n_cells()), area_b("sample_area_b", dst_mesh.n_cells());
+        Kokkos::View<index_t *, Kokkos::HostSpace> rows("sample_rows", nnz), cols("sample_cols", nnz);
+        for (std::size_t i = 0; i < src_mesh.n_cells(); ++i) frac_a(i) = area_a(i) = 0.0;
+        for (std::size_t j = 0; j < dst_mesh.n_cells(); ++j) frac_b(j) = area_b(j) = 0.0;
+        for (std::size_t i = 0; i < source_indices.size(); ++i) {
+            frac_a(source_indices[i]) = active_matrix.frac_a()(i);
+            area_a(source_indices[i]) = active_matrix.area_a()(i);
+        }
+        for (std::size_t j = 0; j < destination_indices.size(); ++j) {
+            frac_b(destination_indices[j]) = active_matrix.frac_b()(j);
+            area_b(destination_indices[j]) = active_matrix.area_b()(j);
+        }
+        for (std::size_t k = 0; k < nnz; ++k) {
+            weights(k) = active_matrix.factor_list()(k);
+            rows(k) = static_cast<index_t>(destination_indices[active_matrix.factor_row()(k)]);
+            cols(k) = static_cast<index_t>(source_indices[active_matrix.factor_col()(k)]);
+        }
+        return with_global_indices(InterpolationMatrix<Kokkos::HostSpace>(std::move(weights), std::move(rows), std::move(cols), std::move(frac_a),
+                                                                          std::move(frac_b), std::move(area_a), std::move(area_b), src_mesh.n_cells(),
+                                                                          dst_mesh.n_cells()));
+    }
+
+    switch (config.method) {
+        case InterpolationMethod::NearestNeighbor:
+            return with_global_indices(generate_nearest(src_mesh, dst_mesh, config));
+        case InterpolationMethod::Bilinear:
+            return with_global_indices(generate_bilinear(src_mesh, dst_mesh, config));
+        case InterpolationMethod::Bicubic:
+            return with_global_indices(generate_bicubic(src_mesh, dst_mesh, config));
+        default:
+            break;
+    }
+    throw std::invalid_argument("WeightGenerator::generate_from_samples: unsupported method");
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers (anonymous namespace)
@@ -310,6 +522,281 @@ std::vector<double> get_cell_areas(const topology::UnstructuredMesh<MemorySpace>
     }
 
     return areas;
+}
+
+struct ConstantLatitudeCell {
+    double south{};
+    double north{};
+    double west{};
+    double east{};
+};
+
+struct ConstantLatitudeBand {
+    double south{};
+    double north{};
+    std::vector<index_t> cells;
+};
+
+struct LongitudeSegment {
+    double west{};
+    double east{};
+    index_t cell{};
+};
+
+template <class MemorySpace>
+std::vector<ConstantLatitudeCell> extract_constant_latitude_cells(const topology::UnstructuredMesh<MemorySpace> &mesh, bool periodic, double period) {
+    const auto coords = mesh.node_coords();
+    const auto offsets = mesh.conn_offsets();
+    const auto indices = mesh.conn_indices();
+    std::vector<ConstantLatitudeCell> cells(mesh.n_cells());
+    const double rad_to_units = mesh.coord_system() == topology::CoordinateSystem::SphericalDeg ? 180.0 / std::acos(-1.0) : 1.0;
+    for (std::size_t cell = 0; cell < mesh.n_cells(); ++cell) {
+        const std::size_t begin = static_cast<std::size_t>(offsets[cell]);
+        const std::size_t end = static_cast<std::size_t>(offsets[cell + 1]);
+        double south = std::numeric_limits<double>::max();
+        double north = -std::numeric_limits<double>::max();
+        std::vector<double> longitudes;
+        longitudes.reserve(end - begin);
+        for (std::size_t k = begin; k < end; ++k) {
+            const std::size_t node = static_cast<std::size_t>(indices[k]);
+            const double lon = coords(node, 0);
+            const double lat = coords(node, 1);
+            south = std::min(south, lat);
+            north = std::max(north, lat);
+            if (periodic) {
+                double normalized = std::fmod(lon, period);
+                if (normalized < 0.0) normalized += period;
+                if (normalized >= period) normalized = 0.0;
+                longitudes.push_back(normalized);
+            } else {
+                longitudes.push_back(lon);
+            }
+        }
+        if (longitudes.empty()) throw std::invalid_argument("constant-latitude overlay: encountered an empty cell polygon");
+        double west = std::numeric_limits<double>::max();
+        double east = -std::numeric_limits<double>::max();
+        if (periodic) {
+            std::sort(longitudes.begin(), longitudes.end());
+            longitudes.erase(std::unique(longitudes.begin(), longitudes.end(),
+                                         [period](double a, double b) { return std::abs(a - b) <= 1e-12 * std::max(1.0, period); }),
+                             longitudes.end());
+            if (longitudes.size() == 1) {
+                west = longitudes.front();
+                east = west + period;
+            } else {
+                double largest_gap = -1.0;
+                std::size_t gap_after = 0;
+                for (std::size_t i = 0; i < longitudes.size(); ++i) {
+                    const double next = (i + 1 < longitudes.size()) ? longitudes[i + 1] : longitudes.front() + period;
+                    const double gap = next - longitudes[i];
+                    if (gap > largest_gap) {
+                        largest_gap = gap;
+                        gap_after = i;
+                    }
+                }
+                west = longitudes[(gap_after + 1) % longitudes.size()];
+                east = west + period - largest_gap;
+            }
+        } else {
+            for (double lon : longitudes) {
+                west = std::min(west, lon);
+                east = std::max(east, lon);
+            }
+        }
+        if (!(north > south) || !(east > west) || north - south > 180.0 * rad_to_units + 1e-10) {
+            throw std::invalid_argument("constant-latitude overlay: invalid cell latitude/longitude bounds");
+        }
+        cells[cell] = ConstantLatitudeCell{south, north, west, east};
+    }
+    return cells;
+}
+
+std::vector<LongitudeSegment> make_longitude_segments(const std::vector<ConstantLatitudeCell> &cells, const std::vector<index_t> &band_cells,
+                                                      bool periodic, double period) {
+    std::vector<LongitudeSegment> result;
+    result.reserve(band_cells.size() * 2);
+    for (index_t cell_id : band_cells) {
+        const auto &cell = cells[static_cast<std::size_t>(cell_id)];
+        const double width = cell.east - cell.west;
+        if (!periodic) {
+            result.push_back(LongitudeSegment{cell.west, cell.east, cell_id});
+        } else if (width >= period - 1e-10 * std::max(1.0, period)) {
+            result.push_back(LongitudeSegment{0.0, period, cell_id});
+        } else {
+            double west = std::fmod(cell.west, period);
+            if (west < 0.0) west += period;
+            const double east = west + width;
+            if (east <= period) {
+                result.push_back(LongitudeSegment{west, east, cell_id});
+            } else {
+                result.push_back(LongitudeSegment{west, period, cell_id});
+                result.push_back(LongitudeSegment{0.0, east - period, cell_id});
+            }
+        }
+    }
+    std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) { return a.west < b.west || (a.west == b.west && a.east < b.east); });
+    return result;
+}
+
+struct ConstantLatitudeOverlap {
+    index_t dst;
+    index_t src;
+    double area;
+};
+
+std::vector<ConstantLatitudeOverlap> find_constant_latitude_overlaps(const std::vector<ConstantLatitudeBand> &src_bands,
+                                                                     const std::vector<ConstantLatitudeBand> &dst_bands,
+                                                                     const std::vector<std::vector<LongitudeSegment>> &src_segments,
+                                                                     const std::vector<std::vector<LongitudeSegment>> &dst_segments, double radians,
+                                                                     double tolerance) {
+    std::vector<ConstantLatitudeOverlap> overlaps;
+    for (std::size_t db = 0; db < dst_bands.size(); ++db) {
+        const auto &dst_band = dst_bands[db];
+        for (std::size_t sb = 0; sb < src_bands.size(); ++sb) {
+            const double south = std::max(dst_band.south, src_bands[sb].south);
+            const double north = std::min(dst_band.north, src_bands[sb].north);
+            if (north <= south) continue;
+            const double lat_factor = std::sin(north * radians) - std::sin(south * radians);
+            if (lat_factor <= 0.0) continue;
+
+            const auto &source = src_segments[sb];
+            const auto &destination = dst_segments[db];
+            std::size_t si = 0, di = 0;
+            std::map<std::pair<index_t, index_t>, double> band_overlaps;
+            while (si < source.size() && di < destination.size()) {
+                const double lon_width = std::min(source[si].east, destination[di].east) - std::max(source[si].west, destination[di].west);
+                if (lon_width > tolerance) {
+                    band_overlaps[{destination[di].cell, source[si].cell}] += lon_width * radians * lat_factor;
+                }
+                if (source[si].east < destination[di].east - tolerance) {
+                    ++si;
+                } else if (destination[di].east < source[si].east - tolerance) {
+                    ++di;
+                } else {
+                    ++si;
+                    ++di;
+                }
+            }
+            for (const auto &[cells, area] : band_overlaps) overlaps.push_back({cells.first, cells.second, area});
+        }
+    }
+    return overlaps;
+}
+
+template <class MemorySpace>
+InterpolationMatrix<MemorySpace> generate_constant_latitude_conservative(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
+                                                                         const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
+                                                                         const RegridConfig &config) {
+    const auto src_geometry = src_mesh.geometry_metadata();
+    const auto dst_geometry = dst_mesh.geometry_metadata();
+    // Longitude is circular for spherical cell geometry even when the overall
+    // mesh is regional. Normalize each cell arc into a common period; this
+    // does not close a regional mesh or make its domain periodic.
+    constexpr bool normalize_longitudes = true;
+    const double period = src_geometry.longitude_periodicity.period;
+    if (std::abs(period - dst_geometry.longitude_periodicity.period) > 1e-10 * std::max(1.0, period)) {
+        throw std::invalid_argument("constant-latitude overlay requires matching longitude periods");
+    }
+    if (!std::isfinite(period) || period <= 0.0) throw std::invalid_argument("constant-latitude overlay requires a finite positive longitude period");
+
+    const std::size_t n_src = src_mesh.n_cells();
+    const std::size_t n_dst = dst_mesh.n_cells();
+    const auto src_cells = extract_constant_latitude_cells(src_mesh, normalize_longitudes, period);
+    const auto dst_cells = extract_constant_latitude_cells(dst_mesh, normalize_longitudes, period);
+    const double radians = src_mesh.coord_system() == topology::CoordinateSystem::SphericalDeg ? std::acos(-1.0) / 180.0 : 1.0;
+    const auto src_areas = get_cell_areas(src_mesh);
+    const auto dst_areas = get_cell_areas(dst_mesh);
+    const auto src_mask = src_mesh.cell_mask();
+    const auto dst_mask = dst_mesh.cell_mask();
+    const bool has_src_mask = src_mask.extent(0) == n_src;
+    const bool has_dst_mask = dst_mask.extent(0) == n_dst;
+
+    std::map<std::pair<double, double>, ConstantLatitudeBand> src_band_map;
+    std::map<std::pair<double, double>, ConstantLatitudeBand> dst_band_map;
+    for (std::size_t i = 0; i < n_src; ++i) {
+        auto &band = src_band_map[{src_cells[i].south, src_cells[i].north}];
+        band.south = src_cells[i].south;
+        band.north = src_cells[i].north;
+        band.cells.push_back(static_cast<index_t>(i));
+    }
+    for (std::size_t j = 0; j < n_dst; ++j) {
+        auto &band = dst_band_map[{dst_cells[j].south, dst_cells[j].north}];
+        band.south = dst_cells[j].south;
+        band.north = dst_cells[j].north;
+        band.cells.push_back(static_cast<index_t>(j));
+    }
+    std::vector<ConstantLatitudeBand> src_bands, dst_bands;
+    for (auto &[key, band] : src_band_map) src_bands.push_back(std::move(band));
+    for (auto &[key, band] : dst_band_map) dst_bands.push_back(std::move(band));
+
+    std::vector<std::vector<LongitudeSegment>> src_segments(src_bands.size()), dst_segments(dst_bands.size());
+    for (std::size_t b = 0; b < src_bands.size(); ++b)
+        src_segments[b] = make_longitude_segments(src_cells, src_bands[b].cells, normalize_longitudes, period);
+    for (std::size_t b = 0; b < dst_bands.size(); ++b)
+        dst_segments[b] = make_longitude_segments(dst_cells, dst_bands[b].cells, normalize_longitudes, period);
+
+    std::vector<double> frac_a(n_src, 0.0), frac_b(n_dst, 0.0);
+    std::vector<double> weights;
+    std::vector<index_t> rows, columns;
+    std::vector<bool> dst_has_entry(n_dst, false);
+    const double tol = 1e-12 * std::max(1.0, period);
+
+    const auto overlaps = find_constant_latitude_overlaps(src_bands, dst_bands, src_segments, dst_segments, radians, tol);
+    for (const auto &overlap : overlaps) {
+        const std::size_t dst = static_cast<std::size_t>(overlap.dst);
+        const std::size_t src = static_cast<std::size_t>(overlap.src);
+        if (has_dst_mask && dst_mask[dst] == 0) continue;
+        if (has_src_mask && src_mask[src] == 0) continue;
+        const double area_dst = dst_areas[dst];
+        const double area_src = src_areas[src];
+        if (area_dst <= 0.0 || area_src <= 0.0) continue;
+        weights.push_back(overlap.area / area_dst);
+        rows.push_back(overlap.dst);
+        columns.push_back(overlap.src);
+        frac_a[src] += overlap.area / area_src;
+        frac_b[dst] += overlap.area / area_dst;
+        dst_has_entry[dst] = true;
+    }
+
+    if (config.unmapped == UnmappedAction::Error) {
+        for (std::size_t dst = 0; dst < n_dst; ++dst) {
+            if (has_dst_mask && dst_mask[dst] == 0) continue;
+            if (dst_areas[dst] > 0.0 && !dst_has_entry[dst]) {
+                throw std::runtime_error("WeightGenerator::generate_conservative: unmapped destination cell " + std::to_string(dst));
+            }
+        }
+    }
+    if (config.norm_type == NormType::FracArea) {
+        for (std::size_t k = 0; k < weights.size(); ++k) {
+            const std::size_t dst = static_cast<std::size_t>(rows[k]);
+            if (frac_b[dst] > 0.0) weights[k] /= frac_b[dst];
+        }
+    }
+    for (double &fraction : frac_a) fraction = std::min(fraction, 1.0);
+    for (double &fraction : frac_b) fraction = std::min(fraction, 1.0);
+
+    Kokkos::View<double *, MemorySpace> factor_list("constant_latitude_factor", weights.size());
+    Kokkos::View<index_t *, MemorySpace> factor_row("constant_latitude_row", rows.size());
+    Kokkos::View<index_t *, MemorySpace> factor_col("constant_latitude_col", columns.size());
+    Kokkos::View<double *, MemorySpace> frac_a_view("constant_latitude_frac_a", n_src);
+    Kokkos::View<double *, MemorySpace> frac_b_view("constant_latitude_frac_b", n_dst);
+    Kokkos::View<double *, MemorySpace> area_a_view("constant_latitude_area_a", n_src);
+    Kokkos::View<double *, MemorySpace> area_b_view("constant_latitude_area_b", n_dst);
+    for (std::size_t k = 0; k < weights.size(); ++k) {
+        factor_list(k) = weights[k];
+        factor_row(k) = rows[k];
+        factor_col(k) = columns[k];
+    }
+    for (std::size_t i = 0; i < n_src; ++i) {
+        frac_a_view(i) = frac_a[i];
+        area_a_view(i) = src_areas[i];
+    }
+    for (std::size_t j = 0; j < n_dst; ++j) {
+        frac_b_view(j) = frac_b[j];
+        area_b_view(j) = dst_areas[j];
+    }
+    return InterpolationMatrix<MemorySpace>(std::move(factor_list), std::move(factor_row), std::move(factor_col), std::move(frac_a_view),
+                                            std::move(frac_b_view), std::move(area_a_view), std::move(area_b_view), n_src, n_dst);
 }
 
 // ──────────────────── Sutherland-Hodgman polygon clipping ────────────────────
@@ -2052,22 +2539,27 @@ InterpolationMatrix<MemorySpace> generate_nearest_rect(const topology::Unstructu
             index_t d_i = j % dst_ni;
             index_t d_j = j / dst_ni;
 
-            double lon = dst_lon_start + static_cast<double>(d_i) * dst_dlon;
-            double lat = dst_lat_start + static_cast<double>(d_j) * dst_dlat;
+            // RegularGridInfo stores cell-boundary minima. Nearest-neighbor
+            // selection is between cell centers, so offset both grids by half
+            // a cell before computing source indices.
+            double lon = dst_lon_start + (static_cast<double>(d_i) + 0.5) * dst_dlon;
+            double lat = dst_lat_start + (static_cast<double>(d_j) + 0.5) * dst_dlat;
+            const double src_lon_center_start = src_lon_start + 0.5 * src_dlon;
+            const double src_lat_center_start = src_lat_start + 0.5 * src_dlat;
 
             // Safe, periodic longitude shift mapping to standard [0, 360) space
-            double relative_lon = lon - src_lon_start;
+            double relative_lon = lon - src_lon_center_start;
             while (relative_lon < 0.0) relative_lon += 360.0;
             while (relative_lon >= 360.0) relative_lon -= 360.0;
 
             // Rounding to nearest source coordinate index
-            index_t s_i = static_cast<index_t>(Kokkos::round((lon - src_lon_start) / src_dlon));
+            index_t s_i = static_cast<index_t>(Kokkos::round(relative_lon / src_dlon));
 
             // Wrap longitude periodically
             s_i = s_i % src_ni;
             if (s_i < 0) s_i += src_ni;
 
-            index_t s_j = static_cast<index_t>(Kokkos::round((lat - src_lat_start) / src_dlat));
+            index_t s_j = static_cast<index_t>(Kokkos::round((lat - src_lat_center_start) / src_dlat));
 
             // Clamp latitude safely
             if (s_j < 0) s_j = 0;
@@ -3252,6 +3744,19 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
     // fully device-resident pipeline that avoids host round-trips.
     if constexpr (is_device_space_v<MemorySpace>) {
         return generate_conservative_device(src_mesh, dst_mesh, config);
+    }
+
+    if constexpr (std::is_same_v<MemorySpace, Kokkos::HostSpace>) {
+        const auto src_geometry = src_mesh.geometry_metadata();
+        const auto dst_geometry = dst_mesh.geometry_metadata();
+        const auto spherical =
+            src_mesh.coord_system() != topology::CoordinateSystem::Cartesian3D && dst_mesh.coord_system() != topology::CoordinateSystem::Cartesian3D;
+        if (spherical && src_geometry.boundary_model == topology::BoundaryModel::ConstantLatitude &&
+            dst_geometry.boundary_model == topology::BoundaryModel::ConstantLatitude &&
+            src_geometry.area_model == topology::AreaModel::ConstantLatitudeStrip &&
+            dst_geometry.area_model == topology::AreaModel::ConstantLatitudeStrip) {
+            return generate_constant_latitude_conservative(src_mesh, dst_mesh, config);
+        }
     }
 
     // ── Optimization dispatch (Req 2.1, 2.5) ──

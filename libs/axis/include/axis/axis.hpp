@@ -26,9 +26,12 @@
 // ─── Topology ────────────────────────────────────────────────────────────────
 #include <axis/topology/enums.hpp>
 #include <axis/topology/gmsh_writer.hpp>
+#include <axis/topology/mesh_builder.hpp>
 #include <axis/topology/mesh_factory.hpp>
+#include <axis/topology/multi_face_grid.hpp>
 #include <axis/topology/named_grid_registry.hpp>
 #include <axis/topology/projection_builder.hpp>
+#include <axis/topology/reduced_gaussian_grid.hpp>
 #include <axis/topology/rule_generator.hpp>
 #include <axis/topology/structured_grid.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
