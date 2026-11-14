@@ -318,8 +318,11 @@ void NetCDF_Driver::open_write(const conf::Config &config) {
     }
     if (config.has("variable_dimensions")) {
         if (!config.is_map("variable_dimensions")) throw std::runtime_error("NetCDF_Driver: variable_dimensions must be a map");
-        for (const auto &name : config.at("variable_dimensions").keys()) {
-            const auto node = config.at("variable_dimensions")[name];
+        // CONF returns isolated snapshots. Resolve the map once so opening
+        // N variables does not copy the same dimension map N times.
+        const auto dimensions_by_variable = config.at("variable_dimensions");
+        for (const auto &name : dimensions_by_variable.keys()) {
+            const auto node = dimensions_by_variable[name];
             if (node.kind() != conf::Node_Kind::Sequence)
                 throw std::runtime_error("NetCDF_Driver: explicit dimensions must be a sequence for '" + name + "'");
             auto dimensions = node.as_string_list();

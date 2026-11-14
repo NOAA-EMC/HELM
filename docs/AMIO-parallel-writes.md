@@ -272,3 +272,15 @@ This allows per-timestep applications to retain appendable NetCDF time
 coordinates while adopting prepared parallel batches. It also keeps axes such
 as `time=1` and `lev=1` distinct. The MPI named-dimension regression verifies
 uneven-band readback, axis identity, record append, and invalid rank rejection.
+
+
+### Profiling follow-up
+
+Downstream CECE profiling found configuration setup overhead amplified by larger
+explicit-dimension manifests. CONF now traverses read-only YAML handles and
+clones only the selected subtree, retaining the previous independent-snapshot
+semantics. The dimension parser also reads its map once. A scalar-lookup
+allocation regression with 1,024 unrelated entries falls from 8,274 allocations
+to 16. The CONF unit/property/Fortran suite and AMIO NetCDF/MPI regressions pass;
+CECE retains the application-level timing, memory and readback results in its
+`docs/helm-output-profiling.md` report.
