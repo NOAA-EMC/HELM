@@ -97,6 +97,68 @@ typedef struct amio_shape_s {
 } amio_shape_t;
 
 /**
+ * @struct amio_write_region_s
+ * @brief Global destination of a contiguous rank-local write payload.
+ *
+ * Dimensions use C row-major order and offsets are zero-based, including when
+ * called from Fortran. The local shape passed to amio_write_region() describes
+ * the buffer, while global_extents describes the shared on-disk array.
+ * All ranks must agree on global_extents and assign disjoint regions. Entries
+ * beyond rank must be zero. Existing amio_shape_t/amio_bbox_t layouts are unchanged.
+ */
+typedef struct amio_write_region_s {
+    int32_t rank;                          /**< Number of dimensions; matches the local payload rank. */
+    int64_t global_extents[AMIO_MAX_RANK]; /**< Positive global array extents in elements. */
+    int64_t offsets[AMIO_MAX_RANK];        /**< Nonnegative start offsets; offset + local extent <= global extent. */
+} amio_write_region_t;
+
+/**
+ * @struct amio_region_write_s
+ * @brief One rank-local region write in an asynchronous batch.
+ *
+ * The pointers are consumed during amio_write_region_batch(); payload and
+ * descriptors may be reused after the call returns successfully.
+ *
+ * @var amio_region_write_s::var_name
+ *   NUL-terminated name of a variable in the prepared schema.
+ * @var amio_region_write_s::host_data
+ *   Contiguous row-major payload described by shape and dtype.
+ * @var amio_region_write_s::dtype
+ *   Element type declared for var_name in the prepared schema.
+ * @var amio_region_write_s::shape
+ *   Positive local payload extents and optional contiguous element strides.
+ * @var amio_region_write_s::region
+ *   Global extents and local destination offsets.
+ */
+typedef struct amio_region_write_s {
+    const char *var_name;
+    const void *host_data;
+    amio_dtype_t dtype;
+    const amio_shape_t *shape;
+    const amio_write_region_t *region;
+} amio_region_write_t;
+
+/**
+ * @struct amio_write_variable_s
+ * @brief Fixed global shape and element type for a schema-prepared write variable.
+ *
+ * Variable names are NUL-terminated. Entries beyond rank in global_extents
+ * must be zero. All ranks in the dataset communicator provide the same ordered
+ * schema to amio_prepare_write_schema().
+ */
+typedef struct amio_write_variable_s {
+    uint32_t struct_size;
+    uint32_t version;
+    const char *name;
+    uint32_t dtype;
+    uint32_t rank;
+    int64_t global_extents[AMIO_MAX_RANK];
+    uint64_t reserved[2];
+} amio_write_variable_t;
+
+#define AMIO_WRITE_VARIABLE_VERSION 1u
+
+/**
  * @typedef amio_core_handle
  * @brief Opaque handle to an AMIO_Core context.
  *

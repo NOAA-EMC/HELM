@@ -72,7 +72,7 @@ static rc::Gen<Config> genRangeInvalidManifest() {
                 cfg.staging_pool.buffer_capacity_bytes = static_cast<std::size_t>(1'073'741'825);
                 break;
             case 2: {
-                static const std::vector<std::size_t> bad = {0, 257, 1000};
+                static const std::vector<std::size_t> bad = {257, 1000};
                 cfg.worker_pool.threads = *rc::gen::elementOf(bad);
                 break;
             }

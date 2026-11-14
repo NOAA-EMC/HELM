@@ -158,6 +158,85 @@ amio_release_view(view);
 Strided reads are also supported (`bbox.strides[d] > 1`) for
 coarsening/subsampling without transferring the full resolution.
 
+## Step Collection Migration
+
+Step collections are intended for applications that need a catalogued,
+complete logical model step with explicit schema and field presence. They
+preserve the legacy writer path: migrate one dataset at a time, keep existing
+legacy layouts for current consumers, and use a separate collection path for
+the new layout. Do not infer completion from a NetCDF time dimension or a set
+of Zarr arrays. A step is complete only after its immutable commit and
+authoritative catalog head are published.
+
+Step contributions use zero-based offsets and counts in C row-major order.
+Each writer declares its local region and byte budget before copying field
+data. A successful snapshot admission releases the source buffer; it does not
+mean the payload has been written or made visible. Model time is metadata and
+need not increase monotonically, while step IDs are strictly increasing and
+never reused, including after failed attempts. Optional absent fields must be
+declared as absent, and required fields must be present before the step can be
+sealed.
+
+The additive C evolution API supports synchronous POSIX NetCDF-4 and
+TensorStore Zarr v3 lifecycles. NetCDF builds with parallel NetCDF expose
+collective multi-rank submission through
+`amio_begin_step_partitioned`: every rank supplies one global-coordinate box
+per schema field, including zero-count boxes for empty contributors. At
+end-step, nonempty boxes must cover each required field without gaps or
+overlap; an optional field is either fully covered or absent on every rank.
+All ranks must call partitioned begin, end, and cancel in the same order.
+TensorStore Zarr uses the same collective region contract. AMIO derives a
+regular shard grid from the submitted boxes, bounds each shard by the
+configured payload budget (up to 64 MiB), and assigns each complete shard to
+one producer rank. Region writes must remain aligned to that grid so two ranks
+cannot update the same shard. All writers wait for their TensorStore writes
+before the catalog head is published. The local file-driver path is qualified
+at two and four ranks; cloud storage is not. Zarr publication is
+visibility-only; stronger synchronization and durability waits currently
+return `AMIO_ERR_UNSUPPORTED`.
+
+The public direct path does not provide aggregation or GRIB2 collection
+publication. Shared-shard Zarr output is supported for aligned direct
+producer regions; arbitrary redistribution still belongs to the aggregation
+work. C and Fortran wrappers and examples are available. The 100-step parallel NetCDF qualification covers uneven
+writer partitions, empty contributors, different reader partitions,
+cancellation, and native-reader comparisons. Keep production on the
+established legacy path until the remaining M1 backend gates are complete.
+
+Published step reads use a per-dataset 16 MiB bounded LRU cache. Cache identity
+includes dataset UUID, step ID, schema digest, field name, and the exact
+selection; schema and presence metadata are checked before cache allocation.
+Reads larger than the cache budget still succeed without being cached. This
+cache currently serves repeated public step-field reads; it is not yet wired
+into the legacy timestep prefetch pipeline.
+
+See [Step Completion and Storage Guarantees](./completion-guarantees.md) for
+the POSIX publication levels and current TensorStore certification status.
+
+Evolution dimensions use zero-based C order. Fortran descriptors use the same
+logical order; reverse the Fortran logical dimension sequence when it differs
+from the C-order storage layout. A successful `amio_put_field` snapshots the
+source before return, so the model may reuse that buffer immediately. Check
+every status and release operation, producer-step, schema, dataset, and context
+handles through their distinct release calls.
+
+For published persistent steps, each reader process calls
+`amio_acquire_step_lease` before consumer work and
+`amio_release_step_lease` when finished. Leases are process-local and do not
+perform MPI communication. A lease keeps its dataset open;
+`amio_close_dataset_ex` returns `AMIO_ERR_INVALID_POLICY` until all leases are
+released. Step-field reads copy into caller-owned buffers, so they do not expose
+borrowed views. The persistent API currently guarantees reader visibility only;
+waiting for the durable milestone returns `AMIO_ERR_UNSUPPORTED`.
+
+`amio_cancel_step` is available for an open step before publication. For
+partitioned NetCDF output, all ranks call it collectively in the same order.
+It fails accepted operations, consumes that step ID, keeps the step out of
+complete-step discovery, and allows its producer handle to be released. The
+legacy asynchronous API drains accepted writes through `amio_flush` or dataset
+close; the persistent direct path completes backend writes during
+`amio_end_step`.
+
 ## Mixed-Format Translation
 
 AMIO supports reading from one format and writing to another in the

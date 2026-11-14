@@ -202,6 +202,51 @@ flowchart TD
 | Memory_View (read, returned to host) | C-Boundary | Host (via view_handle) | `amio_release_view` | Yes |
 | Opaque_Handle (core, dataset, io, view) | Handle table | C-Boundary | Corresponding finalize/close/release | Yes |
 
+## Persistent Step Collections
+
+The additive step-collection design keeps the existing dataset API and its
+native layouts intact. A step collection adds explicit schema identity,
+monotonic step IDs, model time, per-field presence, and an immutable completion
+record. The completion record is the authority for whether a logical step is
+complete; native array length or the existence of payload files alone is not
+enough to establish completeness.
+
+Each field contribution declares a region in global coordinates. Offset and
+count arithmetic is checked before snapshot admission, nonempty regions must
+fit inside the schema extent, and empty contributors remain part of metadata
+control rounds while contributing no payload. Snapshot memory is reserved
+before copying and remains charged until the accepted step reaches a terminal
+publication outcome. Source-buffer release, backend payload completion,
+reader visibility, and storage synchronization are distinct milestones.
+
+NetCDF step payloads use native variables, dimensions, and attributes in
+immutable per-step files. TensorStore Zarr step payloads use a native array per
+field and wait for each storage future before returning from the step adapter;
+shared-shard atomicity still requires destination-specific qualification.
+NCZarr explicitly rejects collection/shared-output use. GRIB2 represents only
+complete encoded messages, with checked message ranges; regional fragments are
+not valid GRIB2 payloads. Readers discover complete steps through the catalog
+and can choose partitions independently of the writer layout.
+
+The additive C evolution API supports synchronous POSIX NetCDF-4 and
+single-rank TensorStore Zarr v3 journeys: exclusive collection open, immutable
+schema registration, copied field submission, commit/head publication,
+operation query and wait, bounded step listing/description, and contiguous
+selected reads. When built with parallel NetCDF, direct NetCDF steps accept
+rank-local boxes through `amio_begin_step_partitioned`. The end-step check
+collectively verifies that submitted boxes tile each present global field
+without overlap or gaps, and rank zero publishes the catalog record only
+after collective payload completion. Empty contributors use zero-count
+regions. The four-rank persistent NetCDF qualification covers uneven and empty
+writers, differently partitioned readers, model times, shape changes,
+optional fields, cancellation, and incomplete-coverage failure propagation.
+Zarr writes one native array per present field; shared-shard multi-writer
+output is not enabled. Operation status separates source release, payload
+completion, visibility, and durability; durability waits report unsupported.
+Aggregated output and GRIB2 collection publication remain outside the
+qualified public path. Applications should retain the established legacy path
+until all M1 backend gates are qualified.
+
 ## Build Target Topology
 
 ```mermaid

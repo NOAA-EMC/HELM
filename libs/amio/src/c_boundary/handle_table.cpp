@@ -12,6 +12,23 @@
 namespace amio::detail {
 
 HandleTable::Token HandleTable::insert(HandleKind kind, void *payload) {
+    switch (kind) {
+        case HandleKind::Core:
+        case HandleKind::Dataset:
+        case HandleKind::Io:
+        case HandleKind::View:
+        case HandleKind::Context:
+        case HandleKind::Schema:
+        case HandleKind::ProducerStep:
+        case HandleKind::ConsumerLease:
+        case HandleKind::ValidationReport:
+        case HandleKind::EvolutionDataset:
+        case HandleKind::Operation:
+        case HandleKind::StreamLease:
+            break;
+        default:
+            return 0;
+    }
     std::lock_guard<std::mutex> guard(mu_);
 
     std::uint32_t slot_index;
@@ -95,7 +112,8 @@ amio_status_t HandleTable::lookup(Token token, HandleKind expected, void **out_p
     return AMIO_OK;
 }
 
-amio_status_t HandleTable::release(Token token, HandleKind expected) noexcept {
+amio_status_t HandleTable::release(Token token, HandleKind expected, void **out_payload) noexcept {
+    if (out_payload != nullptr) *out_payload = nullptr;
     if (token == 0) {
         return AMIO_ERR_NULL_HANDLE;
     }
@@ -110,10 +128,10 @@ amio_status_t HandleTable::release(Token token, HandleKind expected) noexcept {
     }
 
     Slot &s = slots_[slot_index];
-
     if (!s.live || s.generation != generation || s.kind != expected) {
         return AMIO_ERR_INVALID_HANDLE;
     }
+    if (out_payload != nullptr) *out_payload = s.payload;
 
     // Mark the slot as released and bump the generation so any
     // outstanding token referring to it is now stale.  Generation

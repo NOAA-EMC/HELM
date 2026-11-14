@@ -62,6 +62,14 @@ enum class HandleKind : std::uint8_t {
     Dataset = 2,
     Io = 3,
     View = 4,
+    Context = 5,
+    Schema = 6,
+    ProducerStep = 7,
+    ConsumerLease = 8,
+    ValidationReport = 9,
+    EvolutionDataset = 10,
+    Operation = 11,
+    StreamLease = 12,
 };
 
 // HandleTable -- a slab of generation-stamped slots that hands out
@@ -135,7 +143,7 @@ class HandleTable {
     // re-allocated by a future insert().  The released payload is
     // *not* dereferenced -- the caller is responsible for any
     // resource cleanup before calling release.
-    amio_status_t release(Token token, HandleKind expected) noexcept;
+    amio_status_t release(Token token, HandleKind expected, void **out_payload = nullptr) noexcept;
 
     // size_for_test -- diagnostics-only count of currently live
     // slots.  Inexpensive; used by the unit tests.  Does not lock
@@ -185,6 +193,9 @@ class HandleTable {
     std::vector<Slot> slots_;
     std::vector<std::uint32_t> free_list_;  // slot indices ready for reuse
 };
+
+/** Process-wide typed handle table shared by the public C-boundary entry points. */
+HandleTable &process_handle_table();
 
 // On every supported platform `void*` is at least 64 bits wide.
 // Keeping the static_assert here ensures a 32-bit ABI build (which

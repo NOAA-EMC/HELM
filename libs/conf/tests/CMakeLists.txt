@@ -211,3 +211,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/prop_error_lockstep.cpp")
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src/fortran
     )
 endif()
+
+# Private resolver contract: clone only the selected snapshot without mutating YAML.
+conf_add_unit_test(test_resolver_views SOURCES test_resolver_views.cpp LIBRARIES yaml-cpp)
