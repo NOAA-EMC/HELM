@@ -410,13 +410,13 @@ if(netCDF_FOUND AND MPI_CXX_FOUND)
         target_link_libraries(test_mpi_named_dimensions PRIVATE netCDF::netcdf)
     endif()
     add_test(NAME integration.mpi_netcdf_named_dimensions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
-        $<TARGET_FILE:test_mpi_named_dimensions> ${MPIEXEC_POSTFLAGS})
+                                                                  $<TARGET_FILE:test_mpi_named_dimensions> ${MPIEXEC_POSTFLAGS})
     add_test(NAME integration.mpi_netcdf_invalid_dimensions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
-        $<TARGET_FILE:test_mpi_named_dimensions> invalid ${MPIEXEC_POSTFLAGS})
+                                                                    $<TARGET_FILE:test_mpi_named_dimensions> invalid ${MPIEXEC_POSTFLAGS})
     add_test(NAME integration.mpi_netcdf_dotted_dimensions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
-        $<TARGET_FILE:test_mpi_named_dimensions> dotted ${MPIEXEC_POSTFLAGS})
+                                                                   $<TARGET_FILE:test_mpi_named_dimensions> dotted ${MPIEXEC_POSTFLAGS})
     set_tests_properties(integration.mpi_netcdf_named_dimensions integration.mpi_netcdf_invalid_dimensions integration.mpi_netcdf_dotted_dimensions
-        PROPERTIES LABELS "integration;mpi;write" TIMEOUT 90 RUN_SERIAL TRUE)
+                         PROPERTIES LABELS "integration;mpi;write" TIMEOUT 90 RUN_SERIAL TRUE)
 
     add_executable(test_mpi_region_write test_mpi_region_write.cpp)
     target_link_libraries(test_mpi_region_write PRIVATE AMIO::amio_core HELM::HALO HELM::LOGS)
