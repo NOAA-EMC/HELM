@@ -43,6 +43,7 @@
 #include <axis/solver/interpolation_matrix.hpp>
 #include <axis/solver/regrid_config.hpp>
 #include <axis/solver/weight_generator.hpp>
+#include <axis/solver/point_locator.hpp>
 
 // ─── Detail (internal utilities, exposed for advanced use) ───────────────────
 #include <axis/detail/mdspan_interop.hpp>
