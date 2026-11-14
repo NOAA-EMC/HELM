@@ -243,3 +243,32 @@ and [release qualification guide](../libs/amio/docs/site/development/qualificati
 In particular, an MPI transport test does not establish persistent aggregated
 output, and legacy parallel NetCDF support does not establish certified
 object-store durability or shared Zarr guarantees.
+
+## Explicit NetCDF dimensions and unlimited records
+
+NetCDF manifests can declare axis names instead of relying on equal-length
+axis inference. These optional settings work with both legacy writes and
+prepared region batches; omitted settings retain existing behavior.
+
+```yaml
+unlimited_dimensions: [time]
+variable_dimensions:
+  time: [time]
+  lev: [lev]
+  lat: [lat]
+  lon: [lon]
+  temperature: [time, lev, lat, lon]
+```
+
+Each mapped variable must list one dimension name per declared rank. Shared
+fixed dimensions must have matching extents. An axis listed in
+`unlimited_dimensions` is defined as `NC_UNLIMITED`, including during schema
+preparation; fields referencing it grow the record axis when their regions
+are written. The schema's global extents still bound each admitted operation.
+All ranks must use the same manifest and schema. Unlimited storage dimensions
+do not permit submissions outside the prepared global shape.
+
+This allows per-timestep applications to retain appendable NetCDF time
+coordinates while adopting prepared parallel batches. It also keeps axes such
+as `time=1` and `lev=1` distinct. The MPI named-dimension regression verifies
+uneven-band readback, axis identity, record append, and invalid rank rejection.

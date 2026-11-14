@@ -398,6 +398,26 @@ if(netCDF_FOUND AND MPI_CXX_FOUND)
                        "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
     endif()
 
+    add_executable(test_mpi_named_dimensions test_mpi_named_dimensions.cpp)
+    target_link_libraries(test_mpi_named_dimensions PRIVATE AMIO::amio_core MPI::MPI_CXX)
+    if(AMIO_NETCDF_PAR_LIB)
+        get_target_property(_named_nc_inc netCDF::netcdf INTERFACE_INCLUDE_DIRECTORIES)
+        if(_named_nc_inc)
+            target_include_directories(test_mpi_named_dimensions PRIVATE ${_named_nc_inc})
+        endif()
+        target_link_libraries(test_mpi_named_dimensions PRIVATE ${AMIO_NETCDF_PAR_LIB})
+    else()
+        target_link_libraries(test_mpi_named_dimensions PRIVATE netCDF::netcdf)
+    endif()
+    add_test(NAME integration.mpi_netcdf_named_dimensions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+        $<TARGET_FILE:test_mpi_named_dimensions> ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.mpi_netcdf_invalid_dimensions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+        $<TARGET_FILE:test_mpi_named_dimensions> invalid ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.mpi_netcdf_dotted_dimensions COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+        $<TARGET_FILE:test_mpi_named_dimensions> dotted ${MPIEXEC_POSTFLAGS})
+    set_tests_properties(integration.mpi_netcdf_named_dimensions integration.mpi_netcdf_invalid_dimensions integration.mpi_netcdf_dotted_dimensions
+        PROPERTIES LABELS "integration;mpi;write" TIMEOUT 90 RUN_SERIAL TRUE)
+
     add_executable(test_mpi_region_write test_mpi_region_write.cpp)
     target_link_libraries(test_mpi_region_write PRIVATE AMIO::amio_core HELM::HALO HELM::LOGS)
     if(AMIO_NETCDF_PAR_LIB)

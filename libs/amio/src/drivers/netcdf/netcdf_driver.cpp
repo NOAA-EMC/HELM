@@ -16,6 +16,7 @@
 
 #include <conf/config.hpp>
 #include <conf/error.hpp>
+#include <conf/value.hpp>
 
 #include "drivers/common/var_attributes.hpp"
 #include "factory/backend_factory.hpp"
@@ -305,6 +306,31 @@ void NetCDF_Driver::open_write(const conf::Config &config) {
     }
     file_path_ = path;
 
+    // Optional explicit axes preserve scientific dimension identity when
+    // several axes have equal lengths, including prepared unlimited records.
+    variable_dimensions_.clear();
+    unlimited_dimensions_.clear();
+    if (config.has("unlimited_dimensions")) {
+        for (const auto &name : config.get_string_list("unlimited_dimensions")) {
+            if (name.empty() || name.size() > NC_MAX_NAME || !unlimited_dimensions_.insert(name).second)
+                throw std::runtime_error("NetCDF_Driver: invalid or duplicate unlimited dimension name");
+        }
+    }
+    if (config.has("variable_dimensions")) {
+        if (!config.is_map("variable_dimensions")) throw std::runtime_error("NetCDF_Driver: variable_dimensions must be a map");
+        for (const auto &name : config.at("variable_dimensions").keys()) {
+            const auto node = config.at("variable_dimensions")[name];
+            if (node.kind() != conf::Node_Kind::Sequence)
+                throw std::runtime_error("NetCDF_Driver: explicit dimensions must be a sequence for '" + name + "'");
+            auto dimensions = node.as_string_list();
+            if (dimensions.empty()) throw std::runtime_error("NetCDF_Driver: variable dimension list must not be empty");
+            for (const auto &dimension : dimensions) {
+                if (dimension.empty() || dimension.size() > NC_MAX_NAME) throw std::runtime_error("NetCDF_Driver: invalid explicit dimension name");
+            }
+            variable_dimensions_.emplace(name, std::move(dimensions));
+        }
+    }
+
     // Parse data model (R7.2, R7.3).
     std::string model_str = config.get_or<std::string>("data_model", "classic");
     data_model_ = parse_data_model(model_str);
@@ -504,6 +530,29 @@ int NetCDF_Driver::define_variable_in_define_mode(const VarMeta &meta) {
 
     for (int32_t d = 0; d < meta.shape.rank; ++d) {
         const auto target_len = static_cast<std::size_t>(meta.write_region.rank ? meta.write_region.global_extents[d] : meta.shape.extents[d]);
+        const auto explicit_axes = variable_dimensions_.find(meta.name);
+        if (explicit_axes != variable_dimensions_.end()) {
+            if (explicit_axes->second.size() != static_cast<std::size_t>(meta.shape.rank))
+                throw std::runtime_error("NetCDF_Driver: explicit dimension count differs from rank for '" + meta.name + "'");
+            const auto &name = explicit_axes->second[d];
+            const bool unlimited = unlimited_dimensions_.contains(name);
+            status = nc_inq_dimid(ncid_, name.c_str(), &dimids[d]);
+            if (status == NC_EBADDIM) {
+                nc_check(nc_def_dim(ncid_, name.c_str(), unlimited ? NC_UNLIMITED : target_len, &dimids[d]), "nc_def_dim('" + name + "')");
+            } else {
+                nc_check(status, "nc_inq_dimid('" + name + "')");
+                size_t actual = 0;
+                nc_check(nc_inq_dimlen(ncid_, dimids[d], &actual), "nc_inq_dimlen('" + name + "')");
+                int count = 0;
+                nc_check(nc_inq_unlimdims(ncid_, &count, nullptr), "nc_inq_unlimdims");
+                std::vector<int> ids(count);
+                if (count) nc_check(nc_inq_unlimdims(ncid_, &count, ids.data()), "nc_inq_unlimdims");
+                const bool existing_unlimited = std::find(ids.begin(), ids.end(), dimids[d]) != ids.end();
+                if (existing_unlimited != unlimited || (!unlimited && actual != target_len))
+                    throw std::runtime_error("NetCDF_Driver: incompatible explicit dimension '" + name + "'");
+            }
+            continue;
+        }
         std::string dim_name = meta.name + "_dim" + std::to_string(d);
         if ((meta.name == "lon" || meta.name == "lat" || meta.name == "lev" || meta.name == "time") && meta.shape.rank == 1) {
             dim_name = meta.name;
@@ -593,7 +642,9 @@ int NetCDF_Driver::define_variable_in_define_mode(const VarMeta &meta) {
             if (dim_status == NC_NOERR) {
                 dimids[d] = existing_dimid;
             } else {
-                const std::size_t def_len = (dim_name == "time" && !meta.write_region.rank) ? static_cast<std::size_t>(NC_UNLIMITED) : target_len;
+                const std::size_t def_len = (unlimited_dimensions_.contains(dim_name) || (dim_name == "time" && !meta.write_region.rank))
+                                                ? static_cast<std::size_t>(NC_UNLIMITED)
+                                                : target_len;
                 status = nc_def_dim(ncid_, dim_name.c_str(), def_len, &dimids[d]);
                 nc_check(status, "nc_def_dim('" + dim_name + "')");
             }
@@ -870,6 +921,8 @@ void NetCDF_Driver::close() {
     write_schema_prepared_ = false;
     prepared_variables_.clear();
     independent_step_variables_.clear();
+    variable_dimensions_.clear();
+    unlimited_dimensions_.clear();
 }
 
 void NetCDF_Driver::open_step_write(const std::string &path, const Schema &schema, double model_time) {

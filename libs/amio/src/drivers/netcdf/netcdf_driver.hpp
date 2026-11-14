@@ -194,6 +194,8 @@ class NetCDF_Driver : public Backend_Driver {
     bool use_parallel_ = false;
     bool write_schema_prepared_ = false;
     std::unordered_map<std::string, PreparedVariable> prepared_variables_;
+    std::map<std::string, std::vector<std::string>, std::less<>> variable_dimensions_;
+    std::set<std::string, std::less<>> unlimited_dimensions_;
     std::set<std::string, std::less<>> independent_step_variables_;
 
     // CF/UGRID convention metadata + per-variable attributes parsed
