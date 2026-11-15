@@ -10,7 +10,6 @@ on:
       - ".github/scripts/axis-*"
       - ".github/workflows/axis-wheels.yml"
   pull_request:
-    branches: [feature/paper-source]
     paths:
       - "libs/axis/**"
       - "libs/halo/**"

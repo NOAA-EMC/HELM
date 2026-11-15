@@ -1,6 +1,7 @@
 """Exercise the installed wheel outside the source package."""
 
 import importlib.metadata
+import re
 import shutil
 import subprocess
 import sys
@@ -9,6 +10,20 @@ from pathlib import Path
 import axis
 import numpy as np
 import xarray as xr
+
+# Check the extension and bundled libraries, including transitive dependencies
+# reported by ldd. Repaired wheels must not carry an MPI runtime.
+if len(sys.argv) == 1 and sys.platform in ("linux", "darwin"):
+    package = Path(axis.__file__).resolve().parent
+    libraries = list(package.rglob("*.so")) + list(package.rglob("*.dylib"))
+    libraries += list(package.parent.glob("axis_regrid.libs/*"))
+    for library in libraries:
+        command = ["ldd", str(library)] if sys.platform == "linux" else ["otool", "-L", str(library)]
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        if re.search(r"\blib(?:mpi|mpich)(?:[_\-.]|$)", result.stdout, re.IGNORECASE):
+            sys.exit(f"MPI dependency found in {library}:\n{result.stdout}")
+        if "not found" in result.stdout:
+            sys.exit(f"Missing dependency in {library}:\n{result.stdout}")
 
 if len(sys.argv) == 1:
     # Require normal interpreter teardown, including native objects held in

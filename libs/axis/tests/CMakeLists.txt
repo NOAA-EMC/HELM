@@ -110,9 +110,11 @@ set(AXIS_UNIT_TEST_SOURCES
     test_coastal_renormalization.cpp
     test_warp_cooperative_clipping.cpp
     test_noaa_grib_named_grids.cpp
-    test_distributed_weight_generator.cpp
     test_bicubic.cpp
 )
+if(AXIS_ENABLE_MPI)
+    list(APPEND AXIS_UNIT_TEST_SOURCES test_distributed_weight_generator.cpp)
+endif()
 
 add_executable(axis_unit_tests ${AXIS_UNIT_TEST_SOURCES})
 
@@ -246,7 +248,7 @@ else()
 endif()
 
 # MPI integration tests need their own MPI/Kokkos lifecycle and launcher.
-if(TARGET halo)
+if(AXIS_ENABLE_MPI AND TARGET halo)
     add_executable(axis_distributed_mpi_tests test_distributed_regridder_mpi.cpp)
     target_link_libraries(axis_distributed_mpi_tests PRIVATE axis halo)
     foreach(ranks IN ITEMS 1 2 4 8)
@@ -258,7 +260,7 @@ if(TARGET halo)
     endforeach()
 endif()
 
-if(TARGET halo AND Kokkos_ENABLE_OPENMP)
+if(AXIS_ENABLE_MPI AND TARGET halo AND Kokkos_ENABLE_OPENMP)
     foreach(ranks IN ITEMS 2 4)
         math(EXPR slots "${ranks} * ${ranks}")
         add_test(NAME axis_distributed_hybrid_${ranks}x${ranks}

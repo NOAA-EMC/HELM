@@ -26,6 +26,25 @@ def local_distributed_client():
         cluster.close()
 
 
+def test_vertical_regrid_matches_eager_on_distributed_workers(local_distributed_client):
+    import xarray as xr
+
+    values = np.broadcast_to(np.array([0.0, 2.0, 4.0]), (2, 3, 3)).copy()
+    field = xr.DataArray(
+        dask_array.from_array(values, chunks=(1, 3, 3)),
+        dims=("time", "column", "lev"),
+    )
+    source = xr.DataArray([0.0, 1.0, 2.0], dims=("lev",))
+    target = xr.DataArray([0.5, 1.5], dims=("target_lev",))
+    regridder = axis.VerticalRegridder()
+    eager = regridder.interpolate(field.compute(scheduler="synchronous"), source, target)
+    _, client = local_distributed_client
+    with client:
+        result = regridder.interpolate(field, source, target)
+        assert hasattr(result.data, "dask")
+        np.testing.assert_allclose(result.compute().values, eager.values)
+
+
 def test_distributed_weights_survive_worker_join_and_restart(dask_regrid_case, local_distributed_client):
     source_grid, target_grid, field = dask_regrid_case
     cluster, client = local_distributed_client

@@ -4,6 +4,14 @@ include(CMakeFindDependencyMacro)
 
 # Kokkos is a transitive PUBLIC dependency of HELM::AXIS.
 find_dependency(Kokkos)
+find_dependency(KokkosKernels)
+find_dependency(ArborX 2.1)
+if(@AXIS_ENABLE_MPI@)
+    find_dependency(MPI COMPONENTS CXX)
+endif()
+if(@AXIS_HAVE_HALO@)
+    find_dependency(HALO)
+endif()
 
 # PROJ is an optional PRIVATE dependency (not transitive).
 if(@AXIS_ENABLE_PROJ@)

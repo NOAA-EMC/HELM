@@ -23,6 +23,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  python-no-mpi:
+    name: Python source installs without MPI
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build tools and uv
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates cmake ninja-build g++ git python3-dev python3-venv
+          python3 -m venv /tmp/axis-tools
+          /tmp/axis-tools/bin/pip install uv
+      - name: Build and test with pip and uv
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: 2
+          CMAKE_ARGS: -DAXIS_KOKKOS_OPENMP=OFF
+        run: |
+          export PATH="/tmp/axis-tools/bin:$PATH"
+          bash .github/scripts/axis-no-mpi-test.sh
+
   native:
     name: AXIS native build and tests
     runs-on: ubuntu-latest
@@ -148,7 +169,9 @@ jobs:
             cd libs/axis
             # Python source builds must not discover or invoke a Fortran compiler.
             export FC=/nonexistent/fortran-disabled-for-python
-            uv sync --no-managed-python --all-groups
+            # Exercise optional native weight-file I/O against this image's
+            # serial NetCDF in addition to the MPI-free default job above.
+            uv sync --no-managed-python --all-groups --config-setting cmake.define.AXIS_ENABLE_NETCDF=ON
             uv run pytest -v -ra
             uv run mypy
           '

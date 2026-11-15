@@ -44,7 +44,7 @@ AXIS represents a massive paradigm shift in high-performance Earth-system regrid
 
 ## Python installation with pip or uv
 
-AXIS includes a compiled C++ extension, so installing from this repository builds native code. Python dependencies are installed by pip or uv; CMake, a C++20 compiler, and an MPI C++ implementation must already be available. The build fetches Kokkos, KokkosKernels, and ArborX if they are not installed, so the first build needs network access. PROJ and the NetCDF C library are optional and enabled when found.
+AXIS includes a compiled C++ extension, so installing from this repository builds native code. Python dependencies are installed by pip or uv; CMake and a C++20 compiler must already be available; MPI is not required. The build fetches Kokkos, KokkosKernels, and ArborX if they are not installed, so the first build needs network access. PROJ is optional. The Python build disables native NetCDF weight I/O by default; the `netcdf` extra provides Python-level file I/O.
 
 Fortran interfaces are optional. Python source builds disable both
 `AXIS_BUILD_FORTRAN` and `HALO_BUILD_FORTRAN`, so `pip` and `uv` do not need a
@@ -58,13 +58,12 @@ require a Fortran compiler.
 - Python 3.10 or newer
 - CMake 3.21 or newer
 - A C++20 compiler
-- MPI with a working C++ compiler wrapper (`mpicxx` or equivalent)
 - Git and network access on the first build when native libraries are not installed
 
 On macOS with Homebrew, install the native tools first:
 
 ```bash
-brew install cmake open-mpi llvm libomp
+brew install cmake llvm libomp
 
 export CC="$(brew --prefix llvm)/bin/clang"
 export CXX="$(brew --prefix llvm)/bin/clang++"
@@ -76,7 +75,7 @@ export LDFLAGS="-L$(brew --prefix libomp)/lib -Wl,-rpath,$(brew --prefix libomp)
 On Debian or Ubuntu:
 
 ```bash
-sudo apt-get install build-essential cmake git libopenmpi-dev openmpi-bin
+sudo apt-get install build-essential cmake git
 ```
 
 ### Install with pip
@@ -98,6 +97,12 @@ python -m pip install '.[netcdf,dask]'
 ```
 
 For an editable development install, use `python -m pip install -e '.[netcdf,dask]'` from `libs/axis`.
+
+The Python build disables native ESMF weight-file I/O by default to avoid
+linking an MPI-enabled system NetCDF library. To enable `Regridder.to_esmf`
+and `Regridder.from_esmf`, install an MPI-free NetCDF C library and build with
+`python -m pip install . --config-settings=cmake.define.AXIS_ENABLE_NETCDF=ON`.
+The `netcdf` extra separately supplies Python-level xarray file I/O.
 
 ### Install with uv
 
@@ -131,9 +136,9 @@ python -c 'import axis; axis.make_regular_mesh(4, 4, 0.0, 0.0, 1.0, 1.0); print(
 axis-regrid --help
 ```
 
-If CMake reports that MPI is missing, install an MPI implementation and ensure `mpicxx` is on `PATH`, or set `MPI_CXX_COMPILER` to its full path. If CMake cannot fetch a dependency, install Kokkos, KokkosKernels, and ArborX in a prefix visible through `CMAKE_PREFIX_PATH`, or build from a network-enabled environment.
+If CMake cannot fetch a dependency, install Kokkos, KokkosKernels, and ArborX in a prefix visible through `CMAKE_PREFIX_PATH`, or build from a network-enabled environment.
 
-`pip install` and `uv sync` compile AXIS locally; they do not download a prebuilt platform wheel. Native wheel distribution needs a deliberate MPI/Kokkos runtime strategy for each supported platform.
+When no compatible wheel is available, `pip install` and `uv sync` compile AXIS locally. Python uses Dask for parallel execution; native C++ MPI-distributed functionality is configured separately with `AXIS_ENABLE_MPI` (ON by default for native builds).
 
 AXIS integrates with `xarray`; Dask is optional and can be installed with the `dask` extra. The package does not require `cf-xarray` for its current Python API.
 
