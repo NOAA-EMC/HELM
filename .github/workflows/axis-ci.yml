@@ -85,7 +85,12 @@ jobs:
       - name: "Stage 5: Distributed MPI tests"
         run: |
           docker compose exec -T helm-dev bash -lc '
-            cd libs/axis/build-ci && OMPI_MCA_rmaps_base_oversubscribe=1 ctest -L mpi --output-on-failure
+            set -e
+            cd libs/axis/build-ci
+            # MPI counts ranks, not OpenMP workers: 4 ranks x 4 threads can
+            # oversubscribe a 4-core runner without enabling MPI yielding.
+            OMPI_MCA_rmaps_base_oversubscribe=1 OMPI_MCA_mpi_yield_when_idle=1 \
+              ctest -L mpi --output-on-failure
           '
 
       - name: Tear down container
