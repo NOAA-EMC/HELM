@@ -30,10 +30,33 @@
 #include <axis/solver/regrid_config.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
 #include <axis/types.hpp>
+#include <cstddef>
 #include <utility>
 #include <vector>
 
 namespace axis::solver {
+
+/// A collection of point samples, independent of cell boundary geometry.
+/// Coordinates are stored as [n_samples, 2] in (x/lon, y/lat) order.
+struct SampleGrid {
+    Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace> positions;
+    /// Optional per-sample activity flags: 1 is active and 0 is masked.
+    /// Nearest-neighbor honors both source and destination masks. Bilinear and
+    /// bicubic currently reject masked stencils because their stencil kernels
+    /// do not remove masked center samples.
+    Kokkos::View<int *, Kokkos::HostSpace> mask;
+    /// Optional stable identifiers. On the source grid these become matrix
+    /// column indices in [0, global_source_count); on the destination grid
+    /// they become matrix row indices in [0, global_destination_count). Each
+    /// list must be unique. Empty uses local row-major indices.
+    Kokkos::View<index_t *, Kokkos::HostSpace> global_indices;
+    std::size_t global_source_count{0};
+    std::size_t global_destination_count{0};
+    /// Optional logical shape. Both values must be zero (unstructured samples)
+    /// or both positive with nx*ny equal to the number of positions.
+    std::size_t nx{0};
+    std::size_t ny{0};
+};
 
 /// Stateless weight-generation facade.
 ///
@@ -42,6 +65,12 @@ namespace axis::solver {
 class WeightGenerator {
    public:
     WeightGenerator() = delete;
+
+    /// Generate point interpolation weights without requiring polygon cells.
+    /// Supports nearest, bilinear and bicubic host-space methods. The centers
+    /// in SampleGrid are the interpolation points; no cell corners are inferred.
+    static InterpolationMatrix<Kokkos::HostSpace> generate_from_samples(const SampleGrid &src, const SampleGrid &dst,
+                                                                        topology::CoordinateSystem coordinate_system, const RegridConfig &config);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Single-rank generate

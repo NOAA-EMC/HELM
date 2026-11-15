@@ -1,0 +1,13 @@
+.git/
+.agents/
+.specify/
+build/
+build-*/
+libs/axis/build*/
+libs/axis/.venv/
+libs/axis/.pytest_cache/
+libs/axis/.mypy_cache/
+**/__pycache__/
+*.pyc
+*.log
+.DS_Store

@@ -35,6 +35,8 @@
 #include <string>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 
 using axis::field_view;
@@ -327,22 +329,5 @@ RC_GTEST_PROP(PropDescriptorValidation, UnknownConventionKind, ()) {
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
 // Property tests require Kokkos initialized for MeshFactory operations.
-
-class KokkosEnvironment : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) {
-            Kokkos::initialize();
-        }
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) {
-            Kokkos::finalize();
-        }
-    }
-};
-
-// Register the Kokkos environment with GTest
-static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnvironment);
 
 }  // namespace

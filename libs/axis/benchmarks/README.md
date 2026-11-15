@@ -199,7 +199,7 @@ extends the lean base image and provisions the `axis-bench` conda env:
 # 1. Build the lean base image (skip if already built):
 docker compose build
 
-# 2. Layer on the benchmark toolchain (Dockerfile-Benchmarks):
+# 2. Layer on the benchmark toolchain (Dockerfile.benchmarks):
 docker compose -f docker-compose.yml -f docker-compose.benchmarks.yml \
   up -d --build
 

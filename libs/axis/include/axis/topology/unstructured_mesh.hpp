@@ -79,10 +79,13 @@ class UnstructuredMesh {
         // Reject node coordinate tables that cannot even hold a planar (x, y)
         // position. A non-empty coordinate table must carry at least two
         // columns; three-dimensional Cartesian meshes may store a compact
-        // two-column layout (with z implied) or the full three-column layout,
-        // both of which are valid. Empty (default-constructed) meshes are left
-        // untouched so the zero-copy adoption path stays valid for placeholder
-        // meshes.
+        // two-column layout (with z implied to be exactly 0.0) or the full
+        // three-column layout, both of which are valid. Consumers that read
+        // the z component must guard the access with node_coords.extent(1) > 2
+        // (see UnstructuredMesh::compute_areas and DegenerateCellHandler) —
+        // an unguarded column-2 read on a compact mesh is out of bounds.
+        // Empty (default-constructed) meshes are left untouched so the
+        // zero-copy adoption path stays valid for placeholder meshes.
         const std::size_t n_nodes = node_coords_.extent(0);
         const std::size_t ndim = node_coords_.extent(1);
         if (n_nodes != 0 && ndim < 2) {
@@ -116,6 +119,12 @@ class UnstructuredMesh {
     /// @brief Query how boundary coordinates and cell areas should be interpreted.
     [[nodiscard]] GeometryMetadata geometry_metadata() const noexcept {
         return geometry_;
+    }
+
+    /// Preserve the actual origin and mathematical interpretation of prepared
+    /// boundaries when a mesh is sliced or reconstructed from retained geometry.
+    void set_geometry_metadata(GeometryMetadata geometry) noexcept {
+        geometry_ = geometry;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -272,7 +272,7 @@ class Regridder:
             f.write(self._serialized_weights)
 
     def close(self) -> None:
-        """Release this regridder's local cache entries and worker plugins."""
+        """Release this regridder's native weights, cache entries, and worker plugins."""
         weights_key = f"weights_{self._uid}"
         total_key = f"tw_{self._uid}_sum"
         _WORKER_CACHE.pop(weights_key, None)
@@ -283,6 +283,13 @@ class Regridder:
             except Exception:
                 logger.debug("Could not unregister AXIS worker plugin %s", plugin_name, exc_info=True)
         self._registered_clients.clear()
+        # Drop the owning Python reference to nanobind's C++ Matrix as well as
+        # its serialized copy. Keeping the matrix alive after close defeats the
+        # cleanup contract and can leave native Kokkos allocations to interpreter
+        # shutdown, when extension objects are being finalized.
+        self._weights_matrix = None
+        self._serialized_weights = None
+        self._total_weights = None
 
     def __del__(self):
         """Best-effort close; cleanup must never mask shutdown or prior errors."""

@@ -405,6 +405,11 @@ void nan_batch_apply(const InterpolationMatrix<MemorySpace> &matrix,
     if (!matrix.is_csr()) {
         throw std::runtime_error("axis::solver::nan_batch_apply requires matrix in CSR format. Call to_csr() first.");
     }
+    // Validated on the host: throwing from inside the team-level KOKKOS_LAMBDA
+    // below is not supported by Kokkos device backends.
+    if (matrix.has_linear_reconstruction()) {
+        throw std::invalid_argument("NaN-aware linear reconstruction is not supported; use finite cell averages");
+    }
 
     const auto row_ptr = matrix.row_ptr();
     const auto col_idx = matrix.col_idx();
@@ -419,8 +424,6 @@ void nan_batch_apply(const InterpolationMatrix<MemorySpace> &matrix,
             const auto start = row_ptr(j);
             const auto end = row_ptr(j + 1);
 
-            if (matrix.has_linear_reconstruction())
-                throw std::invalid_argument("NaN-aware linear reconstruction is not supported; use finite cell averages");
             // Compute total weight for row j (sum of S)
             double total_row_weight = 0.0;
             for (auto k = start; k < end; ++k) {

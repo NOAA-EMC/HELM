@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "citations": [
+    {
+      "path": "libs/axis/src/solver/weight_generator.cpp",
+      "symbol": "generate_conservative",
+      "description": "AXIS conservative dispatch: metadata strip shortcut, regular/rectilinear shortcuts, then general BVH and clipping",
+      "sha256": "8772c0be4a2288fc21a8d89f838795a12b2ed26249678fcc74cb209284574045",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/include/axis/detail/spherical_clipper.hpp",
+      "symbol": "SphericalClipper",
+      "description": "Actual spherical great-circle half-space clipping (Sutherland\u2013Hodgman style, despite legacy Greiner\u2013Hormann labels)",
+      "sha256": "4fc97a31651355f4b9a0c85dd33a60c4501d612a3e591975c49bd3850f453f0b",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/include/axis/detail/planar_clipper.hpp",
+      "symbol": "PlanarClipper",
+      "description": "Cartesian Sutherland\u2013Hodgman clipping",
+      "sha256": "5655b518d5a7339b5f2adeef513cbf92a4e29b5e83cfc1809fd1ad56a6799311",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/include/axis/solver/regrid_config.hpp",
+      "symbol": "ExtrapolationAction",
+      "description": "Explicit normalization and extrapolation settings",
+      "sha256": "d46c0c792449a8efc69c1c4c4dfc1be38d7ebd78fad751eafbc396f2c74500a6",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/include/axis/solver/interpolation_matrix.hpp",
+      "symbol": "to_csr",
+      "description": "Reusable sparse weights, fractions, areas, and CSR conversion",
+      "sha256": "e8736033d249f8c21aeecd8cce13c95a1570931a126d79ba91d5f0937de8c84c",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/include/axis/solver/apply.hpp",
+      "symbol": "void apply",
+      "description": "Native repeated weight application",
+      "sha256": "f7425b2b28807142eb7273ac69148216e7841331c8c558449bdd1c93ac21cd10",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/paper/native/reference.cpp",
+      "symbol": "compute_reference",
+      "description": "Independent analytic convex-polygon and rectangle references",
+      "sha256": "d54cb81c67440779087c22dfb77ef5fe7a4456e128b05296936ac718957ad803",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/paper/native/esmc_worker.cpp",
+      "symbol": "ESMC_FieldRegridStore",
+      "description": "Native ESMC store, apply, and release lifecycle",
+      "sha256": "dceef9e1bc881dd14be5d45f359a454eecf086646c52e57307ca492bae36aa7e",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/paper/native/metrics.cpp",
+      "symbol": "conservation_absolute",
+      "description": "Independent quality/conservation metrics",
+      "sha256": "102d39f279bce1eaaea3d723aa196b8a87bfe842aa9d288d60eeb5417cdc4c2f",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/paper/native/reference_geometry.hpp",
+      "symbol": "ReferenceGeometry",
+      "description": "Independent analytic spherical/rectangle geometry and double/extended-precision evaluation",
+      "sha256": "d0d009b920e2a6e3859545138e31402c37f005659a0d9a126c8eee720f46070e",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/paper/native/axis_worker.cpp",
+      "symbol": "make_axis_mesh",
+      "description": "Native AXIS adapter, explicit geometry, supplied strip areas, and timing lifecycle",
+      "sha256": "52e12d59e03f0a9a87c5af6440e04830dede136276048d4883c06694d4cd684e",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/src/solver/weight_generator_conservative_rect.cpp",
+      "symbol": "generate_conservative_rect",
+      "description": "Analytic regular-rectangle shortcut and optional host overlap counters",
+      "sha256": "16a21b724d6345baabef565ba23264552cd3334fd5a877dde1e279da60cfc391",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/src/solver/weight_generator_conservative_rect_nonuniform.cpp",
+      "symbol": "generate_conservative_rect_nonuniform",
+      "description": "Nonuniform rectangle shortcut and its overlap threshold",
+      "sha256": "1d73ba4ef63f37dea37e1b78ec79370bcca398e649d7fc23d497b5c982087b5a",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/paper/native/timing.hpp",
+      "symbol": "measure_reused_operator",
+      "description": "Completed-work timing boundaries, reuse observations, and failure-safe sample journal",
+      "sha256": "61720c576d8cca16a9aabe8d879d9bc773cede557f9105cbcc5b5e3fade16969",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    },
+    {
+      "path": "libs/axis/paper/scripts/prepare_cases.py",
+      "symbol": "write_case",
+      "description": "xarray canonical fixtures, LCC projected corners, and distinct MPAS triangulations",
+      "sha256": "f9538cb9c4a4f5c8dc6e53ec65d82bfcccc2040a64736f0f691163a5818e6cff",
+      "revision": "2b139b215482875e7a9332af1ba20df8dead5fa0",
+      "review_status": "source inspected; native smoke and paper profiles executed",
+      "snapshot_kind": "working_tree_at_base_revision"
+    }
+  ]
+}

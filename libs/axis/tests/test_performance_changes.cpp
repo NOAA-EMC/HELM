@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <axis/detail/degenerate_cell_handler.hpp>
 #include <axis/detail/linear_geometry.hpp>
 #include <axis/solver/apply.hpp>
 #include <axis/solver/weight_generator.hpp>
@@ -193,6 +194,37 @@ TEST(PerformanceChanges, MalformedCoordinatesRejected) {
     Kokkos::View<double **, Kokkos::LayoutLeft, Space> c("bad", 4, 1);
     Kokkos::View<axis::index_t *, Space> off("off", 2), idx("idx", 3);
     EXPECT_THROW(Mesh(c, off, idx, axis::topology::CoordinateSystem::Cartesian3D), std::invalid_argument);
+}
+TEST(PerformanceChanges, CompactCartesianMeshImpliesZeroDepth) {
+    // Two-column Cartesian3D is the documented compact layout with z == 0.
+    // compute_areas() and the degenerate-cell scan must use the implied zero
+    // instead of reading a third column that does not exist.
+    constexpr int n = 2;
+    Kokkos::View<double **, Kokkos::LayoutLeft, Space> compact("nodes", (n + 1) * (n + 1), 2);
+    for (int j = 0; j <= n; ++j)
+        for (int i = 0; i <= n; ++i) {
+            compact(i + (n + 1) * j, 0) = double(i) / n;
+            compact(i + (n + 1) * j, 1) = double(j) / n;
+        }
+    auto full = triangles(n);
+    auto offsets = full.conn_offsets_view();
+    auto indices = full.conn_indices_view();
+    Mesh compact_mesh(compact, offsets, indices, axis::topology::CoordinateSystem::Cartesian3D);
+
+    compact_mesh.compute_areas();
+    full.compute_areas();
+    auto compact_areas = compact_mesh.cell_areas();
+    auto full_areas = full.cell_areas();
+    ASSERT_EQ(compact_areas.size(), full_areas.size());
+    for (std::size_t c = 0; c < compact_areas.size(); ++c) {
+        EXPECT_DOUBLE_EQ(compact_areas[c], full_areas[c]);
+        EXPECT_GT(compact_areas[c], 0.0);  // unit square split into 2n² triangles
+    }
+
+    auto compact_report = axis::detail::DegenerateCellHandler::scan(compact_mesh);
+    auto full_report = axis::detail::DegenerateCellHandler::scan(full);
+    EXPECT_EQ(compact_report.degenerate_count, full_report.degenerate_count);
+    EXPECT_EQ(compact_report.excluded_indices.size(), 0u);
 }
 TEST(PerformanceChanges, StridedBatchViews) {
     auto a = triangles(5), b = triangles(11);

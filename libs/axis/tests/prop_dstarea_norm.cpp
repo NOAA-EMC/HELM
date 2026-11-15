@@ -26,6 +26,8 @@
 #include <cstddef>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 
 /// Build a simple ni x nj regular-grid UnstructuredMesh on HostSpace.
@@ -128,21 +130,5 @@ RC_GTEST_PROP(PropDstareaNorm, AdjustRecoversTrueValue, ()) {
 }
 
 // ─── Kokkos Initialization ───────────────────────────────────────────────────
-
-class KokkosEnvironment : public ::testing::Environment {
-   public:
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) {
-            Kokkos::initialize();
-        }
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) {
-            Kokkos::finalize();
-        }
-    }
-};
-
-static auto *const kokkos_env = ::testing::AddGlobalTestEnvironment(new KokkosEnvironment);
 
 }  // namespace

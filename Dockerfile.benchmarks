@@ -1,4 +1,3 @@
-# ─────────────────────────────────────────────────────────────────────────────
 # Benchmark overlay for the HELM dev container.
 #
 # The main ./Dockerfile stays lean (C++/Kokkos toolchain only). This image
@@ -11,14 +10,13 @@
 #     up -d --build
 #
 # Or build directly (override BASE_IMAGE if your compose project name differs):
-#   docker build -f Dockerfile-Benchmarks \
+#   docker build -f Dockerfile.benchmarks \
 #     --build-arg BASE_IMAGE=helm-project-helm-dev:latest \
 #     -t helm-dev-benchmarks .
 #
 # The workspace is mounted at the same path as in the base image, so the
 # axis_py extension built inside the container is picked up as-is. Activate
 # the benchmark toolchain with:  mamba run -n axis-bench python3 ...
-# ─────────────────────────────────────────────────────────────────────────────
 ARG BASE_IMAGE=helm-project-helm-dev:latest
 FROM ${BASE_IMAGE}
 

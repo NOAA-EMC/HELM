@@ -1,0 +1,5 @@
+# Keep publication and preparation scripts readable without changing repo-wide rules.
+line-length = 100
+
+[format]
+quote-style = "double"

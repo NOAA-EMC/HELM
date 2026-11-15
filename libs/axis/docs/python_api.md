@@ -45,25 +45,15 @@ which extrapolates the outer quadratures. Supply authoritative corners through
 `axis.axis_py.StructuredGrid.set_corners()` or request `CornerPolicy.RequireExplicit`
 when approximation is not acceptable.
 
-```python
-import axis
-import numpy as np
+Run the complete executable example from the repository root:
 
-rect = axis.RectilinearGrid(lon_centers, lat_centers, longitude_periodic=True)
-mesh = rect.to_mesh()
-
-# Gaussian-Legendre latitude centers: exact latitude-band boundaries are
-# reconstructed from the quadrature weights (derived and validated by default).
-gaussian = axis.GaussianGrid(lon_centers, gaussian_latitudes)
-gaussian_mesh = gaussian.to_mesh()
-
-# For lower-level control, declare the policy and longitude seam explicitly.
-grid = axis.axis_py.StructuredGrid(ni, nj, center_lon, center_lat)
-mesh = grid.to_unstructured(
-    axis.CornerPolicy.CurvilinearApproximate,
-    axis.LongitudePeriodicity(periodic=True, period=360.0, increasing=True),
-)
+```bash
+python libs/axis/examples/structured_grid.py
 ```
+
+The script builds rectilinear and Gaussian meshes, then demonstrates the
+lower-level structured-grid API with an explicit corner policy and longitude
+seam.
 
 Gaussian centers alone determine exact latitude quadrature bands only when they
 are Gaussian-Legendre nodes. If a dataset uses another Gaussian convention,

@@ -83,8 +83,12 @@ if(NOT TARGET Kokkos::kokkos AND AXIS_FETCH_KOKKOS)
     )
 
     # Ensure Kokkos builds with position independent code and suitable default backend
-    set(Kokkos_ENABLE_OPENMP ${AXIS_KOKKOS_OPENMP} CACHE BOOL "Enable OpenMP backend" FORCE)
-    set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
+    if(NOT DEFINED Kokkos_ENABLE_OPENMP)
+        set(Kokkos_ENABLE_OPENMP ${AXIS_KOKKOS_OPENMP} CACHE BOOL "Enable OpenMP backend")
+    endif()
+    if(NOT DEFINED Kokkos_ENABLE_SERIAL)
+        set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend")
+    endif()
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
     FetchContent_MakeAvailable(kokkos)

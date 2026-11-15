@@ -37,10 +37,10 @@ RUN apt-get update && apt-get install -y \
 
 # CDO backs the AXIS-vs-CDO comparison tests (Stage 6). It is packaged for
 # x86_64 Ubuntu (CI) but not on arm64 ports (Apple Silicon dev boxes), where
-# the conda-forge build in Dockerfile-Benchmarks provides it instead.
+# the conda-forge build in Dockerfile.benchmarks provides it instead.
 RUN apt-get update \
     && (apt-get install -y --no-install-recommends cdo \
-        || echo "cdo unavailable for $(uname -m): run benchmarks via Dockerfile-Benchmarks") \
+        || echo "cdo unavailable for $(uname -m): run benchmarks via Dockerfile.benchmarks") \
     && rm -rf /var/lib/apt/lists/*
 
 # Set GCC-13 as the default compiler (C, C++, and Fortran)
