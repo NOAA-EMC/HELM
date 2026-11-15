@@ -172,8 +172,8 @@ jobs:
             # Exercise optional native weight-file I/O against the image
             # serial NetCDF in addition to the MPI-free default job above.
             uv sync --no-managed-python --all-groups --config-setting cmake.define.AXIS_ENABLE_NETCDF=ON
-            uv run pytest -v -ra
-            uv run mypy
+            uv run --no-sync pytest -v -ra
+            uv run --no-sync mypy
           '
 
       - name: Tear down container
