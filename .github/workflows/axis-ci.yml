@@ -82,6 +82,20 @@ jobs:
             cd libs/axis/build-ci && ctest -L property --output-on-failure
           '
 
+      - name: "Stage 5: Distributed MPI tests"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            set -e
+            cd libs/axis/build-ci
+            # Hybrid workers outnumber runner cores. Let idle threads sleep
+            # and share CPUs instead of spinning inside MPI process bindings.
+            OMPI_MCA_rmaps_base_oversubscribe=1 \
+              OMPI_MCA_mpi_yield_when_idle=1 \
+              OMPI_MCA_hwloc_base_binding_policy=none \
+              OMP_WAIT_POLICY=PASSIVE \
+              ctest -L mpi --output-on-failure
+          '
+
       - name: Tear down container
         if: always()
         run: docker compose down || true

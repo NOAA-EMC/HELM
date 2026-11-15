@@ -253,7 +253,7 @@ if(TARGET halo)
         add_test(NAME axis_distributed_${ranks}_ranks
             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${ranks}
                     ${MPIEXEC_PREFLAGS} $<TARGET_FILE:axis_distributed_mpi_tests> ${MPIEXEC_POSTFLAGS})
-        set_tests_properties(axis_distributed_${ranks}_ranks PROPERTIES PROCESSORS ${ranks} TIMEOUT 180
+        set_tests_properties(axis_distributed_${ranks}_ranks PROPERTIES LABELS "mpi" PROCESSORS ${ranks} TIMEOUT 180
             ENVIRONMENT "OMP_NUM_THREADS=1;OMP_PROC_BIND=false")
     endforeach()
 endif()
@@ -264,7 +264,7 @@ if(TARGET halo AND Kokkos_ENABLE_OPENMP)
         add_test(NAME axis_distributed_hybrid_${ranks}x${ranks}
             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${ranks}
                     ${MPIEXEC_PREFLAGS} $<TARGET_FILE:axis_distributed_mpi_tests> ${MPIEXEC_POSTFLAGS})
-        set_tests_properties(axis_distributed_hybrid_${ranks}x${ranks} PROPERTIES PROCESSORS ${slots} TIMEOUT 180
+        set_tests_properties(axis_distributed_hybrid_${ranks}x${ranks} PROPERTIES LABELS "mpi" PROCESSORS ${slots} TIMEOUT 180
             ENVIRONMENT "OMP_NUM_THREADS=${ranks};OMP_PROC_BIND=false")
     endforeach()
 endif()
