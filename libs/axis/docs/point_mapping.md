@@ -129,3 +129,13 @@ failures: three existing examples did not build against current APIs, and
 The latter was reproduced with both new locator object files removed from the
 linked archive. Existing 1/2/4-rank regridding and 2x2/4x4 hybrid tests passed.
 Property tests, Fortran, PROJ and NetCDF were disabled for this verification.
+
+### Stacked verification on PR #47 (2026-11-15)
+
+The locator branch is now based on `c7ddcac`, the head of
+[PR #47](https://github.com/NOAA-EMC/HELM/pull/47), which fixes the bicubic
+source closure. On this stack the buildable suite passed: **273 passed, two
+skipped, zero failures**, including the formerly failing eight-rank regridder,
+all locator MPI sizes, and both hybrid layouts. The three obsolete examples
+listed above were excluded because their existing source does not build.
+Locator tests carry the `mpi` label so PR #47's new distributed CI step runs them.
