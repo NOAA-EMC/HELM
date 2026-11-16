@@ -79,9 +79,27 @@ jobs:
           path: wheelhouse/*.whl
           if-no-files-found: error
 
+  wheel-no-mpi:
+    name: Repaired Linux wheel without MPI
+    needs: wheels
+    runs-on: ubuntu-latest
+    container: python:3.12-slim
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: axis-wheels-ubuntu-24.04-x86_64
+          path: wheelhouse
+      - name: Install and test the wheel in an MPI-free runtime
+        run: |
+          ! command -v mpiexec
+          ! ldconfig -p | grep -E 'libmpi(_cxx)?\.so'
+          python -m pip install wheelhouse/*cp312*manylinux*x86_64.whl
+          python .github/scripts/axis-wheel-smoke.py
+
   release:
     if: startsWith(github.ref, 'refs/tags/axis-v')
-    needs: [version, wheels]
+    needs: [version, wheels, wheel-no-mpi]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
