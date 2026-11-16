@@ -91,6 +91,33 @@ jobs:
             cmake --build build --target consumer
           '
 
+      - name: "Stage 2c: Installed AXIS consumers"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            set -e
+            cd libs/axis
+            cmake --install build-ci --prefix /tmp/axis-mpi-install
+            cmake -S . -B build-serial -G Ninja \
+              -DAXIS_ENABLE_MPI=OFF -DAXIS_ENABLE_NETCDF=OFF \
+              -DAXIS_BUILD_TESTING=OFF
+            cmake --build build-serial --parallel $(nproc)
+            cmake --install build-serial --prefix /tmp/axis-serial-install
+            mkdir -p /tmp/axis-installed-consumer
+            cat > /tmp/axis-installed-consumer/CMakeLists.txt <<EOF
+          cmake_minimum_required(VERSION 3.21)
+          project(axis_installed_consumer LANGUAGES CXX)
+          find_package(AXIS CONFIG REQUIRED)
+          add_executable(consumer main.cpp)
+          target_link_libraries(consumer PRIVATE HELM::AXIS)
+          EOF
+            printf "#include <axis/axis.hpp>\nint main() { return 0; }\n" > /tmp/axis-installed-consumer/main.cpp
+            for mode in mpi serial; do
+              cmake -S /tmp/axis-installed-consumer -B /tmp/axis-installed-consumer/build-$mode \
+                -G Ninja -DCMAKE_PREFIX_PATH=/tmp/axis-$mode-install
+              cmake --build /tmp/axis-installed-consumer/build-$mode
+            done
+          '
+
       - name: "Stage 3: Unit tests"
         run: |
           docker compose exec -T helm-dev bash -lc '
