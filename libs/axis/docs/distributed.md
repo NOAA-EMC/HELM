@@ -12,7 +12,8 @@ There is no new production dependency.
 |---|---|
 | Nearest | Rank-pruned global nearest-centroid discovery and selective polygon import |
 | Bilinear | Global nearest-eight centroid candidates for the native general algorithm |
-| Bicubic / patch | Global nearest-sixteen centroid candidates for native stencil construction |
+| Bicubic | Up to 64 globally nearest active (unmasked) centroid candidates for native stencil construction |
+| Patch | Up to 16 globally nearest centroid candidates for native stencil construction |
 | First-order conservative | Distributed bounding-box intersection discovery; import candidate polygons |
 | Unlimited linear conservative | Conservative candidates plus complete first/second vertex-neighbor rings |
 | Limited linear conservative | Same geometry closure; reverse HALO minimum reduction establishes a common source-cell limiter |
