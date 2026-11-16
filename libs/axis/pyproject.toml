@@ -57,12 +57,17 @@ testpaths = ["tests_python"]
 [tool.scikit-build]
 cmake.args = [
     "-DAXIS_BUILD_PYTHON=ON",
+    "-DAXIS_ENABLE_MPI=OFF",
     "-DAXIS_BUILD_TESTING=OFF",
     "-DAXIS_BUILD_FORTRAN=OFF",
+    "-DHALO_BUILD_FORTRAN=OFF",
     "-DAXIS_BUILD_BENCHMARKS=OFF",
     "-DAXIS_BUILD_EXAMPLES=OFF",
 ]
 cmake.source-dir = "."
+
+[tool.scikit-build.cmake.define]
+AXIS_ENABLE_NETCDF = "OFF"
 
 [tool.mypy]
 # `packages = ["axis"]` type-checks the *installed* package, so its bundled
@@ -82,3 +87,20 @@ exclude = "^build.*/"
 [[tool.mypy.overrides]]
 module = ["cdo", "xregrid"]
 ignore_missing_imports = true
+
+# Release wheels use a deterministic portable CPU feature set. Source installs
+# retain the native defaults above.
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
+skip = "*-musllinux* *-win*"
+build-verbosity = 1
+environment = { CMAKE_BUILD_PARALLEL_LEVEL = "3" }
+config-settings = { "cmake.define.AXIS_KOKKOS_OPENMP" = "OFF", "cmake.define.AXIS_ENABLE_PROJ" = "OFF", "cmake.define.AXIS_ENABLE_NETCDF" = "OFF", "cmake.define.BUILD_SHARED_LIBS" = "OFF" }
+test-command = "python {project}/.github/scripts/axis-wheel-smoke.py"
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+
+[tool.cibuildwheel.macos]
+environment = { CMAKE_BUILD_PARALLEL_LEVEL = "3", MACOSX_DEPLOYMENT_TARGET = "13.0" }

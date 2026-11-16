@@ -33,6 +33,9 @@ using BoxTree =
     decltype(ArborX::BoundingVolumeHierarchy(Kokkos::DefaultHostExecutionSpace{}, ArborX::Experimental::attach_indices(Kokkos::View<Box *, Mem>{})));
 using Bounds = std::array<float, 6>;
 constexpr float inf = std::numeric_limits<float>::infinity();
+// Active bicubic stencil queries share the wet tree, but their responses belong
+// to the full stencil rather than the separate single-cell extrapolation list.
+constexpr int active_stencil_kind = 3;
 Bounds empty_bounds() {
     return {inf, inf, inf, -inf, -inf, -inf};
 }
@@ -355,7 +358,7 @@ struct SearchIndex {
                 overlaps.push_back(arbor_box(b));
                 continue;
             }
-            bool wet = kind == 1;
+            bool wet = kind == 1 || kind == active_stencil_kind;
             auto &pts = wet ? wet_points : points;
             auto &t = wet ? wet_tree : tree;
             k = std::min<int>(k, pts.extent(0));
@@ -397,7 +400,10 @@ std::set<long long> discover(const HostMesh &src, const HostMesh &dst, const sol
                              const halo::Communicator &comm, const DistributedOptions &options) {
     using M = solver::InterpolationMethod;
     const bool conservative = cfg.method == M::Conservative1stOrder || cfg.method == M::Conservative2ndOrder;
-    const int k = cfg.method == M::NearestNeighbor ? 1 : cfg.method == M::Bilinear ? 8 : 16;
+    // Match generate_bicubic's overdetermined fit, which uses up to 64 active
+    // source cells. A union of smaller stencils only hides missing dependencies
+    // when a rank happens to own enough nearby destinations.
+    const int k = cfg.method == M::NearestNeighbor ? 1 : cfg.method == M::Bilinear ? 8 : cfg.method == M::Bicubic ? 64 : 16;
     const bool extrap = cfg.extrap_method == solver::ExtrapolationAction::NearestWet;
     SearchIndex index(src, cfg, comm);
     auto target = search_geometry(dst, cfg), wet_target = search_geometry(dst, cfg, true);
@@ -415,7 +421,7 @@ std::set<long long> discover(const HostMesh &src, const HostMesh &dst, const sol
             int peer = (comm.rank() + step) % comm.size(), incoming = (comm.rank() - step + comm.size()) % comm.size();
             std::vector<float> packet;
             auto nearest = [&](std::size_t q, int kind, const Point &p, int count, const std::vector<Candidate> &candidates) {
-                auto bounds = index.rank_bounds(peer, kind);
+                auto bounds = index.rank_bounds(peer, kind == active_stencil_kind ? 1 : kind);
                 if (bounds[0] > bounds[3]) return;
                 float radius = candidates.size() < static_cast<std::size_t>(count) ? inf : candidates.back().first;
                 // Inclusive and rounded outward so float ties are not pruned.
@@ -440,7 +446,7 @@ std::set<long long> discover(const HostMesh &src, const HostMesh &dst, const sol
                         }
                     }
                 } else
-                    nearest(q, 0, point(target, j), k, best[q]);
+                    nearest(q, cfg.method == M::Bicubic ? active_stencil_kind : 0, point(target, j), k, best[q]);
                 if (extrap) nearest(q, 1, point(wet_target, j), 1, wet_best[q]);
             }
             auto received = halo::bounded_peer_exchange<float>(comm, packet, peer, incoming, options.max_message_bytes / sizeof(float));

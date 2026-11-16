@@ -218,6 +218,54 @@ void scalar_test(const halo::Communicator &comm, InterpolationMethod method, boo
     }
     check(threw, "vector output alias did not fail collectively");
 }
+// Sparse destination ownership must not accidentally supply a bicubic stencil
+// through the union of other destination queries on the same rank.
+void bicubic_stencil_test(const halo::Communicator &comm) {
+    using axis::distributed::DistributedOptions;
+    using axis::distributed::DistributedRegridder;
+    for (int sx : {7, 13})
+        for (bool masked : {false, true}) {
+            const int sy = sx == 7 ? 6 : 9;
+            if (comm.rank() == 0) std::cout << "Bicubic stencil: " << sx * sy << " sources, masked=" << masked << std::endl;
+            auto src = grid(sx, sy, comm.rank(), comm.size(), false, false, true);
+            auto dst = grid(3, 3, comm.rank(), comm.size(), false, false, false, true);
+            auto all_src = grid(sx, sy, -1, comm.size(), false, false, true);
+            auto all_dst = grid(3, 3, -1, comm.size(), false, false, false, true);
+            for (auto *p : {&src, &all_src}) {
+                auto xy = p->mesh.node_coords_view();
+                // Break distance ties at the 64-neighbor cutoff without changing
+                // shared-node coordinates across partitions.
+                for (std::size_t n = 0; n < p->nodes.size(); ++n) {
+                    xy(n, 0) += 0.003 * std::sin(0.7 * p->nodes[n]);
+                    xy(n, 1) += 0.002 * std::cos(0.4 * p->nodes[n]);
+                }
+                auto mask = p->mesh.cell_mask_view();
+                for (std::size_t i = 0; i < p->cells.size(); ++i) mask(i) = !masked || p->cells[i] % 3 != 0;
+            }
+            RegridConfig config;
+            config.method = InterpolationMethod::Bicubic;
+            config.line_type = LineType::Cartesian;
+            config.extrap_method = ExtrapolationAction::None;
+            config.use_structured_fast_paths = false;
+            auto serial = WeightGenerator::generate(all_src.mesh, all_dst.mesh, config);
+            serial.to_csr();
+            DistributedOptions reference;
+            reference.geometry = axis::distributed::GeometryStrategy::ReplicatedReference;
+            DistributedRegridder selective(src.mesh, dst.mesh, config, comm.handle(), src.nodes);
+            DistributedRegridder replicated(src.mesh, dst.mesh, config, comm.handle(), src.nodes, reference);
+            for (int which = 0; which < 3; ++which) {
+                auto q = field(src, sx, sy, which), global_q = field(all_src, sx, sy, which);
+                std::vector<double> actual(dst.cells.size()), reference_values(dst.cells.size()), expected(all_dst.cells.size());
+                selective.apply(axis::field_view<const double, 1>(q.data(), q.size()), axis::field_view<double, 1>(actual.data(), actual.size()));
+                replicated.apply(axis::field_view<const double, 1>(q.data(), q.size()),
+                                 axis::field_view<double, 1>(reference_values.data(), reference_values.size()));
+                axis::solver::apply(serial, axis::field_view<const double, 1>(global_q.data(), global_q.size()),
+                                    axis::field_view<double, 1>(expected.data(), expected.size()));
+                compare(reference_values, expected, dst.cells, all_dst.cells);
+                compare(actual, expected, dst.cells, all_dst.cells);
+            }
+        }
+}
 void vertical_test(const halo::Communicator &comm) {
     constexpr int total = 5, ns = 6, nd = 8;
     std::vector<int> columns;
@@ -400,6 +448,7 @@ int distributed_test_suite() {
                     scalar_test(comm, method, true, sphere, mask, NormType::FracArea);
                 }
             }
+    bicubic_stencil_test(comm);
     scalar_test(comm, InterpolationMethod::Conservative1stOrder, false, false, false, NormType::DstArea, true);
     scalar_test(comm, InterpolationMethod::Conservative2ndOrder, true, false, false, NormType::DstArea, true);
     if (comm.rank() == 0)

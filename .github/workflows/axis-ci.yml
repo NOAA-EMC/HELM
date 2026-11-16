@@ -23,6 +23,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  python-no-mpi:
+    name: Python source installs without MPI
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build tools and uv
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates cmake ninja-build g++ git python3-dev python3-venv
+          python3 -m venv /tmp/axis-tools
+          /tmp/axis-tools/bin/pip install uv
+      - name: Build and test with pip and uv
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: 2
+          CMAKE_ARGS: -DAXIS_KOKKOS_OPENMP=OFF
+        run: |
+          export PATH="/tmp/axis-tools/bin:$PATH"
+          bash .github/scripts/axis-no-mpi-test.sh
+
   native:
     name: AXIS native build and tests
     runs-on: ubuntu-latest
@@ -70,6 +91,33 @@ jobs:
             cmake --build build --target consumer
           '
 
+      - name: "Stage 2c: Installed AXIS consumers"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            set -e
+            cd libs/axis
+            cmake --install build-ci --prefix /tmp/axis-mpi-install
+            cmake -S . -B build-serial -G Ninja \
+              -DAXIS_ENABLE_MPI=OFF -DAXIS_ENABLE_NETCDF=OFF \
+              -DAXIS_BUILD_TESTING=OFF
+            cmake --build build-serial --parallel $(nproc)
+            cmake --install build-serial --prefix /tmp/axis-serial-install
+            mkdir -p /tmp/axis-installed-consumer
+            cat > /tmp/axis-installed-consumer/CMakeLists.txt <<EOF
+          cmake_minimum_required(VERSION 3.21)
+          project(axis_installed_consumer LANGUAGES CXX)
+          find_package(AXIS CONFIG REQUIRED)
+          add_executable(consumer main.cpp)
+          target_link_libraries(consumer PRIVATE HELM::AXIS)
+          EOF
+            printf "#include <axis/axis.hpp>\nint main() { return 0; }\n" > /tmp/axis-installed-consumer/main.cpp
+            for mode in mpi serial; do
+              cmake -S /tmp/axis-installed-consumer -B /tmp/axis-installed-consumer/build-$mode \
+                -G Ninja -DCMAKE_PREFIX_PATH=/tmp/axis-$mode-install
+              cmake --build /tmp/axis-installed-consumer/build-$mode
+            done
+          '
+
       - name: "Stage 3: Unit tests"
         run: |
           docker compose exec -T helm-dev bash -lc '
@@ -80,6 +128,20 @@ jobs:
         run: |
           docker compose exec -T helm-dev bash -lc '
             cd libs/axis/build-ci && ctest -L property --output-on-failure
+          '
+
+      - name: "Stage 5: Distributed MPI tests"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            set -e
+            cd libs/axis/build-ci
+            # Hybrid workers outnumber runner cores. Let idle threads sleep
+            # and share CPUs instead of spinning inside MPI process bindings.
+            OMPI_MCA_rmaps_base_oversubscribe=1 \
+              OMPI_MCA_mpi_yield_when_idle=1 \
+              OMPI_MCA_hwloc_base_binding_policy=none \
+              OMP_WAIT_POLICY=PASSIVE \
+              ctest -L mpi --output-on-failure
           '
 
       - name: Tear down container
@@ -132,9 +194,13 @@ jobs:
           docker compose exec -T helm-dev bash -lc '
             set -e
             cd libs/axis
-            uv sync --no-managed-python --all-groups
-            uv run pytest -v -ra
-            uv run mypy
+            # Python source builds must not discover or invoke a Fortran compiler.
+            export FC=/nonexistent/fortran-disabled-for-python
+            # Exercise optional native weight-file I/O against the image
+            # serial NetCDF in addition to the MPI-free default job above.
+            uv sync --no-managed-python --all-groups --config-setting cmake.define.AXIS_ENABLE_NETCDF=ON
+            uv run --no-sync pytest -v -ra
+            uv run --no-sync mypy
           '
 
       - name: Tear down container

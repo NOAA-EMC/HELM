@@ -110,9 +110,11 @@ set(AXIS_UNIT_TEST_SOURCES
     test_coastal_renormalization.cpp
     test_warp_cooperative_clipping.cpp
     test_noaa_grib_named_grids.cpp
-    test_distributed_weight_generator.cpp
     test_bicubic.cpp
 )
+if(AXIS_ENABLE_MPI)
+    list(APPEND AXIS_UNIT_TEST_SOURCES test_distributed_weight_generator.cpp)
+endif()
 
 add_executable(axis_unit_tests ${AXIS_UNIT_TEST_SOURCES})
 
@@ -246,25 +248,25 @@ else()
 endif()
 
 # MPI integration tests need their own MPI/Kokkos lifecycle and launcher.
-if(TARGET halo)
+if(AXIS_ENABLE_MPI AND TARGET halo)
     add_executable(axis_distributed_mpi_tests test_distributed_regridder_mpi.cpp)
     target_link_libraries(axis_distributed_mpi_tests PRIVATE axis halo)
     foreach(ranks IN ITEMS 1 2 4 8)
         add_test(NAME axis_distributed_${ranks}_ranks
             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${ranks}
                     ${MPIEXEC_PREFLAGS} $<TARGET_FILE:axis_distributed_mpi_tests> ${MPIEXEC_POSTFLAGS})
-        set_tests_properties(axis_distributed_${ranks}_ranks PROPERTIES PROCESSORS ${ranks} TIMEOUT 180
+        set_tests_properties(axis_distributed_${ranks}_ranks PROPERTIES LABELS "mpi" PROCESSORS ${ranks} TIMEOUT 180
             ENVIRONMENT "OMP_NUM_THREADS=1;OMP_PROC_BIND=false")
     endforeach()
 endif()
 
-if(TARGET halo AND Kokkos_ENABLE_OPENMP)
+if(AXIS_ENABLE_MPI AND TARGET halo AND Kokkos_ENABLE_OPENMP)
     foreach(ranks IN ITEMS 2 4)
         math(EXPR slots "${ranks} * ${ranks}")
         add_test(NAME axis_distributed_hybrid_${ranks}x${ranks}
             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${ranks}
                     ${MPIEXEC_PREFLAGS} $<TARGET_FILE:axis_distributed_mpi_tests> ${MPIEXEC_POSTFLAGS})
-        set_tests_properties(axis_distributed_hybrid_${ranks}x${ranks} PROPERTIES PROCESSORS ${slots} TIMEOUT 180
+        set_tests_properties(axis_distributed_hybrid_${ranks}x${ranks} PROPERTIES LABELS "mpi" PROCESSORS ${slots} TIMEOUT 180
             ENVIRONMENT "OMP_NUM_THREADS=${ranks};OMP_PROC_BIND=false")
     endforeach()
 endif()

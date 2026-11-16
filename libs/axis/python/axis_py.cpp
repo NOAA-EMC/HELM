@@ -70,7 +70,7 @@ using HostMatrix = axis::solver::InterpolationMatrix<Kokkos::HostSpace>;
 static std::mutex kokkos_lifecycle_mutex;
 
 void finalize_owned_kokkos() {
-    if (Kokkos::is_initialized()) {
+    if (Kokkos::is_initialized() && !Kokkos::is_finalized()) {
         Kokkos::finalize();
     }
 }
