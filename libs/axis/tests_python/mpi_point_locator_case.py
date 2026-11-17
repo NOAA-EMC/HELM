@@ -42,6 +42,13 @@ def main():
             pass
         else:
             raise AssertionError("invalid shape did not fail collectively")
+        wrong_family = axis.CoordinateSystem.SphericalDeg if rank == 0 else axis.CoordinateSystem.Cartesian3D
+        try:
+            locator.locate(ids, xy, coordinate_system=wrong_family)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("coordinate-family mismatch did not fail collectively")
         assert locator.locate([], np.empty((0, 2))).cell_ids.size == 0
     gc.collect()
     np.testing.assert_array_equal(result.cell_ids, 100 + ids % 3)
