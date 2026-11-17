@@ -1,9 +1,0 @@
-runs/
-data/
-build*/
-.venv/
-.ruff_cache/
-__pycache__/
-*.py[cod]
-*.log
-*.tmp

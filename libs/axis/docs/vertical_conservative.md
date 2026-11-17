@@ -1,6 +1,6 @@
 # Conservative vertical remapping
 
-AXIS now includes a reusable finite-volume operator for **layer means**. It integrates overlaps between explicit source and destination interfaces. Select piecewise constant (`first`) or bounded, mean-preserving piecewise linear (`limited_linear`) reconstruction. The existing tension-spline profile interpolator remains a separate API for point values.
+AXIS includes a reusable finite-volume operator for **layer means**. It integrates overlaps between explicit source and destination interfaces. Select piecewise constant (`first`) or bounded, mean-preserving piecewise linear (`limited_linear`) reconstruction. The existing tension-spline profile interpolator remains a separate API for point values.
 
 ## Conserved quantity and interface units
 
@@ -88,14 +88,14 @@ result = regrid_tracer_3d(
 - Eleven native tests pass with one and four CPU threads: independently computed overlap values, both normalizations, masks/collapsed layers, geometry ownership, positivity/bounds, irregular and descending interfaces, mixed orientations, large coordinate origin, partial slope integrals, invalid inputs/alias rejection, workspace reuse, smooth refinement, and repeated remapping.
 - After 1,000 round trips, absolute inventory drift is `4.66294e-15` (first order) and `1.4877e-14` (limited linear), for initial inventory `0.7`.
 - Smooth quadratic layer-mean RMS at 8/16/32 source layers: first order `0.0241643 / 0.0117135 / 0.00577675`; limited linear `0.0194536 / 0.0072808 / 0.00266166`. Error reductions are approximately 19.5%, 37.8%, and 53.9% in this specific test, not general accuracy guarantees.
-- All 16 native paper cases pass with both thread counts; reported inventory residual is zero for these small examples. Cases include volume concentration, carrier-mass mixing ratio, partial source layers, and masked NaN land layers.
+- All 16 native acceptance cases pass with both thread counts; reported inventory residual is zero for these small examples. Cases include volume concentration, carrier-mass mixing ratio, partial source layers, and masked NaN land layers.
 - Five array-wrapper tests pass using an executable adapter calling the actual C++ operator. This checks Python shape handling, geometry caching, and diagnostics, **not the production nanobind extension**.
 - Eleven existing vertical spline regression tests also pass. This feature does not change spline behavior.
-- Production nanobind compilation and four pytest/xarray integration tests remain pending because those packages are unavailable in this environment. The integration tests include an analytic horizontal equal-area oracle; a real AXIS horizontal/vertical mesh run and NOAA/ESMC comparisons remain future validation.
+- Four pytest/xarray integration tests against the production nanobind extension live in `tests_python/test_vertical_conservative.py` and run in AXIS CI. They include an analytic horizontal equal-area oracle; a real AXIS horizontal/vertical mesh run and NOAA/ESMC comparisons remain future validation.
 
 ## Background and source evidence
 
 - MOM6 vertical reconstruction documentation describes reconstruction from layer means, including piecewise constant and piecewise linear choices: https://mom6.readthedocs.io/en/main/api/generated/pages/Vertical_Reconstruction.html . This implementation is independently written within AXIS; it does not add MOM6 or Compadre dependencies.
 - MOM6 ALE documentation provides physical context for vertical remapping: https://mom6.readthedocs.io/en/main/api/generated/pages/ALE.html .
 - Conservation interpretation and normalization deserve explicit reporting; see *Truly conserving with conservative remapping methods*, GMD 17 (2024): https://gmd.copernicus.org/articles/17/415/2024/ .
-- Implementation: `include/axis/solver/vertical_conservative.hpp`, `src/solver/vertical_conservative.cpp`, `python/vertical_conservative_bindings.hpp`, and `python/axis/conservative_vertical.py`. Native executable evidence: `tests/test_vertical_conservative.cpp` and `paper/native/vertical_conservative_examples.cpp`.
+- Implementation: `include/axis/solver/vertical_conservative.hpp`, `src/solver/vertical_conservative.cpp`, `python/vertical_conservative_bindings.hpp`, and `python/axis/conservative_vertical.py`. Native executable evidence: `tests/test_vertical_conservative.cpp`. Python integration tests: `tests_python/test_vertical_conservative.py`.
