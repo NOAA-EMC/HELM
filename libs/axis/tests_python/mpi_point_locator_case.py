@@ -18,10 +18,6 @@ def main():
             indices.extend(range(start, start + 4))
             offsets.append(len(indices))
             cells.append(100 + cell)
-    if not nodes:
-        # UGRID descriptors require a nonempty coordinate table even on ranks
-        # with no owned cells; this unreferenced node carries no geometry.
-        nodes.append([0, 0])
     mesh = axis.make_ugrid_mesh(
         np.array(nodes, float).reshape(-1, 2),
         np.array(offsets, np.int64),
@@ -55,6 +51,26 @@ def main():
         pass
     else:
         raise AssertionError("closed locator accepted a query")
+
+    # Spherical input units may differ by rank while the coordinate family
+    # remains the same. The native locator converts each rank independently.
+    sphere_nodes = np.array([[0, 0], [2, 0], [2, 2], [0, 2]], float) if rank == 0 else np.array([[0, 0]], float)
+    sphere_offsets = np.array([0, 4], np.int64) if rank == 0 else np.array([0], np.int64)
+    sphere_indices = np.arange(4, dtype=np.int64) if rank == 0 else np.empty(0, np.int64)
+    sphere_cells = np.array([55], np.int64) if rank == 0 else np.empty(0, np.int64)
+    sphere_mesh = axis.make_ugrid_mesh(
+        sphere_nodes,
+        sphere_offsets,
+        sphere_indices,
+        coordinate_system=axis.CoordinateSystem.SphericalDeg,
+        boundary_model=axis.BoundaryModel.GreatCircle,
+    )
+    with axis.DistributedPointLocator(sphere_mesh, sphere_cells, comm) as locator:
+        units = axis.CoordinateSystem.SphericalDeg if rank % 2 == 0 else axis.CoordinateSystem.SphericalRad
+        angle = 0.5 if rank % 2 == 0 else np.deg2rad(0.5)
+        result = locator.locate([rank], [[angle, angle]], coordinate_system=units)
+        np.testing.assert_array_equal(result.cell_ids, [55])
+        np.testing.assert_array_equal(result.status, [axis.PointLocationStatus.Interior])
     if rank == 0:
         print(f"Python point locator: {size} MPI ranks passed", flush=True)
 

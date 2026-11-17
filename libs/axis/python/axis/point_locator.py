@@ -54,14 +54,11 @@ def _integer_ids(values: Any, name: str) -> np.ndarray:
         return np.empty(0, dtype=np.int64)
     if raw.dtype.kind not in "iu" or raw.dtype.kind == "b":
         raise ValueError(f"{name} must contain integers")
-    if raw.dtype.kind == "u" and np.any(raw > np.iinfo(np.int64).max):
+    if raw.dtype.kind == "u" and raw.max() > np.iinfo(np.int64).max:
         raise ValueError(f"{name} contains an integer outside int64 range")
-    result = np.ascontiguousarray(raw, dtype=np.int64)
-    if np.any(result < 0):
-        raise ValueError(f"{name} must be nonnegative")
-    if np.unique(result).size != result.size:
-        raise ValueError(f"{name} must be unique")
-    return result
+    # Duplicate and negative IDs are checked by the native locator, including
+    # collectively for distributed calls; keep this conversion linear-time.
+    return np.ascontiguousarray(raw, dtype=np.int64)
 
 
 def _coordinates(point_ids: np.ndarray, values: Any) -> np.ndarray:
@@ -72,10 +69,8 @@ def _coordinates(point_ids: np.ndarray, values: Any) -> np.ndarray:
         raise ValueError("point_ids and coordinates must have the same number of rows")
     if raw.dtype.kind not in "fiu":
         raise ValueError("coordinates must contain numeric values")
-    result = np.asfortranarray(raw, dtype=np.float64)
-    if not np.all(np.isfinite(result)):
-        raise ValueError("coordinates must be finite")
-    return result
+    # The native locator validates finite coordinates, collectively for MPI.
+    return np.asfortranarray(raw, dtype=np.float64)
 
 
 def _options(tolerance: Any, max_import_bytes: Any, max_message_bytes: Any, query_batch_size: Any) -> _Options:
@@ -221,17 +216,19 @@ class DistributedPointLocator:
         def prepare() -> tuple[np.ndarray, np.ndarray, int]:
             if not isinstance(system, axis_py.CoordinateSystem):
                 raise ValueError("coordinate_system must be an axis.CoordinateSystem")
-            system_value = next((value for value, candidate in enumerate(axis_py.CoordinateSystem) if system == candidate), None)
-            if system_value is None:
+            if system not in tuple(axis_py.CoordinateSystem):
                 raise ValueError("coordinate_system is not supported")
             ids = _integer_ids(point_ids, "point_ids")
             coords = _coordinates(ids, coordinates)
-            return ids, coords, system_value
+            # Degrees and radians are both spherical and can be mixed across
+            # ranks; the native locator converts each rank's inputs.
+            family = 0 if system == axis_py.CoordinateSystem.Cartesian3D else 1
+            return ids, coords, family
 
-        ids, coords, system_value = _collective_prepare(self._comm, prepare, "distributed point validation")
-        systems = self._comm.allgather(system_value)
-        if any(value != systems[0] for value in systems[1:]):
-            raise ValueError("distributed point validation failed collectively (coordinate_system differs across ranks)")
+        ids, coords, family = _collective_prepare(self._comm, prepare, "distributed point validation")
+        families = self._comm.allgather(family)
+        if any(value != families[0] for value in families[1:]):
+            raise ValueError("distributed point validation failed collectively (coordinate families differ across ranks)")
         return _result(self._native.locate(ids, coords, system))
 
     def close(self) -> None:
