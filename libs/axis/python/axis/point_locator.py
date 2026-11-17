@@ -29,13 +29,18 @@ class PointLocationStatus(IntEnum):
 
 @dataclass(frozen=True)
 class PointLocationResult:
-    """NumPy columns in the same order as the supplied point IDs."""
+    """NumPy or Dask columns in the same order as the supplied point IDs."""
 
-    point_ids: np.ndarray
-    cell_ids: np.ndarray
-    status: np.ndarray
-    owner_ranks: np.ndarray
-    owner_local_indices: np.ndarray
+    point_ids: Any
+    cell_ids: Any
+    status: Any
+    owner_partitions: Any
+    owner_local_indices: Any
+
+    @property
+    def owner_ranks(self) -> Any:
+        """Compatibility alias for serial callers; distributed code uses partitions."""
+        return self.owner_partitions
 
 
 @dataclass(frozen=True)
@@ -104,9 +109,48 @@ def _result(columns: dict[str, np.ndarray]) -> PointLocationResult:
         point_ids=columns["point_ids"],
         cell_ids=columns["cell_ids"],
         status=columns["status"],
-        owner_ranks=columns["owner_ranks"],
+        owner_partitions=columns.get("owner_partitions", columns.get("owner_ranks")),
         owner_local_indices=columns["owner_local_indices"],
     )
+
+
+def _partition_cells(centroids: np.ndarray, cell_ids: np.ndarray, n_partitions: int) -> list[np.ndarray]:
+    """Split cells into balanced, spatially coherent, deterministic shards."""
+    centroids = np.asarray(centroids)
+    cell_ids = np.asarray(cell_ids)
+    if centroids.ndim != 2 or centroids.shape[1] != 3:
+        raise ValueError("centroids must have shape (n_cells, 3)")
+    if cell_ids.ndim != 1 or cell_ids.shape[0] != centroids.shape[0] or cell_ids.dtype.kind not in "iu":
+        raise ValueError("cell_ids must be a one-dimensional integer array matching centroids")
+    if isinstance(n_partitions, (bool, np.bool_)):
+        raise ValueError("n_partitions must be a positive integer")
+    try:
+        n_partitions = operator.index(n_partitions)
+    except TypeError as exc:
+        raise ValueError("n_partitions must be a positive integer") from exc
+    if n_partitions < 1:
+        raise ValueError("n_partitions must be a positive integer")
+
+    shards: list[np.ndarray | None] = [None] * n_partitions
+
+    def split(rows: np.ndarray, partition_ids: list[int]) -> None:
+        if len(partition_ids) == 1:
+            order = np.lexsort((rows, cell_ids[rows]))
+            shards[partition_ids[0]] = rows[order]
+            return
+
+        n_left = len(partition_ids) // 2
+        split_at = (len(rows) * n_left + len(partition_ids) - 1) // len(partition_ids)
+        if rows.size:
+            span = np.ptp(centroids[rows], axis=0)
+            split_axis = int(np.argmax(span))
+            order = np.lexsort((rows, cell_ids[rows], centroids[rows, split_axis]))
+            rows = rows[order]
+        split(rows[:split_at], partition_ids[:n_left])
+        split(rows[split_at:], partition_ids[n_left:])
+
+    split(np.arange(centroids.shape[0], dtype=np.int64), list(range(n_partitions)))
+    return [shard if shard is not None else np.empty(0, dtype=np.int64) for shard in shards]
 
 
 class PointLocator:

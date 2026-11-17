@@ -121,3 +121,30 @@ def test_native_locator_bounds_include_tolerance():
     assert bounds[1] <= 0.0
     assert bounds[3] >= 1.0
     assert bounds[4] >= 1.0
+
+
+def test_partition_cells_is_balanced_and_deterministic():
+    from axis.point_locator import _partition_cells
+
+    centroids = np.array([[0, 0, 0], [0, 0, 0], [1, 0, 0], [1, 0, 0], [2, 0, 0], [2, 0, 0]], dtype=float)
+    cell_ids = np.array([60, 10, 50, 20, 40, 30], dtype=np.int64)
+
+    first = _partition_cells(centroids, cell_ids, 3)
+    second = _partition_cells(centroids, cell_ids, 3)
+
+    assert len(first) == 3
+    assert [partition.size for partition in first] == [2, 2, 2]
+    assert sorted(np.concatenate(first).tolist()) == list(range(6))
+    for partition in first:
+        np.testing.assert_array_equal(cell_ids[partition], np.sort(cell_ids[partition]))
+    for first_partition, second_partition in zip(first, second, strict=True):
+        np.testing.assert_array_equal(first_partition, second_partition)
+
+
+def test_serial_owner_ranks_aliases_owner_partitions():
+    result = axis.PointLocator(point_mesh(), [42]).locate(
+        [7], [[0.5, 0.5]], coordinate_system=axis.CoordinateSystem.Cartesian3D
+    )
+
+    np.testing.assert_array_equal(result.owner_partitions, [0])
+    np.testing.assert_array_equal(result.owner_ranks, result.owner_partitions)
