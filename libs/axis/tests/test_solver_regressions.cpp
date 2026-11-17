@@ -8,20 +8,11 @@
 #include <axis/solver/apply.hpp>
 #include <axis/solver/weight_generator.hpp>
 #include <axis/topology/unstructured_mesh.hpp>
-#include <chrono>
 #include <cmath>
 #include <random>
-namespace {
-struct Init : testing::Environment {
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) Kokkos::initialize();
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) Kokkos::finalize();
-    }
-};
-auto *init = testing::AddGlobalTestEnvironment(new Init);
-}  // namespace
+
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 using Space = Kokkos::HostSpace;
 using Mesh = axis::topology::UnstructuredMesh<Space>;
@@ -55,38 +46,7 @@ Mesh triangles(int n, bool spherical = false) {
     offsets(c) = 3 * c;
     return Mesh(coords, offsets, indices, spherical ? axis::topology::CoordinateSystem::SphericalDeg : axis::topology::CoordinateSystem::Cartesian3D);
 }
-using Clock = std::chrono::steady_clock;
-double milliseconds(Clock::time_point start) {
-    return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
-}
-double median(std::vector<double> samples) {
-    std::sort(samples.begin(), samples.end());
-    return samples[samples.size() / 2];
-}
 }  // namespace
-
-Mesh rectangles(int n) {
-    Kokkos::View<double **, Kokkos::LayoutLeft, Space> co("nodes", (n + 1) * (n + 1), 2);
-    for (int j = 0; j <= n; ++j)
-        for (int i = 0; i <= n; ++i) {
-            co(i + (n + 1) * j, 0) = -5 + 10.0 * i / n;
-            co(i + (n + 1) * j, 1) = -5 + 10.0 * j / n;
-        }
-    Kokkos::View<axis::index_t *, Space> off("offsets", n * n + 1), idx("indices", 4 * n * n);
-    for (int j = 0; j < n; ++j)
-        for (int i = 0; i < n; ++i) {
-            int c = i + n * j, a = i + (n + 1) * j;
-            off(c) = 4 * c;
-            idx(4 * c) = a;
-            idx(4 * c + 1) = a + 1;
-            idx(4 * c + 2) = a + n + 2;
-            idx(4 * c + 3) = a + n + 1;
-        }
-    off(n * n) = 4 * n * n;
-    axis::topology::GeometryMetadata meta;
-    meta.boundary_model = axis::topology::BoundaryModel::ConstantLatitude;
-    return Mesh(co, off, idx, axis::topology::CoordinateSystem::SphericalDeg, {}, {}, meta);
-}
 
 auto make_matrix(const Mesh &a, const Mesh &b, bool limited = false) {
     axis::solver::RegridConfig c;
@@ -96,7 +56,7 @@ auto make_matrix(const Mesh &a, const Mesh &b, bool limited = false) {
     c.use_limiter = limited;
     return axis::solver::WeightGenerator::generate(a, b, c);
 }
-TEST(PerformanceChanges, PruningPreservesAffineBounds) {
+TEST(SolverRegressions, PruningPreservesAffineBounds) {
     std::mt19937 gen(4811);
     std::uniform_real_distribution<double> u(-1, 1);
     for (int trial = 0; trial < 100; ++trial) {
@@ -146,18 +106,18 @@ void batch_check() {
                 }
             }
 }
-TEST(PerformanceChanges, BatchWidthsAndLayouts) {
+TEST(SolverRegressions, BatchWidthsAndLayouts) {
     batch_check<Kokkos::LayoutLeft>();
     batch_check<Kokkos::LayoutRight>();
 }
-TEST(PerformanceChanges, WorkspaceShapeRejected) {
+TEST(SolverRegressions, WorkspaceShapeRejected) {
     auto a = triangles(3), b = triangles(5);
     auto m = make_matrix(a, b);
     Kokkos::View<double *, Space> q("q", a.n_cells()), out("out", b.n_cells());
     Kokkos::View<double *[2], Space> bad("bad", a.n_cells() + 1);
     EXPECT_THROW(axis::solver::apply_linear_with_workspace<Space>(m, q, out, bad), std::invalid_argument);
 }
-TEST(PerformanceChanges, CartesianTwoAndThreeColumnsAgree) {
+TEST(SolverRegressions, CartesianTwoAndThreeColumnsAgree) {
     auto xyz = triangles(8);
     Kokkos::View<double **, Kokkos::LayoutLeft, Space> c("xy", xyz.n_nodes(), 2);
     for (std::size_t i = 0; i < xyz.n_nodes(); ++i)
@@ -180,7 +140,7 @@ TEST(PerformanceChanges, CartesianTwoAndThreeColumnsAgree) {
         }
     }
 }
-TEST(PerformanceChanges, ParallelUnmappedErrorPropagates) {
+TEST(SolverRegressions, ParallelUnmappedErrorPropagates) {
     auto a = triangles(4), b = triangles(12);
     for (std::size_t i = 0; i < b.n_nodes(); ++i) b.node_coords_view()(i, 0) += 2;
     axis::solver::RegridConfig config;
@@ -190,12 +150,12 @@ TEST(PerformanceChanges, ParallelUnmappedErrorPropagates) {
     config.unmapped = axis::solver::UnmappedAction::Error;
     EXPECT_THROW(axis::solver::WeightGenerator::generate(a, b, config), std::runtime_error);
 }
-TEST(PerformanceChanges, MalformedCoordinatesRejected) {
+TEST(SolverRegressions, MalformedCoordinatesRejected) {
     Kokkos::View<double **, Kokkos::LayoutLeft, Space> c("bad", 4, 1);
     Kokkos::View<axis::index_t *, Space> off("off", 2), idx("idx", 3);
     EXPECT_THROW(Mesh(c, off, idx, axis::topology::CoordinateSystem::Cartesian3D), std::invalid_argument);
 }
-TEST(PerformanceChanges, CompactCartesianMeshImpliesZeroDepth) {
+TEST(SolverRegressions, CompactCartesianMeshImpliesZeroDepth) {
     // Two-column Cartesian3D is the documented compact layout with z == 0.
     // compute_areas() and the degenerate-cell scan must use the implied zero
     // instead of reading a third column that does not exist.
@@ -226,7 +186,7 @@ TEST(PerformanceChanges, CompactCartesianMeshImpliesZeroDepth) {
     EXPECT_EQ(compact_report.degenerate_count, full_report.degenerate_count);
     EXPECT_EQ(compact_report.excluded_indices.size(), 0u);
 }
-TEST(PerformanceChanges, StridedBatchViews) {
+TEST(SolverRegressions, StridedBatchViews) {
     auto a = triangles(5), b = triangles(11);
     constexpr std::size_t vars = 13;
     const std::size_t sx = 2 * vars + 3, sy = 2 * vars + 7;
@@ -250,7 +210,7 @@ TEST(PerformanceChanges, StridedBatchViews) {
         }
 }
 
-TEST(PerformanceChanges, StridedScalarOperators) {
+TEST(SolverRegressions, StridedScalarOperators) {
     auto a = triangles(5), b = triangles(11);
     const std::size_t nv = 3, sx = 9, sy = 11;
     std::vector<double> q(a.n_cells() * sx), out(b.n_cells() * sy);

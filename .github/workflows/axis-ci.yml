@@ -22,6 +22,9 @@ on:
       - ".github/workflows/axis-ci.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   native:
     name: AXIS native build and tests
@@ -29,7 +32,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Bring up HELM container
         run: docker compose up -d --build
@@ -106,12 +109,12 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Bring up HELM container
         run: docker compose up -d --build
 
-      - name: "Sanitizer build, property and MPI tests"
+      - name: "Sanitizer build, unit, property and MPI tests"
         run: |
           docker compose exec -T helm-dev bash -lc '
             set -e
@@ -127,7 +130,7 @@ jobs:
               OMPI_MCA_mpi_yield_when_idle=1 \
               OMPI_MCA_hwloc_base_binding_policy=none \
               OMP_WAIT_POLICY=PASSIVE \
-              ctest -L "property|mpi" --output-on-failure
+              ctest -L "unit|property|mpi" --output-on-failure
           '
 
       - name: Tear down container
@@ -140,7 +143,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Bring up HELM container
         run: docker compose up -d --build

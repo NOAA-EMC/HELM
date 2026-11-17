@@ -73,7 +73,7 @@ if(APPLE)
                     -DINSTALL_NAME_TOOL=${CMAKE_INSTALL_NAME_TOOL}
                     -DOTOOL=${OTOOL_EXECUTABLE}
                     ${_axis_kokkos_runtime_arg}
-                    -P ${CMAKE_CURRENT_SOURCE_DIR}/relocate_openmp.cmake
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/relocate_openmp.cmake
             COMMENT "AXIS C++: normalizing OpenMP runtime reference to @rpath"
             VERBATIM
         )

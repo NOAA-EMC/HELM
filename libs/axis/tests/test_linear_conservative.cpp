@@ -9,19 +9,12 @@
 #include <iostream>
 #include <vector>
 
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 using Space = Kokkos::HostSpace;
 using Mesh = axis::topology::UnstructuredMesh<Space>;
 using namespace axis::detail::linear;
-class LinearKokkosEnv : public testing::Environment {
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) Kokkos::initialize();
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) Kokkos::finalize();
-    }
-};
-auto *const env = testing::AddGlobalTestEnvironment(new LinearKokkosEnv);
 
 // Shared-node triangles. Spherical grids are constructed in a gnomonic chart,
 // so all grid lines are great circles and both resolutions tile the same domain.

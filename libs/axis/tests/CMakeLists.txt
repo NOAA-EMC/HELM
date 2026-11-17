@@ -74,7 +74,7 @@ set(AXIS_UNIT_TEST_SOURCES
     test_conservation.cpp
     test_constant_field.cpp
     test_linear_conservative.cpp
-    test_performance_changes.cpp
+    test_solver_regressions.cpp
     test_bilinear_exactness.cpp
     test_bilinear_rect.cpp
     test_bilinear_rect_nonuniform.cpp

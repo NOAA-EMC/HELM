@@ -153,8 +153,9 @@ void apply_linear(const Matrix &matrix, SourceView src, DestinationView dst) {
 
 /// @brief Tiled batch application over independent variables in column two.
 ///
-/// Gradients are computed per variable tile so the workspace stays small and
-/// the stencil is traversed once per source cell for the whole tile.
+/// Gradients are computed per variable tile so the register working set stays
+/// small and the stencil is traversed once per source cell for the whole tile.
+/// The `gradients` workspace itself holds the full `(n_src, variables, 2)` shape.
 template <bool Limited, class MemorySpace, class Matrix, class SourceView, class DestinationView>
 void batch_apply_linear_impl(const Matrix &matrix, SourceView src, DestinationView dst) {
     using Exec = typename MemorySpace::execution_space;
