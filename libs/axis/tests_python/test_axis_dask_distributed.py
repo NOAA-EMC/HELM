@@ -71,3 +71,43 @@ def test_dask_local_scheduler_works_without_distributed(dask_regrid_case, monkey
     result = regridder(field).compute(scheduler="threads")
 
     np.testing.assert_allclose(result.values, 1.0)
+
+
+def _great_circle_grid(nlon, nlat):
+    """Regular lat-lon centers with explicit corners (great-circle cell edges)."""
+    lon = np.linspace(0.0, 360.0, nlon, endpoint=False)
+    lat = np.linspace(-60.0, 60.0, nlat)
+    dlon, dlat = lon[1] - lon[0], lat[1] - lat[0]
+    lons, lats = np.meshgrid(lon, lat)
+    edges_lon = np.concatenate([lon - dlon / 2, [lon[-1] + dlon / 2]])
+    edges_lat = np.concatenate([lat - dlat / 2, [lat[-1] + dlat / 2]])
+    corner_lons, corner_lats = np.meshgrid(edges_lon, edges_lat)
+    return axis.CurvilinearGrid(lons, lats, corner_lons=corner_lons, corner_lats=corner_lats,
+                                longitude_periodic=True)
+
+
+def test_linear_conservative_rejects_serialization_paths(local_distributed_client, tmp_path):
+    """Conservative2ndOrder must fail fast on paths that would drop linear reconstruction."""
+    import dask.array as da
+    import xarray as xr
+
+    _, client = local_distributed_client
+    source = _great_circle_grid(8, 5)
+    target = _great_circle_grid(12, 7)
+    field = xr.DataArray(
+        da.ones((5, 8), chunks=(5, 8)), dims=("y", "x"), name="temperature"
+    )
+    regridder = axis.Regridder(source, target, method="conservative2nd")
+
+    with pytest.raises(ValueError, match="linear reconstruction"):
+        regridder.to_file(str(tmp_path / "weights.bin"))
+    with pytest.raises(ValueError, match="linear reconstruction"):
+        regridder.to_esmf(str(tmp_path / "weights.nc"))
+    with client:
+        with pytest.raises(ValueError, match="linear reconstruction"):
+            regridder(field).compute()
+
+    # The local (threaded) scheduler still works: no serialization involved.
+    result = regridder(field).compute(scheduler="threads")
+    assert np.all(np.isfinite(result.values))
+    regridder.close()

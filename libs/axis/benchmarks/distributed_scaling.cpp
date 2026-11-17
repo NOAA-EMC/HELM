@@ -130,7 +130,13 @@ int distributed_scaling_main(int argc, char **argv) {
     double entries = halo::allreduce(comm, std::vector<double>{static_cast<double>(op.local_matrix().nnz())}, MPI_SUM)[0];
     rusage usage{};
     getrusage(RUSAGE_SELF, &usage);
-    double peak = halo::allreduce(comm, std::vector<double>{usage.ru_maxrss * 1024.0}, MPI_MAX)[0];
+    // ru_maxrss is kilobytes on Linux but bytes on macOS.
+#ifdef __APPLE__
+    constexpr double rss_scale = 1.0;
+#else
+    constexpr double rss_scale = 1024.0;
+#endif
+    double peak = halo::allreduce(comm, std::vector<double>{usage.ru_maxrss * rss_scale}, MPI_MAX)[0];
     int threads = Kokkos::DefaultHostExecutionSpace().concurrency();
     int thread_min = halo::allreduce(comm, std::vector<int>{threads}, MPI_MIN)[0],
         thread_max = halo::allreduce(comm, std::vector<int>{threads}, MPI_MAX)[0];

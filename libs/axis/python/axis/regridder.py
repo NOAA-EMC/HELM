@@ -221,7 +221,14 @@ class Regridder:
             config["dst_mask"] = np.asarray(dst_mask, dtype=np.int32)
 
         self._weights_matrix = axis_py.generate_weights(src_mesh, dst_mesh, config)
-        self._serialized_weights = self._weights_matrix.to_bytes()
+        # to_bytes() serializes only first-order weights; skip it for matrices
+        # carrying field-dependent linear reconstruction so no path can silently
+        # reload a degraded 1st-order operator. Serialization-dependent APIs
+        # (to_file, to_esmf, Dask Distributed) reject such matrices explicitly.
+        if self._weights_matrix.has_linear_reconstruction:
+            self._serialized_weights = None
+        else:
+            self._serialized_weights = self._weights_matrix.to_bytes()
 
         # Compute total weights sum for NaN-aware re-normalization
         if self.skipna:
@@ -235,7 +242,7 @@ class Regridder:
         logger.info(
             f"AXIS: Weight generation compiled successfully in {elapsed:.4f} seconds. "
             f"Mapped: {self._weights_matrix.n_src} source nodes -> {self._weights_matrix.n_dst} target nodes. "
-            f"Weight database size: {len(self._serialized_weights) / (1024 * 1024):.3f} MB."
+            f"Weight database size: {len(self._serialized_weights) / (1024 * 1024) if self._serialized_weights else 0.0:.3f} MB."
         )
 
         return self
@@ -266,6 +273,11 @@ class Regridder:
         """
         Save the compiled sparse regridding weights to a binary file for future reuse.
         """
+        if self._weights_matrix is not None and self._weights_matrix.has_linear_reconstruction:
+            raise ValueError(
+                "Binary weight serialization does not support field-dependent linear reconstruction "
+                "(Conservative2ndOrder); saving would silently degrade the operator to 1st order."
+            )
         if self._serialized_weights is None:
             raise RuntimeError("Cannot save weights: Regridder has not been compiled or fit.")
         with open(filename, "wb") as f:
@@ -304,6 +316,11 @@ class Regridder:
         weights_matrix = self._weights_matrix
         if weights_matrix is None:
             raise RuntimeError("Regridder must be fit before registering distributed weights.")
+        if weights_matrix.has_linear_reconstruction:
+            raise ValueError(
+                "Dask Distributed weight serialization does not support field-dependent linear reconstruction "
+                "(Conservative2ndOrder); workers would silently apply 1st-order weights. Use a local scheduler instead."
+            )
         if self.skipna and not weights_matrix.is_csr:
             weights_matrix.to_csr()
             self._serialized_weights = weights_matrix.to_bytes()
@@ -334,6 +351,11 @@ class Regridder:
         """
         if self._weights_matrix is None:
             raise RuntimeError("Cannot save weights: Regridder has not been compiled or fit.")
+        if self._weights_matrix.has_linear_reconstruction:
+            raise ValueError(
+                "ESMF weight export does not support field-dependent linear reconstruction "
+                "(Conservative2ndOrder); the file would silently contain only 1st-order weights."
+            )
         if not hasattr(axis_py, "write_esmf"):
             raise RuntimeError("ESMF weight export is unavailable. AXIS was compiled without NetCDF support.")
         axis_py.write_esmf(filename, self._weights_matrix)
