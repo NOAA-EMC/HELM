@@ -43,6 +43,8 @@ class PointLocator {
    public:
     PointLocator(const topology::UnstructuredMesh<Kokkos::HostSpace> &mesh, std::span<const index_t> cell_ids, PointLocationOptions options = {});
     [[nodiscard]] std::vector<PointLocation> locate(PointSetView points) const;
+    /// Conservative canonical xyz bounds, including tolerance; empty if no cells.
+    [[nodiscard]] std::array<double, 6> bounds() const;
 
    private:
     friend class axis::distributed::DistributedPointLocator;
@@ -50,7 +52,5 @@ class PointLocator {
     [[nodiscard]] std::vector<std::array<double, 3>> canonical_points(PointSetView points) const;
     /// Internal routing primitive; returns the smallest containing stable ID.
     [[nodiscard]] PointLocation locate_canonical(const std::array<double, 3> &point) const;
-    /// Conservative canonical xyz bounds, including tolerance; empty if no cells.
-    [[nodiscard]] std::array<double, 6> bounds() const;
 };
 }  // namespace axis::solver

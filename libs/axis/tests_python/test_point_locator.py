@@ -68,3 +68,56 @@ def test_python_oblique_scale_regression():
         [2], scale * np.array([[1.5, 1.5, 2.5]]), coordinate_system=axis.CoordinateSystem.Cartesian3D
     )
     assert result.cell_ids.tolist() == [99]
+
+
+def test_native_cell_centroids_use_canonical_coordinates():
+    cartesian = point_mesh()
+    cartesian_centroids = axis.axis_py._mesh_cell_centroids(cartesian)
+    np.testing.assert_allclose(cartesian_centroids, [[0.5, 0.5, 0.0]])
+
+    spherical = axis.make_ugrid_mesh(
+        np.array([[0, 0], [2, 0], [2, 2], [0, 2]], dtype=float),
+        np.array([0, 4], dtype=np.int64),
+        np.arange(4, dtype=np.int64),
+        boundary_model=axis.BoundaryModel.GreatCircle,
+    )
+    sphere_centroids = axis.axis_py._mesh_cell_centroids(spherical)
+    np.testing.assert_allclose(np.linalg.norm(sphere_centroids, axis=1), [1.0])
+    assert np.all(sphere_centroids[0] > 0.0)
+
+
+def test_native_cell_extraction_remaps_connectivity_and_metadata():
+    mesh = axis.make_ugrid_mesh(
+        np.array([[0, 0], [1, 0], [1, 1], [0, 1], [2, 0], [2, 1]], dtype=float),
+        np.array([0, 4, 8], dtype=np.int64),
+        np.array([0, 1, 2, 3, 1, 4, 5, 2], dtype=np.int64),
+        coordinate_system=axis.CoordinateSystem.Cartesian3D,
+        boundary_model=axis.BoundaryModel.CartesianStraight,
+    )
+    shard = axis.axis_py._mesh_extract_cells(mesh, np.array([1], dtype=np.int64))
+
+    np.testing.assert_array_equal(shard["conn_offsets"], [0, 4])
+    np.testing.assert_array_equal(shard["conn_indices"], [0, 1, 2, 3])
+    np.testing.assert_array_equal(shard["node_coords"], [[1, 0, 0], [2, 0, 0], [2, 1, 0], [1, 1, 0]])
+    shard_mesh = axis.make_ugrid_mesh(
+        shard["node_coords"],
+        shard["conn_offsets"],
+        shard["conn_indices"],
+        coordinate_system=mesh.coordinate_system,
+        boundary_model=mesh.boundary_model,
+    )
+    result = axis.PointLocator(shard_mesh, [99]).locate(
+        [1], [[1.5, 0.5]], coordinate_system=axis.CoordinateSystem.Cartesian3D
+    )
+    np.testing.assert_array_equal(result.cell_ids, [99])
+
+
+def test_native_locator_bounds_include_tolerance():
+    native = axis.axis_py._PointLocator(point_mesh(), np.array([1], dtype=np.int64), 1e-3, 64, 24, 1)
+
+    bounds = native.bounds()
+
+    assert bounds[0] <= -5e-4
+    assert bounds[1] <= 0.0
+    assert bounds[3] >= 1.0
+    assert bounds[4] >= 1.0
