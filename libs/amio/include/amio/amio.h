@@ -398,6 +398,14 @@ AMIO_API amio_status_t amio_view_dtype(amio_view_handle view, amio_dtype_t *out_
  */
 AMIO_API amio_status_t amio_release_view(amio_view_handle view);
 
+/** @brief Set parent MPI communicator from Fortran identifier
+ *
+ * Falls back gracefully if compiled without MPI
+ *
+ * @param[in] comm_f The Fortran identifier for the MPI communicator
+ */
+AMIO_API void amio_set_parent_communicator(int comm_f);
+
 /*
  * Note: amio_strerror is declared in amio_errors.h (its natural home
  * alongside the AMIO_ERR_* enumeration). Including this umbrella header
