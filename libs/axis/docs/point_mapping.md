@@ -42,10 +42,10 @@ owner rank 0. Mesh masks do not alter geometric containment. There is no
 nearest-cell fallback. Overlapping cells and shared boundaries select the
 smallest stable containing cell ID, independently of partition order.
 
-The Python package exposes the same serial and distributed interface. UGRID
-meshes can declare their coordinate and boundary models when they are built;
-the defaults preserve the existing spherical-degree, unspecified-boundary
-behavior.
+The Python package provides an eager NumPy serial locator and a Dask Distributed
+locator. UGRID meshes can declare their coordinate and boundary models when
+they are built; the defaults preserve the existing spherical-degree,
+unspecified-boundary behavior.
 
 ```python
 import numpy as np
@@ -61,25 +61,40 @@ mapping = locator.locate(point_ids, point_coordinates)
 # mapping.cell_ids, mapping.status, mapping.owner_ranks, ... are NumPy arrays
 ```
 
-For distributed mapping, install the `mpi` extra (`axis-regrid[mpi]`) and pass
-an mpi4py intracommunicator. Every rank calls construction, each query, and
-`close` in the same order. Input conversion errors are reported collectively.
-The context manager releases AXIS's duplicated communicator before MPI shuts
-down:
+For Python distributed mapping, install the optional `distributed` extra
+(`axis-regrid[distributed]`). Give AXIS one complete in-memory mesh and let it
+create one spatial shard per active Dask worker. Users do not choose a shard
+count or construct shards. The complete mesh must fit in client memory during
+setup; this path does not ingest or partition an out-of-core mesh. Each worker
+keeps only its shard and local index.
 
 ```python
-from mpi4py import MPI
+import dask.array as da
+from distributed import Client
 
-with axis.DistributedPointLocator(mesh, owned_cell_ids, MPI.COMM_WORLD) as locator:
-    mapping = locator.locate(local_point_ids, local_point_coordinates)
+point_ids = da.from_array(source_ids, chunks=4096)
+point_coordinates = da.from_array(source_coordinates, chunks=(4096, 2))
+with Client() as client:
+    locator = axis.DistributedPointLocator(mesh, cell_ids, client=client)
+    mapping = locator.locate(point_ids, point_coordinates)
+    cell_future, partition_future = client.compute([mapping.cell_ids, mapping.owner_partitions])
+    mapped_cell_ids, owner_partitions = client.gather([cell_future, partition_future])
+    locator.close()
 ```
 
-Python point and cell IDs must be one-dimensional, nonnegative, unique signed
-64-bit integers. Coordinates are NumPy-compatible `[n_points,2 or 3]` arrays;
-the wrapper accepts either row or column-major input and passes a Fortran-order
-array to the C++ API. Result columns own their memory and remain valid after
-the locator is closed or deleted. Importing AXIS or using the serial locator
-does not import mpi4py.
+The point IDs and coordinates must be Dask arrays with matching row chunks; the
+coordinate dimension must fit in one chunk. IDs must be nonnegative, fit in
+signed 64-bit values, and be globally unique within a query. The lazy graph
+checks uniqueness in worker-count buckets without gathering the full point-ID
+array to the client. Coordinates use the same supported Cartesian or spherical
+formats as the C++ API. Result columns are lazy Dask arrays; compute them before
+closing the locator. The result reports `owner_partitions` and a local cell
+index within that partition. Stable IDs, rather than partition-local indices,
+are the keys for comparing runs with different Dask layouts.
+
+The Python distributed API does not import `mpi4py`. The C++
+`axis::distributed::DistributedPointLocator` remains MPI based for compiled
+consumers such as CECE.
 
 A host rank/index belongs to the locator's current mesh ownership epoch. Only
 use an owner-local index to access arrays on that owner rank, and translate it
@@ -106,7 +121,7 @@ A candidate within tolerance of a boundary participates in stable-ID tie-breakin
 Containment and search bounds also include a small scale-relative floating-point
 roundoff allowance, so exact boundaries remain candidates at zero user tolerance.
 
-## MPI and resource behavior
+## C++ MPI and resource behavior
 
 Construction and each query are collective, including empty ranks. Use the
 same geometric coordinate family and options on all ranks; empty ranks may
@@ -171,12 +186,9 @@ The latter was reproduced with both new locator object files removed from the
 linked archive. Existing 1/2/4-rank regridding and 2x2/4x4 hybrid tests passed.
 Property tests, Fortran, PROJ and NetCDF were disabled for this verification.
 
-### Stacked verification on PR #47 (2026-11-15)
+### Stack status
 
-The locator branch is now based on `c7ddcac`, the head of
-[PR #47](https://github.com/NOAA-EMC/HELM/pull/47), which fixes the bicubic
-source closure. On this stack the buildable suite passed: **273 passed, two
-skipped, zero failures**, including the formerly failing eight-rank regridder,
-all locator MPI sizes, and both hybrid layouts. The three obsolete examples
-listed above were excluded because their existing source does not build.
-Locator tests carry the `mpi` label so PR #47's new distributed CI step runs them.
+[PR #47](https://github.com/NOAA-EMC/HELM/pull/47) fixed the bicubic source
+closure and has merged into `feature/paper-source`, the base branch of PR #39.
+The point locator changes are stacked on that updated branch, so the bicubic
+fix lands first while the C++ MPI locator remains available to CECE.

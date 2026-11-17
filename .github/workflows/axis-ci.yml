@@ -11,7 +11,9 @@
 #   2b. Downstream consumer test .............. Requirements 5.7
 #   3. Unit tests     (ctest -L unit) ......... Requirements 5.8
 #   4. Property tests (ctest -L property) ..... Requirements 5.9
-#   5. Sanitizer build (ASan + UBSan) ......... Requirements 5.10
+#   5. Distributed MPI tests .................. Point locator coverage
+#   6. Sanitizer build (ASan + UBSan) ......... Requirements 5.10
+#   7. Python tests and type checks ........... Dask point locator coverage
 # ─────────────────────────────────────────────────────────────────────────────
 name: AXIS CI
 
@@ -96,8 +98,21 @@ jobs:
             cd libs/axis/build-ci && ctest -L property --output-on-failure
           '
 
-      # ── Stage 5: Sanitizer build (ASan + UBSan) ───────────────────────────
-      - name: "Stage 5: Sanitizer build (ASan + UBSan)"
+      # ── Stage 5: Distributed MPI tests ────────────────────────────────────
+      - name: "Stage 5: Distributed MPI tests"
+        run: |
+          docker compose exec -T helm-dev bash -lc '
+            set -e
+            cd libs/axis/build-ci
+            OMPI_MCA_rmaps_base_oversubscribe=1 \
+              OMPI_MCA_mpi_yield_when_idle=1 \
+              OMPI_MCA_hwloc_base_binding_policy=none \
+              OMP_WAIT_POLICY=PASSIVE \
+              ctest -L mpi --output-on-failure
+          '
+
+      # ── Stage 6: Sanitizer build (ASan + UBSan) ───────────────────────────
+      - name: "Stage 6: Sanitizer build (ASan + UBSan)"
         run: |
           docker compose exec -T helm-dev bash -lc '
             set -e
@@ -113,13 +128,13 @@ jobs:
               ctest -L property --output-on-failure
           '
 
-      # ── Stage 6: Python ───────────────────────────────────────────────────
-      - name: "Stage 6: Python"
+      # ── Stage 7: Python ───────────────────────────────────────────────────
+      - name: "Stage 7: Python"
         run: |
           docker compose exec -T helm-dev bash -lc '
             set -e
             cd libs/axis
-            uv sync --no-managed-python --all-groups --verbose
+            uv sync --no-managed-python --all-groups --extra distributed --verbose
             uv run pytest -v -ra
             uv run mypy
           '

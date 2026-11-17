@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include <mpi.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/vector.h>
 
 #include <algorithm>
-#include <axis/distributed/point_locator.hpp>
+#include <axis/solver/point_locator.hpp>
 #include <cmath>
-#include <limits>
+#include <cstdint>
 #include <numbers>
 #include <stdexcept>
 #include <unordered_map>
@@ -66,8 +65,8 @@ nb::ndarray<nb::numpy, double> mesh_cell_centroids(const HostMesh &mesh) {
     if (offsets.extent(0) != n_cells + 1) throw std::invalid_argument("point locator: mesh has invalid connectivity offsets");
 
     const auto coordinate_system = mesh.coord_system();
-    const bool is_spherical = coordinate_system == axis::topology::CoordinateSystem::SphericalDeg ||
-                              coordinate_system == axis::topology::CoordinateSystem::SphericalRad;
+    const bool is_spherical =
+        coordinate_system == axis::topology::CoordinateSystem::SphericalDeg || coordinate_system == axis::topology::CoordinateSystem::SphericalRad;
     if (!is_spherical && coordinate_system != axis::topology::CoordinateSystem::Cartesian3D)
         throw std::invalid_argument("point locator: mesh has unsupported coordinates");
     const double angle_factor = coordinate_system == axis::topology::CoordinateSystem::SphericalDeg ? std::numbers::pi / 180.0 : 1.0;
@@ -81,7 +80,8 @@ nb::ndarray<nb::numpy, double> mesh_cell_centroids(const HostMesh &mesh) {
         double *center = centroids.data() + cell * 3;
         for (axis::index_t position = offsets[cell]; position < offsets[cell + 1]; ++position) {
             const auto node = indices[position];
-            if (node < 0 || static_cast<std::size_t>(node) >= mesh.n_nodes()) throw std::invalid_argument("point locator: mesh has invalid vertex index");
+            if (node < 0 || static_cast<std::size_t>(node) >= mesh.n_nodes())
+                throw std::invalid_argument("point locator: mesh has invalid vertex index");
             const double x = nodes(node, 0);
             const double y = nodes(node, 1);
             const double z = nodes.extent(1) > 2 ? nodes(node, 2) : 0.0;
@@ -173,18 +173,6 @@ axis::solver::PointSetView point_set_view(nb::ndarray<nb::numpy, const axis::ind
             coordinate_system};
 }
 
-MPI_Comm python_communicator(std::int64_t fortran_handle) {
-    int initialized = 0, finalized = 0;
-    MPI_Initialized(&initialized);
-    if (!initialized) throw std::runtime_error("DistributedPointLocator requires initialized MPI");
-    MPI_Finalized(&finalized);
-    if (finalized) throw std::runtime_error("DistributedPointLocator cannot be used after MPI_Finalize");
-    if (fortran_handle < std::numeric_limits<MPI_Fint>::min() || fortran_handle > std::numeric_limits<MPI_Fint>::max())
-        throw std::invalid_argument("DistributedPointLocator: invalid MPI communicator handle");
-    MPI_Comm comm = MPI_Comm_f2c(static_cast<MPI_Fint>(fortran_handle));
-    if (comm == MPI_COMM_NULL) throw std::invalid_argument("DistributedPointLocator: MPI communicator is null");
-    return comm;
-}
 }  // namespace
 
 inline void bind_point_locator(nb::module_ &m) {
@@ -206,33 +194,10 @@ inline void bind_point_locator(nb::module_ &m) {
                 return point_results(locator.locate(points));
             },
             "point_ids"_a, "coordinates"_a, "coordinate_system"_a)
-        .def(
-            "bounds",
-            [](const axis::solver::PointLocator &locator) {
-                const auto bounds = locator.bounds();
-                return point_result_array(std::vector<double>(bounds.begin(), bounds.end()));
-            });
-
-    nb::class_<axis::distributed::DistributedPointLocator>(m, "_DistributedPointLocator")
-        .def(
-            "__init__",
-            [](axis::distributed::DistributedPointLocator *self, const HostMesh &mesh,
-               nb::ndarray<nb::numpy, const axis::index_t, nb::ndim<1>> cell_ids, std::int64_t comm_f, double tolerance, std::size_t max_import_bytes,
-               std::size_t max_message_bytes, std::size_t query_batch_size) {
-                ensure_kokkos();
-                auto options = point_options(tolerance, max_import_bytes, max_message_bytes, query_batch_size);
-                new (self)
-                    axis::distributed::DistributedPointLocator(mesh, {cell_ids.data(), cell_ids.shape(0)}, python_communicator(comm_f), options);
-            },
-            "mesh"_a, "cell_ids"_a, "comm_f"_a, "tolerance"_a, "max_import_bytes"_a, "max_message_bytes"_a, "query_batch_size"_a)
-        .def(
-            "locate",
-            [](axis::distributed::DistributedPointLocator &locator, nb::ndarray<nb::numpy, const axis::index_t, nb::ndim<1>> point_ids,
-               nb::ndarray<nb::numpy, const double, nb::ndim<2>> coordinates, axis::topology::CoordinateSystem coordinate_system) {
-                auto points = point_set_view(point_ids, coordinates, coordinate_system);
-                return point_results(locator.locate(points));
-            },
-            "point_ids"_a, "coordinates"_a, "coordinate_system"_a);
+        .def("bounds", [](const axis::solver::PointLocator &locator) {
+            const auto bounds = locator.bounds();
+            return point_result_array(std::vector<double>(bounds.begin(), bounds.end()));
+        });
 
     m.def(
         "_mesh_cell_centroids",

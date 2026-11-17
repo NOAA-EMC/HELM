@@ -1,6 +1,8 @@
 """Point identity, geometry semantics, and NumPy ownership at the Python boundary."""
 
 import gc
+import inspect
+import sys
 
 import axis
 import numpy as np
@@ -16,6 +18,35 @@ def point_mesh(scale=1.0):
         coordinate_system=axis.CoordinateSystem.Cartesian3D,
         boundary_model=axis.BoundaryModel.CartesianStraight,
     )
+
+
+def adjacent_mesh():
+    return axis.make_ugrid_mesh(
+        np.array([[0, 0], [1, 0], [1, 1], [0, 1], [2, 0], [2, 1]], dtype=float),
+        np.array([0, 4, 8], dtype=np.int64),
+        np.array([0, 1, 2, 3, 1, 4, 5, 2], dtype=np.int64),
+        coordinate_system=axis.CoordinateSystem.Cartesian3D,
+        boundary_model=axis.BoundaryModel.CartesianStraight,
+    )
+
+
+@pytest.fixture
+def two_worker_client():
+    distributed = pytest.importorskip("distributed")
+    cluster = distributed.LocalCluster(n_workers=2, threads_per_worker=1, processes=True, dashboard_address=None)
+    client = distributed.Client(cluster)
+    try:
+        client.wait_for_workers(2)
+        yield client
+    finally:
+        client.close()
+        cluster.close()
+
+
+def _worker_locator_partitions(token, dask_worker=None):
+    from axis.point_locator import _WORKER_LOCATORS
+
+    return sorted(partition for cached_token, partition in _WORKER_LOCATORS if cached_token == token), dask_worker.address
 
 
 def test_preserves_coincident_points_and_result_memory():
@@ -106,9 +137,7 @@ def test_native_cell_extraction_remaps_connectivity_and_metadata():
         coordinate_system=mesh.coordinate_system,
         boundary_model=mesh.boundary_model,
     )
-    result = axis.PointLocator(shard_mesh, [99]).locate(
-        [1], [[1.5, 0.5]], coordinate_system=axis.CoordinateSystem.Cartesian3D
-    )
+    result = axis.PointLocator(shard_mesh, [99]).locate([1], [[1.5, 0.5]], coordinate_system=axis.CoordinateSystem.Cartesian3D)
     np.testing.assert_array_equal(result.cell_ids, [99])
 
 
@@ -142,9 +171,164 @@ def test_partition_cells_is_balanced_and_deterministic():
 
 
 def test_serial_owner_ranks_aliases_owner_partitions():
-    result = axis.PointLocator(point_mesh(), [42]).locate(
-        [7], [[0.5, 0.5]], coordinate_system=axis.CoordinateSystem.Cartesian3D
-    )
+    result = axis.PointLocator(point_mesh(), [42]).locate([7], [[0.5, 0.5]], coordinate_system=axis.CoordinateSystem.Cartesian3D)
 
     np.testing.assert_array_equal(result.owner_partitions, [0])
     np.testing.assert_array_equal(result.owner_ranks, result.owner_partitions)
+
+
+def test_distributed_point_locator_constructs_from_mesh_without_mpi(two_worker_client):
+    import dask.array as da
+
+    class ForbidMpiImports:
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname == "mpi4py" or fullname.startswith("mpi4py."):
+                raise AssertionError("the Dask point locator must not import mpi4py")
+            return None
+
+    finder = ForbidMpiImports()
+    sys.meta_path.insert(0, finder)
+    try:
+        locator = axis.DistributedPointLocator(adjacent_mesh(), [10, 20], client=two_worker_client)
+    finally:
+        sys.meta_path.remove(finder)
+
+    worker_cache = two_worker_client.run(_worker_locator_partitions, locator._token)
+    assert set(worker_cache) == set(two_worker_client.scheduler_info()["workers"])
+    assert sorted(partitions for partitions, _ in worker_cache.values()) == [[0], [1]]
+
+    ids = da.from_array(np.array([90, 3, 20, 1], dtype=np.int64), chunks=(2,))
+    coordinates = da.from_array(np.array([[0.5, 0.5], [1.5, 0.5], [3.0, 0.5], [0.25, 0.25]]), chunks=(2, 2))
+    result = locator.locate(ids, coordinates)
+
+    assert isinstance(result.cell_ids, da.Array)
+    np.testing.assert_array_equal(result.point_ids.compute(), [90, 3, 20, 1])
+    np.testing.assert_array_equal(result.cell_ids.compute(), [10, 20, -1, 10])
+    np.testing.assert_array_equal(result.owner_partitions.compute(), [0, 1, -1, 0])
+    np.testing.assert_array_equal(result.owner_local_indices.compute(), [0, 0, -1, 0])
+    locator.close()
+
+
+def test_distributed_point_locator_chooses_smallest_cell_id_across_shards(two_worker_client):
+    import dask.array as da
+
+    nodes = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
+    mesh = axis.make_ugrid_mesh(
+        nodes,
+        np.array([0, 4, 8], dtype=np.int64),
+        np.array([0, 1, 2, 3, 0, 1, 2, 3], dtype=np.int64),
+        coordinate_system=axis.CoordinateSystem.Cartesian3D,
+        boundary_model=axis.BoundaryModel.CartesianStraight,
+    )
+    locator = axis.DistributedPointLocator(mesh, [50, 7], client=two_worker_client)
+
+    result = locator.locate(
+        da.from_array(np.array([5], dtype=np.int64), chunks=1),
+        da.from_array(np.array([[0.5, 0.5]]), chunks=(1, 2)),
+    )
+
+    np.testing.assert_array_equal(result.cell_ids.compute(), [7])
+    np.testing.assert_array_equal(result.owner_partitions.compute(), [0])
+    locator.close()
+
+
+def test_distributed_point_locator_handles_empty_shards_and_unmapped_points(two_worker_client):
+    import dask.array as da
+
+    locator = axis.DistributedPointLocator(point_mesh(), [42])
+    result = locator.locate(
+        da.from_array(np.array([1, 2], dtype=np.int64), chunks=1),
+        da.from_array(np.array([[0.5, 0.5], [2.0, 2.0]]), chunks=(1, 2)),
+    )
+
+    np.testing.assert_array_equal(result.cell_ids.compute(), [42, -1])
+    np.testing.assert_array_equal(result.owner_partitions.compute(), [0, -1])
+    np.testing.assert_array_equal(result.status.compute(), [axis.PointLocationStatus.Interior, axis.PointLocationStatus.Unmapped])
+    locator.close()
+
+
+def test_distributed_point_locator_accepts_spherical_units(two_worker_client):
+    import dask.array as da
+
+    mesh = axis.make_ugrid_mesh(
+        np.array([[0, 0], [2, 0], [2, 2], [0, 2]], dtype=float),
+        np.array([0, 4], dtype=np.int64),
+        np.arange(4, dtype=np.int64),
+        boundary_model=axis.BoundaryModel.GreatCircle,
+    )
+    locator = axis.DistributedPointLocator(mesh, [55], client=two_worker_client)
+
+    degrees = locator.locate(
+        da.from_array(np.array([1], dtype=np.int64), chunks=1),
+        da.from_array(np.array([[0.5, 0.5]]), chunks=(1, 2)),
+        coordinate_system=axis.CoordinateSystem.SphericalDeg,
+    )
+    radians = locator.locate(
+        da.from_array(np.array([2], dtype=np.int64), chunks=1),
+        da.from_array(np.deg2rad(np.array([[0.5, 0.5]])), chunks=(1, 2)),
+        coordinate_system=axis.CoordinateSystem.SphericalRad,
+    )
+
+    np.testing.assert_array_equal(degrees.cell_ids.compute(), [55])
+    np.testing.assert_array_equal(radians.cell_ids.compute(), [55])
+    locator.close()
+
+
+def test_distributed_point_locator_rejects_misaligned_chunks(two_worker_client):
+    import dask.array as da
+
+    locator = axis.DistributedPointLocator(adjacent_mesh(), [10, 20], client=two_worker_client)
+    ids = da.from_array(np.array([1, 2, 3], dtype=np.int64), chunks=(2, 1))
+    misaligned_rows = da.from_array(np.array([[0.5, 0.5], [1.5, 0.5], [0.5, 0.5]]), chunks=(1, 2))
+    split_dimensions = da.from_array(np.array([[0.5, 0.5], [1.5, 0.5], [0.5, 0.5]]), chunks=(2, 1))
+
+    with pytest.raises(ValueError, match="row chunks"):
+        locator.locate(ids, misaligned_rows)
+    with pytest.raises(ValueError, match="coordinate dimension"):
+        locator.locate(ids, split_dimensions)
+    locator.close()
+
+
+def test_distributed_point_locator_rejects_duplicate_ids_across_chunks(two_worker_client):
+    import dask.array as da
+
+    locator = axis.DistributedPointLocator(point_mesh(), [42], client=two_worker_client)
+    ids = da.from_array(np.array([1, 2, 1], dtype=np.int64), chunks=(2, 1))
+    coordinates = da.from_array(np.array([[0.5, 0.5], [0.25, 0.25], [0.75, 0.75]]), chunks=(2, 2))
+
+    result = locator.locate(ids, coordinates)
+
+    with pytest.raises(ValueError, match="globally unique"):
+        result.cell_ids.compute()
+    locator.close()
+
+
+def test_distributed_point_locator_close_invalidates_lazy_graphs(two_worker_client):
+    import dask.array as da
+
+    locator = axis.DistributedPointLocator(adjacent_mesh(), [10, 20], client=two_worker_client)
+    result = locator.locate(
+        da.from_array(np.array([1], dtype=np.int64), chunks=1),
+        da.from_array(np.array([[0.5, 0.5]]), chunks=(1, 2)),
+    )
+    locator.close()
+
+    with pytest.raises(RuntimeError, match="closed|cache"):
+        result.cell_ids.compute()
+
+
+def test_candidate_partitions_excludes_disjoint_shards():
+    from axis.point_locator import _candidate_partitions
+
+    points = np.array([[0.5, 0.5, 0], [10.5, 10.5, 0], [5, 5, 0]], dtype=float)
+    bounds = np.array([[0, 0, -1, 1, 1, 1], [10, 10, -1, 11, 11, 1]], dtype=float)
+
+    candidates = _candidate_partitions(points, bounds)
+
+    np.testing.assert_array_equal(candidates[0], [0])
+    np.testing.assert_array_equal(candidates[1], [1])
+
+
+def test_distributed_point_locator_has_no_python_mpi_surface():
+    assert not hasattr(axis.axis_py, "_DistributedPointLocator")
+    assert "comm" not in inspect.signature(axis.DistributedPointLocator).parameters
