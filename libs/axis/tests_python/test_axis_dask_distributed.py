@@ -82,8 +82,7 @@ def _great_circle_grid(nlon, nlat):
     edges_lon = np.concatenate([lon - dlon / 2, [lon[-1] + dlon / 2]])
     edges_lat = np.concatenate([lat - dlat / 2, [lat[-1] + dlat / 2]])
     corner_lons, corner_lats = np.meshgrid(edges_lon, edges_lat)
-    return axis.CurvilinearGrid(lons, lats, corner_lons=corner_lons, corner_lats=corner_lats,
-                                longitude_periodic=True)
+    return axis.CurvilinearGrid(lons, lats, corner_lons=corner_lons, corner_lats=corner_lats, longitude_periodic=True)
 
 
 def test_linear_conservative_rejects_serialization_paths(local_distributed_client, tmp_path):
@@ -94,9 +93,7 @@ def test_linear_conservative_rejects_serialization_paths(local_distributed_clien
     _, client = local_distributed_client
     source = _great_circle_grid(8, 5)
     target = _great_circle_grid(12, 7)
-    field = xr.DataArray(
-        da.ones((5, 8), chunks=(5, 8)), dims=("y", "x"), name="temperature"
-    )
+    field = xr.DataArray(da.ones((5, 8), chunks=(5, 8)), dims=("y", "x"), name="temperature")
     regridder = axis.Regridder(source, target, method="conservative2nd")
 
     with pytest.raises(ValueError, match="linear reconstruction"):
