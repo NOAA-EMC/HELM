@@ -497,6 +497,9 @@ add_library(AMIO::amio_core ALIAS amio_core)
 # `amio_api.cpp` checks `AMIO_BUILDING_LIBRARY` so the AMIO_API macro emits `__declspec(dllexport)` on Windows when libamio itself is being built.  On
 # ELF / Mach-O targets visibility is governed by `__attribute__((visibility("default")))` and this define is a harmless no-op.
 target_compile_definitions(amio_core PRIVATE AMIO_BUILDING_LIBRARY=1)
+if(AMIO_BUILD_TESTING)
+    target_compile_definitions(amio_core PRIVATE AMIO_TEST_TRANSFER_CONTROL=1)
+endif()
 if(AMIO_NETCDF_PAR_LIB)
     target_compile_definitions(amio_core PRIVATE AMIO_HAS_PARALLEL_NETCDF=1)
 endif()

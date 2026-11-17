@@ -41,6 +41,7 @@
 #include "drivers/grib2/grib2_driver.hpp"
 #include "drivers/grib2/grib2_steps.hpp"
 #include "drivers/netcdf/netcdf_driver.hpp"
+#include "drivers/netcdf/netcdf_step_writer.hpp"
 #include "drivers/zarr/zarr_steps.hpp"
 #include "execution/context.hpp"
 #include "execution/credit_window.hpp"
@@ -67,6 +68,30 @@
 
 #ifdef AMIO_HAS_MPI
 #include <mpi.h>
+#endif
+
+#ifdef AMIO_TEST_TRANSFER_CONTROL
+#include "c_boundary/transfer_test_hook.hpp"
+namespace {
+std::mutex transfer_test_mutex;
+amio_test_transfer_hook transfer_test_hook = nullptr;
+void *transfer_test_context = nullptr;
+}  // namespace
+extern "C" AMIO_API void amio_set_transfer_test_hook(amio_test_transfer_hook hook, void *context) {
+    std::lock_guard<std::mutex> lock(transfer_test_mutex);
+    transfer_test_hook = hook;
+    transfer_test_context = context;
+}
+static amio_status_t invoke_transfer_test_hook() {
+    amio_test_transfer_hook hook;
+    void *context;
+    {
+        std::lock_guard<std::mutex> lock(transfer_test_mutex);
+        hook = transfer_test_hook;
+        context = transfer_test_context;
+    }
+    return hook ? hook(context) : AMIO_OK;
+}
 #endif
 
 namespace {
@@ -150,11 +175,39 @@ struct ProducerStepPayload {
     EvolutionDatasetPayload *dataset = nullptr;
     std::uint64_t step_id = 0;
     bool partitioned = false;
+    std::unique_ptr<amio::detail::NetCDFStepWriter, decltype(&amio::detail::destroy_netcdf_step_writer)> async_driver{
+        nullptr, &amio::detail::destroy_netcdf_step_writer};
+    std::unique_ptr<amio::detail::ProgressEngine> async_progress;
+    std::shared_ptr<const amio::detail::Schema> async_schema;
+    bool async_finished = false;
+    amio_status_t async_result = AMIO_OK;
     std::map<std::string, amio::detail::RegionSelection, std::less<>> partitions;
     /** Field identifiers retained until publication so staging gauges can return to zero. */
     std::map<std::string, std::uint32_t, std::less<>> diagnostic_field_ids;
     bool ended = false;
 };
+
+// Called with the dataset lock held. Transfer callbacks never take that lock.
+// Draining alone does not close a parallel file: nc_close is collective and
+// therefore belongs to the collectively entered end/cancel path.
+void drain_async_progress(ProducerStepPayload &step) noexcept {
+    if (!step.async_progress) return;
+    const auto status = step.async_progress->close(std::chrono::hours(24 * 365));
+    if (status != AMIO_OK && step.async_result == AMIO_OK) step.async_result = status;
+    step.async_progress.reset();  // joins, including after a timeout
+}
+
+amio_status_t finish_async_step(ProducerStepPayload &step) noexcept {
+    if (!step.async_driver || step.async_finished) return step.async_result;
+    drain_async_progress(step);
+    try {
+        amio::detail::close_netcdf_step_writer(*step.async_driver);
+    } catch (...) {
+        if (step.async_result == AMIO_OK) step.async_result = AMIO_ERR_BACKEND_FAILURE;
+    }
+    step.async_finished = true;
+    return step.async_result;
+}
 
 void record_step_publication(ContextPayload &context, const EvolutionDatasetPayload &dataset, const ProducerStepPayload &step, std::uint64_t bytes,
                              std::uint64_t elapsed_ns) {
@@ -500,6 +553,53 @@ std::string step_payload_name(std::uint64_t step_id) {
     name += digits;
     name += ".nc";
     return name;
+}
+
+amio_status_t enqueue_netcdf_transfer(ProducerStepPayload &step, const std::string &field,
+                                      const std::shared_ptr<amio::detail::OperationRecord> &operation) {
+    if (!step.async_progress) return AMIO_OK;
+    auto *owner = step.dataset;
+    const auto found = owner->steps->contributions().find(field);
+    if (found == owner->steps->contributions().end()) return AMIO_ERR_BACKEND_FAILURE;
+    const auto *contribution = &found->second;
+    auto schema = step.async_schema;
+    try {
+        return step.async_progress->submit([owner, &step, field, contribution, schema, operation]() -> amio_status_t {
+            amio_status_t status = AMIO_OK;
+            try {
+#ifdef AMIO_TEST_TRANSFER_CONTROL
+                status = invoke_transfer_test_hook();
+#endif
+                const auto &variable = schema->variables().at(field);
+                ScopedBudgetReservation scratch{owner->budget.get(), std::nullopt};
+                if (status == AMIO_OK && variable.source_dtype != variable.stored_dtype) {
+                    if (contribution->bytes.size() > std::numeric_limits<std::size_t>::max() / 2)
+                        status = AMIO_ERR_BUDGET_EXCEEDED;
+                    else {
+                        scratch.reservation = owner->budget->reserve(contribution->bytes.size() * 2, 1);
+                        if (!scratch.reservation) status = AMIO_ERR_BUDGET_EXCEEDED;
+                    }
+                }
+                amio::detail::ExecutedField result;
+                if (status == AMIO_OK)
+                    status = amio::detail::execute_field_pipeline(variable, contribution->bytes, contribution->region.offsets,
+                                                                  contribution->region.extents, owner->payload_budget_bytes, result,
+                                                                  amio::detail::OperatorDestination::NetCDF4);
+                if (status == AMIO_OK) {
+                    const void *data =
+                        result.bytes.empty() ? static_cast<const void *>(contribution->bytes.data()) : static_cast<const void *>(result.bytes.data());
+                    amio::detail::write_netcdf_step_writer(*step.async_driver, field, contribution->region, data);
+                    operation->mark(amio::detail::OperationMilestone::PayloadComplete);
+                }
+            } catch (...) {
+                status = AMIO_ERR_BACKEND_FAILURE;
+            }
+            if (status != AMIO_OK) operation->finish_failure(status);
+            return status;
+        });
+    } catch (...) {
+        return AMIO_ERR_BACKEND_FAILURE;
+    }
 }
 
 bool valid_request(const amio_validation_request_t *request) noexcept {
@@ -1267,14 +1367,18 @@ AMIO_API amio_status_t amio_query_capabilities(amio_context_handle context, char
         "\"features\":{\"immutable_schema\":\"compiled\",\"borrowed_buffer\":\"unsupported\","
         "\"device_memory\":\"compiled\",\"f64_f32_precision\":\"compiled\",\"logical_integrity\":\"compiled\","
         "\"native_lossless_codec_selection\":\"destination-negotiated\",\"native_lossy_codec\":\"unsupported\","
-        "\"destination_visibility\":\"compiled\",\"storage_sync\":\"compiled\"}}";
+        "\"destination_visibility\":\"compiled\",\"storage_sync\":\"compiled\","
+        "\"zarr_step_async\":\"unsupported\",\"parallel_netcdf_filtered_step_async\":\"unsupported\","
+        "\"parallel_netcdf_caller_step_async\":\"unsupported\"}}";
 #else
     static constexpr char report[] =
         "{\"api_version\":1,\"capability_levels\":[\"unsupported\",\"compiled\",\"environment_validated\",\"destination_certified\"],"
         "\"features\":{\"immutable_schema\":\"compiled\",\"borrowed_buffer\":\"unsupported\","
         "\"device_memory\":\"unsupported\",\"f64_f32_precision\":\"compiled\",\"logical_integrity\":\"compiled\","
         "\"native_lossless_codec_selection\":\"destination-negotiated\",\"native_lossy_codec\":\"unsupported\","
-        "\"destination_visibility\":\"compiled\",\"storage_sync\":\"compiled\"}}";
+        "\"destination_visibility\":\"compiled\",\"storage_sync\":\"compiled\","
+        "\"zarr_step_async\":\"unsupported\",\"parallel_netcdf_filtered_step_async\":\"unsupported\","
+        "\"parallel_netcdf_caller_step_async\":\"unsupported\"}}";
 #endif
     constexpr std::size_t required = sizeof(report);
     *out_required_bytes = required;
@@ -2231,6 +2335,12 @@ static amio_status_t begin_step_impl(amio_dataset_handle dataset, const amio_ste
         amio::detail::CompiledFieldPipeline pipeline;
         const auto pipeline_status = amio::detail::compile_variable_pipeline(variable, pipeline, operator_destination(owner->format));
         if (pipeline_status != AMIO_OK) return pipeline_status;
+        // Parallel NetCDF filtered variables require collective access and
+        // cannot satisfy the independent background transfer contract.
+        if (partitioned && owner->format == AMIO_FORMAT_NETCDF4 &&
+            owner->context->context->progress_policy() == amio::detail::ProgressPolicy::Background &&
+            pipeline.request.codec == amio::detail::NativeCodec::Deflate)
+            return AMIO_ERR_UNSUPPORTED;
         if (pipeline.request.codec == amio::detail::NativeCodec::Grib2Aec || pipeline.request.codec == amio::detail::NativeCodec::Grib2Jpeg2000) {
             if (variable.stored_dtype != AMIO_DTYPE_F32) return AMIO_ERR_UNSUPPORTED;
             try {
@@ -2308,7 +2418,70 @@ static amio_status_t begin_step_impl(amio_dataset_handle dataset, const amio_ste
     const auto begin_status = partitioned ? collective_status(*owner->context->context, local_coordinator_status) : local_coordinator_status;
     if (begin_status != AMIO_OK && local_coordinator_status == AMIO_OK) (void)owner->steps->cancel_step();
     if (begin_status != AMIO_OK) return begin_status;
-    const auto token = process_handle_table().insert(HandleKind::ProducerStep, step_payload.get());
+    // Serial NetCDF does not use MPI. Parallel independent writes run on a
+    // worker only for the explicitly requested background policy, whose
+    // context has already validated MPI_THREAD_MULTIPLE.
+    const bool parallel_background =
+        partitioned && owner->format == AMIO_FORMAT_NETCDF4 && owner->context->context->progress_policy() == amio::detail::ProgressPolicy::Background;
+    if (owner->format == AMIO_FORMAT_NETCDF4 && (!partitioned || parallel_background)) {
+        amio_status_t setup_status = AMIO_OK;
+        std::string path;
+        try {
+            path = (std::filesystem::path(owner->location) / step_payload_name(descriptor->step_id)).string();
+            if (!partitioned || owner->context->context->rank() == owner->context->context->storage_root_rank())
+                std::filesystem::create_directories(std::filesystem::path(path).parent_path());
+            step_payload->async_driver.reset(amio::detail::create_netcdf_step_writer());
+            step_payload->async_schema = schema;
+            int thread_level = 0;
+#ifdef AMIO_HAS_MPI
+            if (partitioned && MPI_Query_thread(&thread_level) != MPI_SUCCESS) throw std::runtime_error("MPI thread query failed");
+#endif
+            step_payload->async_progress = std::make_unique<amio::detail::ProgressEngine>(amio::detail::ProgressPolicy::Background,
+                                                                                          schema->variables().size(), thread_level, partitioned);
+        } catch (...) {
+            setup_status = AMIO_ERR_BACKEND_FAILURE;
+        }
+        if (partitioned) setup_status = collective_status(*owner->context->context, setup_status);
+        if (setup_status != AMIO_OK) {
+            drain_async_progress(*step_payload);
+            (void)owner->steps->poison_dataset(setup_status);
+            return setup_status;
+        }
+        try {
+            std::int64_t fortran_communicator = 0;
+#ifdef AMIO_HAS_MPI
+            if (partitioned) fortran_communicator = static_cast<std::int64_t>(MPI_Comm_c2f(owner->context->context->data_communicator()));
+#endif
+            amio::detail::open_netcdf_step_writer(*step_payload->async_driver, path, *schema, descriptor->model_time, fortran_communicator,
+                                                  partitioned);
+        } catch (...) {
+            setup_status = AMIO_ERR_BACKEND_FAILURE;
+        }
+        if (partitioned) setup_status = collective_status(*owner->context->context, setup_status);
+        if (setup_status != AMIO_OK) {
+            (void)finish_async_step(*step_payload);
+            (void)owner->steps->poison_dataset(setup_status);
+            return setup_status;
+        }
+        try {
+            auto *step_for_barrier = step_payload.get();
+            owner->steps->set_failure_barrier([step_for_barrier] { drain_async_progress(*step_for_barrier); });
+        } catch (...) {
+            setup_status = AMIO_ERR_BACKEND_FAILURE;
+        }
+        if (partitioned) setup_status = collective_status(*owner->context->context, setup_status);
+        if (setup_status != AMIO_OK) {
+            (void)finish_async_step(*step_payload);
+            (void)owner->steps->poison_dataset(setup_status);
+            return setup_status;
+        }
+    }
+    HandleTable::Token token = 0;
+    try {
+        token = process_handle_table().insert(HandleKind::ProducerStep, step_payload.get());
+    } catch (...) {
+        token = 0;
+    }
     amio_status_t token_status = token == 0 ? AMIO_ERR_BACKEND_FAILURE : AMIO_OK;
     if (partitioned) token_status = collective_status(*owner->context->context, token_status);
     if (token_status != AMIO_OK) {
@@ -2346,11 +2519,11 @@ AMIO_API amio_status_t amio_put_field(amio_step_handle step, const char *field, 
     const auto lookup = process_handle_table().lookup(token, HandleKind::ProducerStep, &step_payload);
     if (lookup != AMIO_OK) return lookup;
     auto *producer_step = static_cast<ProducerStepPayload *>(step_payload);
-    if (producer_step->ended) return AMIO_ERR_INVALID_POLICY;
     std::string field_name;
     if (!copy_utf8(field, field_bytes, field_name)) return AMIO_ERR_INVALID_INPUT;
     auto *owner = producer_step->dataset;
     std::lock_guard<std::mutex> lock(owner->mutex);
+    if (producer_step->ended) return AMIO_ERR_INVALID_POLICY;
     const auto started = std::chrono::steady_clock::now();
     const auto diagnostic_field_id = static_cast<std::uint32_t>(std::hash<std::string>{}(field_name));
     if (owner->context->diagnostics) {
@@ -2408,12 +2581,25 @@ AMIO_API amio_status_t amio_put_field(amio_step_handle step, const char *field, 
         (void)owner->steps->poison_dataset(AMIO_ERR_BACKEND_FAILURE);
         return AMIO_ERR_BACKEND_FAILURE;
     }
-    auto operation_payload = std::make_unique<OperationHandlePayload>();
-    operation_payload->operation = std::move(operation);
-    const auto operation_token = process_handle_table().insert(HandleKind::Operation, operation_payload.get());
+    std::unique_ptr<OperationHandlePayload> operation_payload;
+    HandleTable::Token operation_token = 0;
+    try {
+        operation_payload = std::make_unique<OperationHandlePayload>();
+        operation_payload->operation = operation;
+        operation_token = process_handle_table().insert(HandleKind::Operation, operation_payload.get());
+    } catch (...) {
+        operation_token = 0;
+    }
     if (operation_token == 0) {
         (void)owner->steps->poison_dataset(AMIO_ERR_BACKEND_FAILURE);
         return AMIO_ERR_BACKEND_FAILURE;
+    }
+    const auto queued = enqueue_netcdf_transfer(*producer_step, field_name, operation);
+    if (queued != AMIO_OK) {
+        void *unused = nullptr;
+        (void)process_handle_table().release(operation_token, HandleKind::Operation, &unused);
+        (void)owner->steps->poison_dataset(queued);
+        return queued;
     }
     *out_operation = reinterpret_cast<amio_operation_handle>(HandleTable::to_ptr(operation_token));
     operation_payload.release();
@@ -2454,9 +2640,9 @@ AMIO_API amio_status_t amio_put_field_memory(amio_step_handle step, const char *
     const auto lookup = process_handle_table().lookup(token, HandleKind::ProducerStep, &step_payload);
     if (lookup != AMIO_OK) return lookup;
     auto *producer_step = static_cast<ProducerStepPayload *>(step_payload);
-    if (producer_step->ended) return AMIO_ERR_INVALID_POLICY;
     auto *owner = producer_step->dataset;
     std::lock_guard<std::mutex> lock(owner->mutex);
+    if (producer_step->ended) return AMIO_ERR_INVALID_POLICY;
     const auto started = std::chrono::steady_clock::now();
     const auto field_id = static_cast<std::uint32_t>(std::hash<std::string>{}(field_name));
     const auto result = owner->steps->put_memory(field_name, descriptor, data, data_bytes);
@@ -2491,12 +2677,25 @@ AMIO_API amio_status_t amio_put_field_memory(amio_step_handle step, const char *
         (void)owner->steps->poison_dataset(AMIO_ERR_BACKEND_FAILURE);
         return AMIO_ERR_BACKEND_FAILURE;
     }
-    auto operation_payload = std::make_unique<OperationHandlePayload>();
-    operation_payload->operation = std::move(operation);
-    const auto operation_token = process_handle_table().insert(HandleKind::Operation, operation_payload.get());
+    std::unique_ptr<OperationHandlePayload> operation_payload;
+    HandleTable::Token operation_token = 0;
+    try {
+        operation_payload = std::make_unique<OperationHandlePayload>();
+        operation_payload->operation = operation;
+        operation_token = process_handle_table().insert(HandleKind::Operation, operation_payload.get());
+    } catch (...) {
+        operation_token = 0;
+    }
     if (operation_token == 0) {
         (void)owner->steps->poison_dataset(AMIO_ERR_BACKEND_FAILURE);
         return AMIO_ERR_BACKEND_FAILURE;
+    }
+    const auto queued = enqueue_netcdf_transfer(*producer_step, field_name, operation);
+    if (queued != AMIO_OK) {
+        void *unused = nullptr;
+        (void)process_handle_table().release(operation_token, HandleKind::Operation, &unused);
+        (void)owner->steps->poison_dataset(queued);
+        return queued;
     }
     *out_operation = reinterpret_cast<amio_operation_handle>(HandleTable::to_ptr(operation_token));
     operation_payload.release();
@@ -2518,11 +2717,28 @@ AMIO_API amio_status_t amio_cancel_step(amio_step_handle step) {
         int all_cancellable = 0;
         if (MPI_Allreduce(&locally_cancellable, &all_cancellable, 1, MPI_INT, MPI_MIN, owner->context->context->communicator()) != MPI_SUCCESS)
             return AMIO_ERR_COMM_SPLIT_FAILED;
-        if (!all_cancellable) return AMIO_ERR_INVALID_POLICY;
+        if (!all_cancellable) {
+            const int locally_ended = producer_step->ended ? 1 : 0;
+            int all_ended = 0;
+            if (MPI_Allreduce(&locally_ended, &all_ended, 1, MPI_INT, MPI_MIN, owner->context->context->communicator()) != MPI_SUCCESS)
+                return AMIO_ERR_COMM_SPLIT_FAILED;
+            if (all_ended) return AMIO_ERR_INVALID_POLICY;
+            auto cleanup_status = finish_async_step(*producer_step);
+            cleanup_status = collective_status(*owner->context->context, cleanup_status);
+            const auto failure = cleanup_status == AMIO_OK ? AMIO_ERR_STEP_FAILED : cleanup_status;
+            (void)owner->steps->poison_dataset(failure);
+            return failure;
+        }
     } else
 #endif
         if (producer_step->ended)
         return AMIO_ERR_INVALID_POLICY;
+    auto finish_status = finish_async_step(*producer_step);
+    if (producer_step->partitioned) finish_status = collective_status(*owner->context->context, finish_status);
+    if (finish_status != AMIO_OK) {
+        (void)owner->steps->poison_dataset(finish_status);
+        return finish_status;
+    }
     const auto status = owner->steps->cancel_step();
     const auto agreed = is_distributed_output(*owner) ? collective_status(*owner->context->context, status) : status;
     if (agreed == AMIO_OK) producer_step->ended = true;
@@ -2561,7 +2777,18 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
         int all_valid = 0;
         if (MPI_Allreduce(&locally_valid, &all_valid, 1, MPI_INT, MPI_MIN, owner->context->context->communicator()) != MPI_SUCCESS)
             return AMIO_ERR_COMM_SPLIT_FAILED;
-        if (!all_valid) return AMIO_ERR_INVALID_POLICY;
+        if (!all_valid) {
+            const int locally_ended = producer_step->ended ? 1 : 0;
+            int all_ended = 0;
+            if (MPI_Allreduce(&locally_ended, &all_ended, 1, MPI_INT, MPI_MIN, owner->context->context->communicator()) != MPI_SUCCESS)
+                return AMIO_ERR_COMM_SPLIT_FAILED;
+            if (all_ended) return AMIO_ERR_INVALID_POLICY;
+            auto cleanup_status = finish_async_step(*producer_step);
+            cleanup_status = collective_status(*owner->context->context, cleanup_status);
+            const auto failure = cleanup_status == AMIO_OK ? AMIO_ERR_STEP_FAILED : cleanup_status;
+            (void)coordinator.poison_dataset(failure);
+            return failure;
+        }
     } else
 #endif
         if (producer_step->ended)
@@ -2583,6 +2810,12 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
         return AMIO_OK;
     }
 
+    auto async_status = finish_async_step(*producer_step);
+    if (producer_step->partitioned) async_status = collective_status(*owner->context->context, async_status);
+    if (async_status != AMIO_OK) {
+        (void)coordinator.poison_dataset(async_status);
+        return async_status;
+    }
     auto status = coordinator.end_step();
     if (producer_step->partitioned) {
         status = collective_status(*owner->context->context, status);
@@ -2713,8 +2946,18 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
     };
     amio::detail::Grib2StepPayload grib_payload;
     amio_status_t payload_status = AMIO_OK;
+#ifdef AMIO_TEST_TRANSFER_CONTROL
+    if (!producer_step->async_driver) payload_status = invoke_transfer_test_hook();
+    if (producer_step->partitioned) payload_status = collective_status(*owner->context->context, payload_status);
+    if (payload_status != AMIO_OK) {
+        (void)coordinator.poison_dataset(payload_status);
+        return payload_status;
+    }
+#endif
     try {
-        if (owner->format == AMIO_FORMAT_NETCDF4) {
+        if (owner->format == AMIO_FORMAT_NETCDF4 && producer_step->async_driver) {
+            // The local worker wrote and closed this immutable payload above.
+        } else if (owner->format == AMIO_FORMAT_NETCDF4) {
             if (producer_step->partitioned) {
                 amio_status_t directory_status = AMIO_OK;
                 if (owner->context->context->rank() == owner->context->context->storage_root_rank()) {
@@ -3452,9 +3695,10 @@ AMIO_API amio_status_t amio_release_step_handle(amio_step_handle step) {
     auto *owner = producer_step->dataset;
     std::lock_guard<std::mutex> lock(owner->mutex);
     const bool failed_terminal = owner->steps->state() == amio::detail::StepState::Failed && owner->steps->active_step_id() == producer_step->step_id;
+    if (producer_step->partitioned && producer_step->async_driver && !producer_step->async_finished) return AMIO_ERR_INVALID_POLICY;
     if (!producer_step->ended && !failed_terminal) {
-        // The synchronous producer handle owns the only route to seal this
-        // step. Reject an early release while work is active; failed terminal
+        // The producer handle owns the only route to seal this step.
+        // Reject an early release while work is active; failed terminal
         // steps can be released after their accepted operations are failed.
         return AMIO_ERR_INVALID_POLICY;
     }

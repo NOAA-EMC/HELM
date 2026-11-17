@@ -14,12 +14,13 @@
 namespace amio::detail {
 
 /** Bounded progress queue: caller policy runs callbacks only from progress(); background
- * policy runs them on one worker after MPI_THREAD_MULTIPLE has been validated.
+ * policy runs them on one worker. MPI callbacks require MPI_THREAD_MULTIPLE;
+ * local-only callbacks may run without MPI thread support.
  */
 class ProgressEngine {
    public:
     using Callback = std::function<amio_status_t()>;
-    ProgressEngine(ProgressPolicy policy, std::size_t queue_capacity, int thread_level);
+    ProgressEngine(ProgressPolicy policy, std::size_t queue_capacity, int thread_level, bool callbacks_use_mpi = true);
     ProgressEngine(const ProgressEngine &) = delete;
     ProgressEngine &operator=(const ProgressEngine &) = delete;
     ~ProgressEngine();

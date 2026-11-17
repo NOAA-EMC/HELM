@@ -234,8 +234,15 @@ partitioned NetCDF output, all ranks call it collectively in the same order.
 It fails accepted operations, consumes that step ID, keeps the step out of
 complete-step discovery, and allows its producer handle to be released. The
 legacy asynchronous API drains accepted writes through `amio_flush` or dataset
-close; the persistent direct path completes backend writes during
-`amio_end_step`.
+close. For a single-rank NetCDF collection, accepted fields are transferred on
+a background worker. For a partitioned NetCDF collection, background progress
+requires `AMIO_PROGRESS_BACKGROUND` and `MPI_THREAD_MULTIPLE`. In these modes,
+`amio_wait_operation(..., AMIO_OPERATION_BACKEND_COMPLETE, timeout_ms)` can
+succeed before `amio_end_step`; ending the step drains work and publishes only
+after validation. Parallel background writes with NetCDF deflate are rejected
+with `AMIO_ERR_UNSUPPORTED`, because filtered writes require collective access.
+Parallel caller-progress NetCDF and TensorStore Zarr collection writes remain
+synchronous at end-step. Capability reporting identifies these limitations.
 
 ## Mixed-Format Translation
 

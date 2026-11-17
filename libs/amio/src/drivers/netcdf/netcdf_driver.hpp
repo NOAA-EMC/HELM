@@ -137,6 +137,8 @@ class NetCDF_Driver : public Backend_Driver {
     void write_step_region(const std::string &variable, const RegionSelection &region, const void *data);
     /** Prepare a variable for independent region writes in canonical writer-group field order. */
     void prepare_step_independent_writes(const std::string &variable);
+    /** Collectively prepare every field in the sealed schema in canonical order. */
+    void prepare_step_independent_writes(const Schema &schema);
     /** Write one bounded region after all writers have prepared the variable. */
     void write_step_region_independent(const std::string &variable, const RegionSelection &region, const void *data);
     /** Close the step payload before its catalog completion record may be published. */

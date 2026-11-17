@@ -43,6 +43,11 @@ int main() {
     }
     assert(rejected);
 
+    // A worker which performs no MPI calls does not require MPI_THREAD_MULTIPLE.
+    ProgressEngine local_background(ProgressPolicy::Background, 2, 0, false);
+    assert(local_background.submit([] { return AMIO_OK; }) == AMIO_OK);
+    assert(local_background.close(std::chrono::seconds(1)) == AMIO_OK);
+
     ProgressEngine background(ProgressPolicy::Background, 2, 3);
     std::atomic<bool> ran{false};
     assert(background.submit([&] {

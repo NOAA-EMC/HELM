@@ -77,6 +77,8 @@ void test_step_lifecycle_and_source_release_are_distinct_from_publication() {
     auto operation = coordinator.put("temperature", values.data(), values.size() * sizeof(double));
     assert(operation.status == AMIO_OK);
     assert(operation.source_released);
+    auto retained_operation = coordinator.operation_record(operation.handle);
+    assert(retained_operation);
     assert(!operation.payload_complete);
     std::vector<float> pressure(4, 1.0f);
     assert(coordinator.put("pressure", pressure.data(), pressure.size() * sizeof(float)).status == AMIO_OK);
@@ -89,7 +91,72 @@ void test_step_lifecycle_and_source_release_are_distinct_from_publication() {
     assert(coordinator.mark_publishing() == AMIO_OK);
     assert(coordinator.mark_publication_visible(true) == AMIO_OK);
     assert(coordinator.state() == StepState::Complete);
-    assert(coordinator.operation_snapshot(operation.handle).storage_synced);
+    assert(retained_operation->snapshot().storage_synced);
+}
+
+void test_completed_operations_do_not_accumulate() {
+    ResourceBudget budget({4096, 32, 128, 4});
+    auto schema = make_schema(true);
+    StepCoordinator coordinator("dataset-bounded-operations", budget);
+    register_schema(coordinator, schema);
+    std::weak_ptr<OperationRecord> last_released;
+    std::shared_ptr<OperationRecord> retained;
+    std::vector<float> values(4, 2.0f);
+    for (std::uint64_t id = 1; id <= 1000; ++id) {
+        assert(coordinator.begin_step(begin_request(id, *schema)) == AMIO_OK);
+        auto result = coordinator.put("pressure", values.data(), values.size() * sizeof(float));
+        assert(result.status == AMIO_OK);
+        auto record = coordinator.operation_record(result.handle);
+        assert(record);
+        if (id == 1) retained = record;
+        if (id == 2) last_released = record;
+        record.reset();
+        assert(coordinator.end_step() == AMIO_OK);
+        assert(coordinator.mark_payload_complete() == AMIO_OK);
+        assert(coordinator.mark_publishing() == AMIO_OK);
+        assert(coordinator.mark_publication_visible() == AMIO_OK);
+        assert(coordinator.active_operation_count() == 0);
+        if (id >= 2) assert(last_released.expired());
+    }
+    assert(retained->snapshot().outcome == OperationOutcome::Succeeded);
+    assert(retained->snapshot().reader_visible);
+}
+
+void test_failure_waits_for_runtime_before_releasing_contributions() {
+    ResourceBudget budget({4096, 32, 128, 4});
+    auto schema = make_schema(true);
+    StepCoordinator coordinator("dataset-failure-barrier", budget);
+    register_schema(coordinator, schema);
+    assert(coordinator.begin_step(begin_request(1, *schema)) == AMIO_OK);
+    std::vector<float> values(4, 2.0f);
+    assert(coordinator.put("pressure", values.data(), values.size() * sizeof(float)).status == AMIO_OK);
+    bool drained = false;
+    coordinator.set_failure_barrier([&] {
+        assert(!coordinator.contributions().empty());
+        assert(budget.snapshot().data_bytes != 0);
+        drained = true;
+    });
+    assert(coordinator.cancel_step() == AMIO_OK);
+    assert(drained);
+    assert(coordinator.contributions().empty());
+    assert(budget.snapshot().data_bytes == 0);
+}
+
+void test_cancel_retires_coordinator_ownership() {
+    ResourceBudget budget({4096, 32, 128, 4});
+    auto schema = make_schema(true);
+    StepCoordinator coordinator("dataset-cancelled-operations", budget);
+    register_schema(coordinator, schema);
+    assert(coordinator.begin_step(begin_request(1, *schema)) == AMIO_OK);
+    std::vector<float> values(4, 2.0f);
+    auto result = coordinator.put("pressure", values.data(), values.size() * sizeof(float));
+    assert(result.status == AMIO_OK);
+    auto held = coordinator.operation_record(result.handle);
+    assert(held);
+    assert(coordinator.cancel_step() == AMIO_OK);
+    assert(!coordinator.operation_record(result.handle));
+    assert(held->snapshot().outcome == OperationOutcome::Failed);
+    assert(held->snapshot().error == AMIO_ERR_STEP_FAILED);
 }
 
 void test_schema_changes_only_between_steps_and_ids_are_never_reused() {
@@ -402,6 +469,9 @@ void test_direct_execution_fails_without_publishing_when_a_writer_vote_fails() {
 
 int main() {
     test_step_lifecycle_and_source_release_are_distinct_from_publication();
+    test_completed_operations_do_not_accumulate();
+    test_cancel_retires_coordinator_ownership();
+    test_failure_waits_for_runtime_before_releasing_contributions();
     test_schema_changes_only_between_steps_and_ids_are_never_reused();
     test_required_and_optional_fields_and_duplicate_contributions();
     test_budget_rejection_timeout_and_cancellation_preserve_state();

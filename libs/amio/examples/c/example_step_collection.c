@@ -106,6 +106,8 @@ int main(void) {
     if (fail(status, "amio_put_field")) goto done;
     status = amio_wait_operation(operation, AMIO_OPERATION_SOURCE_RELEASED, 0);
     if (fail(status, "wait for source release")) goto done;
+    status = amio_wait_operation(operation, AMIO_OPERATION_BACKEND_COMPLETE, 60000);
+    if (fail(status, "amio_wait_operation backend complete")) goto done;
     status = amio_end_step(step);
     if (fail(status, "amio_end_step")) goto done;
 

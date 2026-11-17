@@ -124,6 +124,51 @@ int main(int argc, char **argv) {
         std::filesystem::remove(chunk_path, ec);
     }
 
+    MPI_Barrier(MPI_COMM_WORLD);
+    const auto order_path = std::filesystem::temp_directory_path() / "amio-mpi-netcdf-independent-order.nc";
+    if (rank == 0) {
+        std::error_code ec;
+        std::filesystem::remove(order_path, ec);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    {
+        NetCDF_Driver driver;
+        driver.set_communicator(MPI_COMM_WORLD);
+        driver.open_step_write(order_path.string(), schema, 44.5);
+        // Preparation is collective and ordered; subsequent region writes are
+        // independent, so ranks can submit fields in different orders.
+        driver.prepare_step_independent_writes(schema);
+        if (rank < 3) {
+            RegionSelection region;
+            region.offsets = {static_cast<std::uint64_t>(rank * 2)};
+            region.extents = {2};
+            const std::array<float, 2> extra{float(10 + rank * 2), float(11 + rank * 2)};
+            if (rank % 2 == 0) {
+                driver.write_step_region_independent("required", region, required_values.data());
+                driver.write_step_region_independent("optional", region, extra.data());
+            } else {
+                driver.write_step_region_independent("optional", region, extra.data());
+                driver.write_step_region_independent("required", region, required_values.data());
+            }
+        }
+        driver.close_step_write();
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    if (rank == 0) {
+        int ncid = -1, variable = -1;
+        std::array<float, 6> values{};
+        assert(nc_open(order_path.c_str(), NC_NOWRITE, &ncid) == NC_NOERR);
+        assert(nc_inq_varid(ncid, "required", &variable) == NC_NOERR);
+        assert(nc_get_var_float(ncid, variable, values.data()) == NC_NOERR);
+        assert((values == std::array<float, 6>{1, 2, 3, 4, 5, 6}));
+        assert(nc_inq_varid(ncid, "optional", &variable) == NC_NOERR);
+        assert(nc_get_var_float(ncid, variable, values.data()) == NC_NOERR);
+        assert((values == std::array<float, 6>{10, 11, 12, 13, 14, 15}));
+        assert(nc_close(ncid) == NC_NOERR);
+        std::error_code ec;
+        std::filesystem::remove(order_path, ec);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
     MPI_Finalize();
     return 0;
 }

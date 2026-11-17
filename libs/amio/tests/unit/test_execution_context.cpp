@@ -55,6 +55,10 @@ void test_invalid_or_overlapping_roles_are_rejected() {
 void test_progress_mode_preflight() {
     assert(amio::detail::validate_progress_support(ProgressPolicy::Background, 3) == AMIO_OK);
     assert(amio::detail::validate_progress_support(ProgressPolicy::Background, 2) == AMIO_ERR_THREADING_UNSUPPORTED);
+    assert(amio::detail::validate_progress_support(ProgressPolicy::Background, 1) == AMIO_ERR_THREADING_UNSUPPORTED);
+    assert(amio::detail::validate_progress_support(ProgressPolicy::Background, 0) == AMIO_ERR_THREADING_UNSUPPORTED);
+    assert(amio::detail::validate_progress_support(ProgressPolicy::Background, -1) == AMIO_ERR_THREADING_UNSUPPORTED);
+    assert(amio::detail::validate_progress_support(ProgressPolicy::Background, 4) == AMIO_ERR_THREADING_UNSUPPORTED);
     assert(amio::detail::validate_progress_support(ProgressPolicy::Caller, 1) == AMIO_OK);
     assert(amio::detail::validate_progress_support(ProgressPolicy::Caller, 0) == AMIO_ERR_THREADING_UNSUPPORTED);
 }

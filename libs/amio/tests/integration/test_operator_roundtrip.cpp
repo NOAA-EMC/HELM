@@ -22,6 +22,7 @@
     } while (false)
 
 int main(int argc, char **argv) {
+    const bool background = argc > 1 && std::string(argv[1]) == "--background";
     int provided = MPI_THREAD_SINGLE;
     check(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided) == MPI_SUCCESS);
     check(provided == MPI_THREAD_MULTIPLE);
@@ -35,7 +36,7 @@ int main(int argc, char **argv) {
     context_desc.struct_size = sizeof(context_desc);
     context_desc.version = AMIO_EVOLUTION_DESCRIPTOR_VERSION_1;
     context_desc.execution_mode = AMIO_EXECUTION_PERSISTENT_DIRECT;
-    context_desc.progress_mode = AMIO_PROGRESS_CALLER;
+    context_desc.progress_mode = background ? AMIO_PROGRESS_BACKGROUND : AMIO_PROGRESS_CALLER;
     context_desc.rank_count = size;
     context_desc.producer_count = size;
     context_desc.producers = producer.data();
@@ -132,6 +133,16 @@ int main(int argc, char **argv) {
           rejected_step == nullptr);
     check(amio_release_schema(unauthorized_schema) == AMIO_OK);
     attrs[3].value = &yes;
+    if (background) {
+        amio_schema_handle compressed_schema = nullptr;
+        check(amio_define_schema(dataset, &schema_desc, &compressed_schema) == AMIO_OK);
+        rejected_step_desc.schema = compressed_schema;
+        check(amio_begin_step_partitioned(dataset, &rejected_step_desc, &rejected_partition, 1, &rejected_step) == AMIO_ERR_UNSUPPORTED &&
+              rejected_step == nullptr);
+        check(amio_release_schema(compressed_schema) == AMIO_OK);
+        // Retain precision conversion while exercising the supported independent path.
+        variable.attribute_count = 4;
+    }
     amio_schema_handle schema = nullptr;
     check(amio_define_schema(dataset, &schema_desc, &schema) == AMIO_OK);
 
@@ -154,6 +165,7 @@ int main(int argc, char **argv) {
     const std::array<double, 2> source = rank == 0 ? std::array<double, 2>{1.1, -2.2} : std::array<double, 2>{0.0, -0.0};
     amio_operation_handle operation = nullptr;
     check(amio_put_field(step, field_name, sizeof(field_name) - 1, source.data(), sizeof(source), &operation) == AMIO_OK);
+    if (background) check(amio_wait_operation(operation, AMIO_OPERATION_BACKEND_COMPLETE, 10000) == AMIO_OK);
     const auto end_status = amio_end_step(step);
     if (end_status != AMIO_OK) std::fprintf(stderr, "end status=%d\n", end_status);
     check(end_status == AMIO_OK);
@@ -186,7 +198,8 @@ int main(int argc, char **argv) {
         check(nc_open(payload.c_str(), NC_NOWRITE, &ncid) == NC_NOERR);
         check(nc_inq_varid(ncid, field_name, &varid) == NC_NOERR && nc_get_var_float(ncid, varid, native.data()) == NC_NOERR);
         int shuffle = 0, deflate = 0, level = 0;
-        check(nc_inq_var_deflate(ncid, varid, &shuffle, &deflate, &level) == NC_NOERR && deflate == 1 && level == 1);
+        check(nc_inq_var_deflate(ncid, varid, &shuffle, &deflate, &level) == NC_NOERR);
+        check(background ? deflate == 0 : (deflate == 1 && level == 1));
         check(nc_close(ncid) == NC_NOERR);
         check(native == readback);
         check(nc_open(payload.c_str(), NC_WRITE, &ncid) == NC_NOERR);
@@ -199,6 +212,25 @@ int main(int argc, char **argv) {
 
     check(amio_release_operation(operation) == AMIO_OK);
     check(amio_release_step_handle(step) == AMIO_OK);
+    if (background) {
+        MPI_Barrier(MPI_COMM_WORLD);
+        step_desc.step_id = 1;
+        step = nullptr;
+        check(amio_begin_step_partitioned(dataset, &step_desc, &partition, 1, &step) == AMIO_OK);
+        const std::array<double, 2> bad_source = rank == 0 ? std::array<double, 2>{1e300, 1.0} : std::array<double, 2>{1.0, 2.0};
+        operation = nullptr;
+        check(amio_put_field(step, field_name, sizeof(field_name) - 1, bad_source.data(), sizeof(bad_source), &operation) == AMIO_OK);
+        check(amio_end_step(step) == AMIO_ERR_INVALID_INPUT);
+        amio_operation_status_t failed{};
+        check(amio_query_operation(operation, &failed) == AMIO_OK && failed.outcome == AMIO_OPERATION_FAILED);
+        check(amio_release_operation(operation) == AMIO_OK);
+        check(amio_release_step_handle(step) == AMIO_OK);
+        if (rank == 0) {
+            amio_step_summary_t summary{};
+            check(amio_describe_step(dataset, 1, &summary) != AMIO_OK);
+        }
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
     check(amio_release_schema(schema) == AMIO_OK);
     check(amio_close_dataset_ex(dataset) == AMIO_OK);
     check(amio_release_context(context) == AMIO_OK);

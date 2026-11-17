@@ -1,18 +1,22 @@
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "amio/amio_evolution.h"
 #include "c_boundary/amio_tool_api.hpp"
+#include "c_boundary/transfer_test_hook.hpp"
 
 #ifdef AMIO_TEST_HAS_MPI
 #include <mpi.h>
@@ -24,6 +28,23 @@
 namespace {
 
 int failures = 0;
+
+struct TransferControl {
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool entered = false;
+    bool released = false;
+    amio_status_t result = AMIO_OK;
+};
+
+amio_status_t controlled_transfer(void *context) {
+    auto &control = *static_cast<TransferControl *>(context);
+    std::unique_lock<std::mutex> lock(control.mutex);
+    control.entered = true;
+    control.changed.notify_all();
+    control.changed.wait(lock, [&] { return control.released; });
+    return control.result;
+}
 
 void expect(bool condition, const char *message) {
     if (!condition) {
@@ -160,6 +181,10 @@ void test_context_initialization_outputs_and_capability_query() {
                    std::strstr(report.data(), "native_lossless_codec_selection\":\"destination-negotiated") != nullptr &&
                    std::strstr(report.data(), "native_lossy_codec\":\"unsupported") != nullptr,
                "capability report identifies compiled precision/integrity and unsupported per-field lossy codecs");
+        expect(std::strstr(report.data(), "zarr_step_async\":\"unsupported") != nullptr &&
+                   std::strstr(report.data(), "parallel_netcdf_filtered_step_async\":\"unsupported") != nullptr &&
+                   std::strstr(report.data(), "parallel_netcdf_caller_step_async\":\"unsupported") != nullptr,
+               "capability report identifies backends without autonomous field transfers");
         size_t diagnostic_bytes = 0;
         expect(amio_query_diagnostics(context, nullptr, 0, &diagnostic_bytes) == AMIO_OK && diagnostic_bytes > 1,
                "local diagnostics support a bounded size query");
@@ -265,6 +290,17 @@ void test_context_initialization_outputs_and_capability_query() {
         attribute.value = attribute_value;
         attribute.value_bytes = sizeof(attribute_value) - 1;
 
+        const char codec_name[] = "amio.codec";
+        const char codec_value[] = "deflate";
+        amio_attribute_descriptor_t field_attributes[2] = {attribute, {}};
+        field_attributes[1].struct_size = sizeof(field_attributes[1]);
+        field_attributes[1].version = AMIO_EVOLUTION_DESCRIPTOR_VERSION_1;
+        field_attributes[1].name = codec_name;
+        field_attributes[1].name_bytes = sizeof(codec_name) - 1;
+        field_attributes[1].type = AMIO_ATTRIBUTE_UTF8;
+        field_attributes[1].element_count = 1;
+        field_attributes[1].value = codec_value;
+        field_attributes[1].value_bytes = sizeof(codec_value) - 1;
         amio_variable_descriptor_t variable{};
         variable.struct_size = sizeof(variable);
         variable.version = AMIO_EVOLUTION_DESCRIPTOR_VERSION_1;
@@ -292,7 +328,7 @@ void test_context_initialization_outputs_and_capability_query() {
         const char restart_authorization_name[] = "amio.authorize_lossy_restart";
         const double conversion_tolerance = 0.00001;
         const uint8_t authorized = 1;
-        amio_attribute_descriptor_t precision_attributes[4]{};
+        amio_attribute_descriptor_t precision_attributes[5]{};
         precision_attributes[0] = {sizeof(amio_attribute_descriptor_t),
                                    AMIO_EVOLUTION_DESCRIPTOR_VERSION_1,
                                    precision_name,
@@ -333,6 +369,7 @@ void test_context_initialization_outputs_and_capability_query() {
                                    &authorized,
                                    sizeof(authorized),
                                    {0, 0}};
+        precision_attributes[4] = field_attributes[1];
         const char low_precision_name[] = "low_precision";
         auto low_precision_variable = variable;
         low_precision_variable.name = low_precision_name;
@@ -340,7 +377,7 @@ void test_context_initialization_outputs_and_capability_query() {
         low_precision_variable.source_dtype = AMIO_DTYPE_F64;
         low_precision_variable.stored_dtype = AMIO_DTYPE_F32;
         low_precision_variable.required = 0;
-        low_precision_variable.attribute_count = 4;
+        low_precision_variable.attribute_count = 5;
         low_precision_variable.attributes = precision_attributes;
         const amio_variable_descriptor_t variables[] = {variable, optional_variable, low_precision_variable};
 
@@ -406,6 +443,7 @@ void test_context_initialization_outputs_and_capability_query() {
                    "public lifecycle begins a step with a registered schema");
             if (step != nullptr) {
                 const float expected[] = {1.25f, 2.5f, 3.75f, 5.0f};
+                float source[] = {1.25f, 2.5f, 3.75f, 5.0f};
                 amio_memory_descriptor_t host_memory{};
                 host_memory.struct_size = sizeof(host_memory);
                 host_memory.version = 1;
@@ -418,11 +456,14 @@ void test_context_initialization_outputs_and_capability_query() {
                 host_memory.extents[1] = 2;
                 host_memory.strides[0] = 2 * sizeof(float);
                 host_memory.strides[1] = sizeof(float);
+                TransferControl transfer_control;
+                amio_set_transfer_test_hook(controlled_transfer, &transfer_control);
                 amio_operation_handle operation = nullptr;
-                expect(amio_put_field_memory(step, variable_name, sizeof(variable_name) - 1, &host_memory, expected, sizeof(expected), &operation) ==
+                expect(amio_put_field_memory(step, variable_name, sizeof(variable_name) - 1, &host_memory, source, sizeof(source), &operation) ==
                                AMIO_OK &&
                            operation != nullptr,
                        "typed host-memory submission snapshots a complete field and returns an operation handle");
+                std::fill(std::begin(source), std::end(source), -99.0f);
                 const double low_precision_values[] = {1.1, 2.2, 3.3, -0.0};
                 amio_operation_handle precision_operation = nullptr;
                 expect(amio_put_field(step, low_precision_name, sizeof(low_precision_name) - 1, low_precision_values, sizeof(low_precision_values),
@@ -434,8 +475,26 @@ void test_context_initialization_outputs_and_capability_query() {
                            (operation_status.milestones & AMIO_OPERATION_SOURCE_RELEASED) != 0,
                        "operation status distinguishes source reuse from publication");
                 expect(amio_wait_operation(operation, AMIO_OPERATION_SOURCE_RELEASED, 0) == AMIO_OK, "wait can observe source release independently");
-                expect(amio_wait_operation(operation, AMIO_OPERATION_BACKEND_COMPLETE, 0) == AMIO_ERR_TIMEOUT,
-                       "a timed-out completion wait leaves accepted snapshot work pending");
+                bool transfer_entered = false;
+                {
+                    std::unique_lock<std::mutex> lock(transfer_control.mutex);
+                    transfer_entered = transfer_control.changed.wait_for(lock, std::chrono::seconds(10), [&] { return transfer_control.entered; });
+                }
+                expect(transfer_entered, "accepted transfer starts before end-step");
+                if (transfer_entered) {
+                    expect(amio_wait_operation(operation, AMIO_OPERATION_BACKEND_COMPLETE, 0) == AMIO_ERR_TIMEOUT,
+                           "a timed-out completion wait leaves accepted snapshot work pending");
+                    {
+                        std::lock_guard<std::mutex> lock(transfer_control.mutex);
+                        transfer_control.released = true;
+                        transfer_control.changed.notify_all();
+                    }
+                    expect(amio_wait_operation(operation, AMIO_OPERATION_BACKEND_COMPLETE, 10000) == AMIO_OK,
+                           "backend transfer completes before end-step without further producer calls");
+                    expect(amio_wait_operation(precision_operation, AMIO_OPERATION_BACKEND_COMPLETE, 10000) == AMIO_OK,
+                           "all callbacks leave the test hook before it is removed");
+                }
+                amio_set_transfer_test_hook(nullptr, nullptr);
                 expect(amio_close_dataset_ex(dataset) == AMIO_ERR_INVALID_POLICY,
                        "dataset close cannot release accepted work owned by an active step");
                 expect(amio_query_operation(operation, &operation_status) == AMIO_OK && operation_status.outcome == AMIO_OPERATION_PENDING &&
@@ -557,12 +616,14 @@ void test_context_initialization_outputs_and_capability_query() {
                                nc_get_var_float(reader, precision_varid, native_converted) == NC_NOERR &&
                                native_converted[0] == static_cast<float>(1.1) && std::signbit(native_converted[3]),
                            "independent NetCDF reader verifies converted values and signed zero");
+                    int shuffle = 0, deflate = 0, level = 0;
+                    expect(nc_inq_var_deflate(reader, precision_varid, &shuffle, &deflate, &level) == NC_NOERR && deflate == 1,
+                           "single-rank asynchronous payload preserves the requested deflate codec");
                     nc_close(reader);
                 }
                 expect(std::filesystem::exists(root / "head.json") && std::filesystem::exists(root / "commits" / "0.json"),
                        "completion record and authoritative head exist after successful publication");
 #endif
-                expect(amio_release_operation(operation) == AMIO_OK, "operation observation has a distinct release operation");
                 expect(amio_release_operation(precision_operation) == AMIO_OK, "precision conversion operation observation can be released");
                 expect(amio_release_step_handle(step) == AMIO_OK, "producer step handle has a distinct release operation");
 
@@ -587,14 +648,34 @@ void test_context_initialization_outputs_and_capability_query() {
                 expect(amio_begin_step(dataset, &step_descriptor, &second_step) == AMIO_OK && second_step != nullptr,
                        "a later step can reuse the registered immutable schema");
                 if (second_step != nullptr) {
+                    TransferControl early_release_control;
+                    amio_set_transfer_test_hook(controlled_transfer, &early_release_control);
                     amio_operation_handle second_operation = nullptr;
                     expect(amio_put_field(second_step, variable_name, sizeof(variable_name) - 1, expected, sizeof(expected), &second_operation) ==
                                AMIO_OK,
                            "later step accepts its required field");
+                    bool worker_blocked = false;
+                    {
+                        std::unique_lock<std::mutex> lock(early_release_control.mutex);
+                        worker_blocked =
+                            early_release_control.changed.wait_for(lock, std::chrono::seconds(10), [&] { return early_release_control.entered; });
+                    }
+                    expect(worker_blocked, "worker is blocked before releasing its observer");
+                    expect(amio_release_operation(second_operation) == AMIO_OK, "releasing an operation before completion does not cancel its work");
+                    {
+                        std::lock_guard<std::mutex> lock(early_release_control.mutex);
+                        early_release_control.released = true;
+                        early_release_control.changed.notify_all();
+                    }
                     expect(amio_end_step(second_step) == AMIO_OK, "later step publishes after linking the prior commit");
-                    expect(amio_release_operation(second_operation) == AMIO_OK, "later operation observation is released");
+                    amio_set_transfer_test_hook(nullptr, nullptr);
                     expect(amio_release_step_handle(second_step) == AMIO_OK, "later producer handle is released");
                 }
+                amio_operation_status_t retained_status{};
+                expect(amio_query_operation(operation, &retained_status) == AMIO_OK && retained_status.outcome == AMIO_OPERATION_SUCCEEDED &&
+                           (retained_status.milestones & AMIO_OPERATION_READER_VISIBLE) != 0,
+                       "retained operation keeps its terminal outcome after a later step");
+                expect(amio_release_operation(operation) == AMIO_OK, "retained operation observation is released");
 #ifdef AMIO_TEST_HAS_NETCDF
                 second_step_write_finished.store(true, std::memory_order_release);
                 model_time_reader.join();
@@ -673,6 +754,32 @@ void test_context_initialization_outputs_and_capability_query() {
                                        &after_failure_more) == AMIO_OK &&
                            after_failure_count == 2 && after_failure_steps[0].step_id == 1 && after_failure_steps[1].step_id == 0,
                        "an incomplete failed step remains absent from complete-step discovery");
+
+                amio_step_descriptor_t injected_descriptor = cancelled_descriptor;
+                injected_descriptor.step_id = 4;
+                amio_step_handle injected_step = nullptr;
+                expect(amio_begin_step(dataset, &injected_descriptor, &injected_step) == AMIO_OK, "injected failure step begins");
+                if (injected_step != nullptr) {
+                    TransferControl failing_control;
+                    failing_control.released = true;
+                    failing_control.result = AMIO_ERR_BACKEND_FAILURE;
+                    amio_set_transfer_test_hook(controlled_transfer, &failing_control);
+                    amio_operation_handle injected_operation = nullptr;
+                    expect(amio_put_field(injected_step, variable_name, sizeof(variable_name) - 1, expected, sizeof(expected), &injected_operation) ==
+                               AMIO_OK,
+                           "injected failure accepts field");
+                    const auto injected_status = amio_end_step(injected_step);
+                    amio_set_transfer_test_hook(nullptr, nullptr);
+                    expect(failing_control.entered && injected_status == AMIO_ERR_BACKEND_FAILURE, "test hook injects backend failure");
+                    amio_operation_status_t injected_operation_status{};
+                    expect(amio_query_operation(injected_operation, &injected_operation_status) == AMIO_OK &&
+                               injected_operation_status.outcome == AMIO_OPERATION_FAILED,
+                           "injected backend failure reaches the accepted operation");
+                    expect(amio_release_operation(injected_operation) == AMIO_OK, "failed operation handle releases");
+                    expect(amio_release_step_handle(injected_step) == AMIO_OK, "failed step handle releases");
+                    amio_step_summary_t injected_summary{};
+                    expect(amio_describe_step(dataset, 4, &injected_summary) != AMIO_OK, "injected failure publishes no complete step");
+                }
             }
         }
         expect(amio_release_schema(schema) == AMIO_OK, "caller can release its schema observation handle");

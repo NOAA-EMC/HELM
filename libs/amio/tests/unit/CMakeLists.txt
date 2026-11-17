@@ -52,6 +52,7 @@ add_test(NAME unit.memory_submission COMMAND test_memory_submission)
 set_tests_properties(unit.memory_submission PROPERTIES LABELS "unit;memory;submission" TIMEOUT 30)
 
 add_executable(test_evolution_contract test_evolution_contract.cpp)
+target_compile_definitions(test_evolution_contract PRIVATE AMIO_TEST_TRANSFER_CONTROL=1)
 target_link_libraries(test_evolution_contract PRIVATE AMIO::amio_core)
 target_include_directories(test_evolution_contract PRIVATE ${CMAKE_SOURCE_DIR}/src)
 if(AMIO_HAS_TENSORSTORE)

@@ -412,18 +412,23 @@ AMIO_API amio_status_t amio_define_schema(amio_dataset_handle dataset, const ami
 /** Release the caller's schema handle; datasets retain registered schemas. */
 AMIO_API amio_status_t amio_release_schema(amio_schema_handle schema);
 
-/** Begin a step, copy a complete field snapshot, then publish it atomically. */
+/** Begin a logical step; field submissions and publication follow separately. */
 AMIO_API amio_status_t amio_begin_step(amio_dataset_handle dataset, const amio_step_descriptor_t *descriptor, amio_step_handle *out_step);
 /**
  * Begin a multi-rank direct NetCDF step with exactly one rank-local box per
  * schema field. The call is collective. A box with any zero extent denotes
  * that this rank contributes no values for the field. Nonempty boxes must
  * tile each present field's global shape without gaps or overlap at end-step.
- * Optional fields may be omitted by every rank.
+ * Optional fields may be omitted by every rank. Background progress requires
+ * MPI_THREAD_MULTIPLE and rejects deflate-compressed fields; caller-progress
+ * writes complete at end-step. A failed background step still requires every
+ * rank to enter end-step or cancellation to close its shared payload.
  */
 AMIO_API amio_status_t amio_begin_step_partitioned(amio_dataset_handle dataset, const amio_step_descriptor_t *descriptor,
                                                    const amio_field_partition_descriptor_t *partitions, size_t partition_count,
                                                    amio_step_handle *out_step);
+/** Copy an owned snapshot. In supported background modes, backend completion
+ * can be observed before end-step; it does not imply visibility or durability. */
 AMIO_API amio_status_t amio_put_field(amio_step_handle step, const char *field, size_t field_bytes, const void *data, size_t data_bytes,
                                       amio_operation_handle *out_operation);
 /** Submit a contiguous synchronized host/device field using an owned snapshot. */
@@ -431,6 +436,7 @@ AMIO_API amio_status_t amio_put_field_memory(amio_step_handle step, const char *
                                              const void *data, size_t data_bytes, amio_operation_handle *out_operation);
 /** Cancel an open step before payload publication; distributed steps require every rank to call collectively. */
 AMIO_API amio_status_t amio_cancel_step(amio_step_handle step);
+/** Drain accepted work and publish only after successful validation and payload close. */
 AMIO_API amio_status_t amio_end_step(amio_step_handle step);
 AMIO_API amio_status_t amio_query_operation(amio_operation_handle operation, amio_operation_status_t *out_status);
 AMIO_API amio_status_t amio_wait_operation(amio_operation_handle operation, uint32_t milestone, uint64_t timeout_ms);

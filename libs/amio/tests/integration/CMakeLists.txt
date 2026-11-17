@@ -80,6 +80,18 @@ if(MPI_CXX_FOUND AND AMIO_NETCDF_PAR_LIB)
     endif()
     add_test(NAME integration.operator_roundtrip COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                                                          $<TARGET_FILE:test_operator_roundtrip> ${MPIEXEC_POSTFLAGS})
+    add_test(NAME integration.operator_roundtrip_async COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                               $<TARGET_FILE:test_operator_roundtrip> --background ${MPIEXEC_POSTFLAGS})
+    set_tests_properties(
+        integration.operator_roundtrip_async
+        PROPERTIES LABELS
+                   "integration;mpi;operators;integrity"
+                   TIMEOUT
+                   45
+                   RUN_SERIAL
+                   TRUE
+                   ENVIRONMENT
+                   "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
     set_tests_properties(
         integration.operator_roundtrip
         PROPERTIES LABELS
@@ -366,6 +378,24 @@ endforeach()
 # Shared-dataset parallel writes must be exercised with actual MPI ranks.
 if(netCDF_FOUND AND MPI_CXX_FOUND)
     if(AMIO_NETCDF_PAR_LIB)
+        add_executable(test_mpi_async_steps test_mpi_async_steps.cpp)
+        target_link_libraries(test_mpi_async_steps PRIVATE AMIO::amio_core MPI::MPI_CXX)
+        target_include_directories(test_mpi_async_steps PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        target_compile_definitions(test_mpi_async_steps PRIVATE AMIO_TEST_TRANSFER_CONTROL=1)
+        add_test(NAME integration.mpi_async_steps COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS}
+                                                          $<TARGET_FILE:test_mpi_async_steps> ${MPIEXEC_POSTFLAGS})
+        add_test(NAME integration.mpi_async_steps_2 COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                                                            $<TARGET_FILE:test_mpi_async_steps> ${MPIEXEC_POSTFLAGS})
+        set_tests_properties(
+            integration.mpi_async_steps integration.mpi_async_steps_2
+            PROPERTIES LABELS
+                       "integration;mpi;netcdf;amio_step"
+                       TIMEOUT
+                       45
+                       RUN_SERIAL
+                       TRUE
+                       ENVIRONMENT
+                       "OMPI_ALLOW_RUN_AS_ROOT=1;OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1;OMPI_MCA_rmaps_base_oversubscribe=1")
         add_executable(
             test_mpi_netcdf_step_payload
             test_mpi_netcdf_step_payload.cpp ${CMAKE_SOURCE_DIR}/src/schema/schema.cpp ${CMAKE_SOURCE_DIR}/src/factory/backend_factory.cpp

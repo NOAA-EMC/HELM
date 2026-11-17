@@ -5,12 +5,13 @@
 
 namespace amio::detail {
 
-ProgressEngine::ProgressEngine(ProgressPolicy policy, std::size_t queue_capacity, int thread_level) : policy_(policy), capacity_(queue_capacity) {
+ProgressEngine::ProgressEngine(ProgressPolicy policy, std::size_t queue_capacity, int thread_level, bool callbacks_use_mpi)
+    : policy_(policy), capacity_(queue_capacity) {
     if (capacity_ == 0) throw std::invalid_argument("progress queue capacity must be positive");
     if (policy_ == ProgressPolicy::Background) {
         // MPI_THREAD_MULTIPLE is the standard value 3. Keep this small engine
         // independent of the MPI runtime; callers obtain the level via HALO.
-        if (thread_level < 3) throw std::invalid_argument("background MPI progress requires MPI_THREAD_MULTIPLE");
+        if (callbacks_use_mpi && thread_level < 3) throw std::invalid_argument("background MPI progress requires MPI_THREAD_MULTIPLE");
         worker_ = std::thread(&ProgressEngine::background_loop, this);
     }
 }

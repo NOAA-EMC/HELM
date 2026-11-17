@@ -1,5 +1,6 @@
 #include <cassert>
 #include <chrono>
+#include <memory>
 
 #include "c_boundary/operation_record.hpp"
 
@@ -20,6 +21,20 @@ void test_milestones_are_independent_and_monotonic() {
     assert(operation.release_observer());
     assert(operation.snapshot().observer_references == 0);
     assert(!operation.release_observer());
+}
+
+void test_independent_owners_preserve_terminal_record() {
+    auto runtime = std::make_shared<amio::detail::OperationRecord>();
+    assert(runtime->retain_observer());
+    auto observer = runtime;
+    assert(runtime->mark(amio::detail::OperationMilestone::SourceReleased));
+    assert(runtime->mark(amio::detail::OperationMilestone::ReaderVisible));
+    assert(runtime->finish_success());
+    runtime.reset();
+    assert(observer->snapshot().outcome == amio::detail::OperationOutcome::Succeeded);
+    assert(observer->snapshot().reader_visible);
+    assert(observer->release_observer());
+    assert(observer->snapshot().observer_references == 0);
 }
 
 void test_timeout_does_not_change_operation_state() {
@@ -44,6 +59,7 @@ void test_terminal_failure_is_immutable_and_wakes_waiters() {
 
 int main() {
     test_milestones_are_independent_and_monotonic();
+    test_independent_owners_preserve_terminal_record();
     test_timeout_does_not_change_operation_state();
     test_terminal_failure_is_immutable_and_wakes_waiters();
     return 0;

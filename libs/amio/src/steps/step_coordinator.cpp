@@ -218,6 +218,8 @@ amio_status_t StepCoordinator::mark_publication_visible(bool storage_synced) {
         completion_operation_->finish_success();
     }
     state_ = StepState::Complete;
+    failure_barrier_ = {};
+    operations_.clear();
     release_reservation();
     contributions_.clear();
     return AMIO_OK;
@@ -263,12 +265,21 @@ std::shared_ptr<OperationRecord> StepCoordinator::operation_record(std::uint64_t
 }
 
 amio_status_t StepCoordinator::fail_step(amio_status_t error) noexcept {
+    if (failure_barrier_) {
+        try {
+            failure_barrier_();
+        } catch (...) {
+            std::terminate();
+        }
+        failure_barrier_ = {};
+    }
     state_ = StepState::Failed;
     for (auto &[id, operation] : operations_) {
         (void)id;
         if (operation->snapshot().outcome == OperationOutcome::Pending) operation->finish_failure(error);
     }
     if (completion_operation_) completion_operation_->finish_failure(error);
+    operations_.clear();
     release_reservation();
     contributions_.clear();
     return error;

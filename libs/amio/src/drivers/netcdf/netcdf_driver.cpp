@@ -19,6 +19,7 @@
 #include <conf/value.hpp>
 
 #include "drivers/common/var_attributes.hpp"
+#include "drivers/netcdf/netcdf_step_writer.hpp"
 #include "factory/backend_factory.hpp"
 #include "staging/staging_pool.hpp"
 
@@ -1005,6 +1006,14 @@ void NetCDF_Driver::prepare_step_independent_writes(const std::string &variable)
 #endif
 }
 
+void NetCDF_Driver::prepare_step_independent_writes(const Schema &schema) {
+    if (!schema.sealed()) throw std::runtime_error("NetCDF step schema must be sealed before independent writes");
+    for (const auto &[name, variable] : schema.variables()) {
+        (void)variable;
+        prepare_step_independent_writes(name);
+    }
+}
+
 void NetCDF_Driver::write_step_region_independent(const std::string &variable, const RegionSelection &region, const void *data) {
 #ifdef AMIO_HAS_NETCDF
     if (!is_open_ || !is_write_mode_ || !independent_step_variables_.contains(variable))
@@ -1063,6 +1072,42 @@ bool NetCDF_Driver::read_step_model_time(const std::string &path, double &model_
     (void)model_time;
     return false;
 #endif
+}
+
+struct NetCDFStepWriter {
+    NetCDF_Driver driver;
+};
+
+NetCDFStepWriter *create_netcdf_step_writer() {
+    return new NetCDFStepWriter;
+}
+
+void destroy_netcdf_step_writer(NetCDFStepWriter *writer) noexcept {
+    delete writer;
+}
+
+void open_netcdf_step_writer(NetCDFStepWriter &writer, const std::string &path, const Schema &schema, double model_time,
+                             std::int64_t fortran_communicator, bool parallel) {
+#if defined(AMIO_HAS_MPI) && defined(AMIO_HAS_NETCDF)
+    if (parallel) {
+        if (fortran_communicator < std::numeric_limits<MPI_Fint>::min() || fortran_communicator > std::numeric_limits<MPI_Fint>::max())
+            throw std::runtime_error("NetCDF step communicator handle is out of range");
+        writer.driver.set_communicator(MPI_Comm_f2c(static_cast<MPI_Fint>(fortran_communicator)));
+    }
+#else
+    (void)fortran_communicator;
+    if (parallel) throw std::runtime_error("parallel NetCDF step output is unavailable in this build");
+#endif
+    writer.driver.open_step_write(path, schema, model_time);
+    writer.driver.prepare_step_independent_writes(schema);
+}
+
+void write_netcdf_step_writer(NetCDFStepWriter &writer, const std::string &field, const RegionSelection &region, const void *data) {
+    writer.driver.write_step_region_independent(field, region, data);
+}
+
+void close_netcdf_step_writer(NetCDFStepWriter &writer) {
+    writer.driver.close_step_write();
 }
 
 void write_netcdf_step_payload(const std::string &path, const Schema &schema, double model_time,

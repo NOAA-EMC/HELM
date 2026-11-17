@@ -5,6 +5,27 @@ completion record, then atomically replace `head.json`. Readers begin at the
 published head and follow immutable commit links. A visible head is the
 completion boundary; a payload file by itself is not a completed step.
 
+## Field transfers and publication
+
+A successful field submission copies the source before returning. A source-release
+milestone therefore permits reuse of that source, while backend completion means
+the submitted field's backend write has returned successfully. Neither milestone
+means the step is visible or durable. `amio_end_step` waits for accepted work,
+checks the step, closes its payload, and publishes the completion record only on
+success. A timed-out operation wait does not cancel accepted work.
+
+Single-rank NetCDF step writes use a background worker without MPI calls.
+Partitioned NetCDF steps support background field writes when the context uses
+`AMIO_PROGRESS_BACKGROUND` and MPI supplies `MPI_THREAD_MULTIPLE`. All ranks
+collectively prepare the sealed schema; independent field writes can then occur
+in different orders. NetCDF deflate is unsupported in this parallel background
+mode because filtered writes require collective access. Parallel caller-progress
+NetCDF and TensorStore Zarr step writes remain synchronous at end-step; query
+capabilities before relying on pre-end backend completion. Cancellation of a
+partitioned step remains collective and drains accepted work before cleanup. After a rank-local failure, all ranks must collectively enter end-step or
+cancellation so AMIO can drain workers and close the shared payload; a failed
+partitioned step handle cannot be released before that collective cleanup.
+
 ## POSIX collection adapter
 
 The POSIX adapter writes temporary files in the destination directory and

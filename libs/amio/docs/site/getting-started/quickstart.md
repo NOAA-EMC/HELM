@@ -141,6 +141,13 @@ handling; it does not qualify device execution. Check configure output for the
 selected Zarr backend. NCZarr builds reject collection output, GRIB2 collection
 publication is not connected to the public lifecycle, and aggregation tests
 currently qualify transport components rather than persistent shared output.
+For NetCDF step collections, wait on an accepted field's
+`AMIO_OPERATION_BACKEND_COMPLETE` milestone before `amio_end_step` when the
+selected mode supports background transfers. Partitioned background NetCDF
+requires `MPI_THREAD_MULTIPLE`; parallel caller-progress and Zarr step writes
+complete during end-step. See [completion guarantees](../user-guide/completion-guarantees.md)
+for filtered-field restrictions and milestone semantics.
+
 Consult [configuration support](../user-guide/configuration.md) before
 relying on durability, object-store, or accelerator guarantees.
 

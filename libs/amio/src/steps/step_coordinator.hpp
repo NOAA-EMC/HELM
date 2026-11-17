@@ -3,10 +3,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "amio/amio_errors.h"
@@ -66,6 +68,10 @@ class StepCoordinator {
     [[nodiscard]] amio_status_t fail_publication(amio_status_t error);
     [[nodiscard]] amio_status_t poison_dataset(amio_status_t error);
     [[nodiscard]] amio_status_t cancel_step();
+    /** Drain runtime users before failed-step snapshots and reservations are released. */
+    void set_failure_barrier(std::function<void()> barrier) {
+        failure_barrier_ = std::move(barrier);
+    }
     [[nodiscard]] amio_status_t wait_for_publication(std::uint64_t timeout_ms) const;
     [[nodiscard]] StepState state() const noexcept {
         return state_;
@@ -84,6 +90,9 @@ class StepCoordinator {
     }
     [[nodiscard]] bool dataset_poisoned() const noexcept {
         return dataset_poisoned_;
+    }
+    [[nodiscard]] std::size_t active_operation_count() const noexcept {
+        return operations_.size();
     }
     [[nodiscard]] OperationSnapshot operation_snapshot(std::uint64_t handle) const noexcept;
     [[nodiscard]] std::shared_ptr<OperationRecord> operation_record(std::uint64_t handle) const noexcept;
@@ -104,6 +113,7 @@ class StepCoordinator {
     std::map<std::string, StepContributionSnapshot, std::less<>> contributions_;
     std::map<std::uint64_t, std::shared_ptr<OperationRecord>> operations_;
     ContributionPlan plan_;
+    std::function<void()> failure_barrier_;
     std::shared_ptr<OperationRecord> completion_operation_;
     std::optional<ResourceBudget::Reservation> reservation_;
     std::string active_schema_digest_;
