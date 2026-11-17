@@ -73,6 +73,7 @@ void ensure_kokkos() {
     }
 }
 
+#include "point_locator_bindings.hpp"
 // ─── Helper: Build a regular lat-lon mesh from numpy arrays ──────────────────
 
 HostMesh make_regular_mesh(std::size_t ni, std::size_t nj, double lon_start, double lat_start, double dlon, double dlat) {
@@ -127,23 +128,56 @@ HostMesh make_projected_mesh(std::size_t ni, std::size_t nj, const std::string &
 // ─── Helper: Build an unstructured UGRID mesh from arrays ───────────────────
 
 HostMesh make_ugrid_mesh(nb::ndarray<nb::numpy, double, nb::ndim<2>> node_coords, nb::ndarray<nb::numpy, axis::index_t, nb::ndim<1>> conn_offsets,
-                         nb::ndarray<nb::numpy, axis::index_t, nb::ndim<1>> conn_indices, nb::object cell_mask = nb::none()) {
+                         nb::ndarray<nb::numpy, axis::index_t, nb::ndim<1>> conn_indices, nb::object cell_mask = nb::none(),
+                         axis::topology::CoordinateSystem coordinate_system = axis::topology::CoordinateSystem::SphericalDeg,
+                         axis::topology::BoundaryModel boundary_model = axis::topology::BoundaryModel::Unspecified) {
     ensure_kokkos();
 
     axis::ingest::GridDescriptor desc;
     desc.kind = axis::ingest::ConventionKind::UGRID;
     desc.ugrid.topology_dimension = 2;
     desc.ugrid.start_index = 0;
+    desc.coord_system = static_cast<axis::ingest::CoordinateSystem>(coordinate_system);
 
-    desc.buffers.node_coords = axis::field_view<const double, 2>(node_coords.data(), node_coords.shape(0), node_coords.shape(1));
-    desc.buffers.conn_offsets = axis::field_view<const axis::index_t, 1>(conn_offsets.data(), conn_offsets.shape(0));
-    desc.buffers.conn_indices = axis::field_view<const axis::index_t, 1>(conn_indices.data(), conn_indices.shape(0));
+    // The mesh stores coordinates in LayoutLeft. Copy by NumPy strides so both
+    // ordinary row-major arrays and Fortran arrays have the same interpretation.
+    Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace> packed_coords("python_ugrid_coordinates", node_coords.shape(0),
+                                                                                 node_coords.shape(1));
+    for (std::size_t i = 0; i < node_coords.shape(0); ++i)
+        for (std::size_t d = 0; d < node_coords.shape(1); ++d)
+            packed_coords(i, d) = node_coords.data()[i * node_coords.stride(0) + d * node_coords.stride(1)];
+    std::vector<axis::index_t> packed_offsets(conn_offsets.shape(0)), packed_indices(conn_indices.shape(0));
+    for (std::size_t i = 0; i < packed_offsets.size(); ++i) packed_offsets[i] = conn_offsets.data()[i * conn_offsets.stride(0)];
+    for (std::size_t i = 0; i < packed_indices.size(); ++i) packed_indices[i] = conn_indices.data()[i * conn_indices.stride(0)];
+    desc.buffers.node_coords = axis::field_view<const double, 2>(packed_coords.data(), node_coords.shape(0), node_coords.shape(1));
+    desc.buffers.conn_offsets = axis::field_view<const axis::index_t, 1>(packed_offsets.data(), packed_offsets.size());
+    desc.buffers.conn_indices = axis::field_view<const axis::index_t, 1>(packed_indices.data(), packed_indices.size());
+    std::vector<int> packed_mask;
     if (!cell_mask.is_none()) {
         auto mask = nb::cast<nb::ndarray<const int, nb::ndim<1>>>(cell_mask);
-        desc.buffers.cell_mask = axis::field_view<const int, 1>(mask.data(), mask.shape(0));
+        packed_mask.resize(mask.shape(0));
+        for (std::size_t i = 0; i < packed_mask.size(); ++i) packed_mask[i] = mask.data()[i * mask.stride(0)];
+        desc.buffers.cell_mask = axis::field_view<const int, 1>(packed_mask.data(), packed_mask.size());
     }
 
-    return axis::topology::MeshFactory::from_descriptor<Kokkos::HostSpace>(desc);
+    // UGRID's descriptor validator requires nonempty source buffers, while an
+    // empty MPI rank is a valid AXIS mesh partition. Preserve that case without
+    // inventing an owned cell on the rank.
+    if (packed_offsets.size() == 1 && packed_offsets[0] == 0 && packed_indices.empty()) {
+        if (!packed_mask.empty()) throw std::invalid_argument("make_ugrid_mesh: empty mesh must have an empty cell_mask");
+        Kokkos::View<axis::index_t *, Kokkos::HostSpace> offsets("python_empty_mesh_offsets", 1);
+        offsets(0) = 0;
+        Kokkos::View<axis::index_t *, Kokkos::HostSpace> indices("python_empty_mesh_indices", 0);
+        axis::topology::GeometryMetadata geometry;
+        geometry.boundary_model = boundary_model;
+        return HostMesh(std::move(packed_coords), std::move(offsets), std::move(indices), coordinate_system, {}, {}, geometry);
+    }
+
+    auto mesh = axis::topology::MeshFactory::from_descriptor<Kokkos::HostSpace>(desc);
+    auto geometry = mesh.geometry_metadata();
+    geometry.boundary_model = boundary_model;
+    mesh.set_geometry_metadata(geometry);
+    return mesh;
 }
 
 HostMesh make_reduced_gaussian_mesh(nb::ndarray<const double, nb::ndim<1>> latitude_bounds, nb::list longitude_bounds_by_row, bool periodic,
@@ -360,6 +394,12 @@ NB_MODULE(axis_py, m) {
         .value("SphericalRad", axis::topology::CoordinateSystem::SphericalRad)
         .value("Cartesian3D", axis::topology::CoordinateSystem::Cartesian3D);
 
+    nb::enum_<axis::topology::BoundaryModel>(m, "BoundaryModel")
+        .value("Unspecified", axis::topology::BoundaryModel::Unspecified)
+        .value("GreatCircle", axis::topology::BoundaryModel::GreatCircle)
+        .value("ConstantLatitude", axis::topology::BoundaryModel::ConstantLatitude)
+        .value("CartesianStraight", axis::topology::BoundaryModel::CartesianStraight);
+
     nb::enum_<axis::topology::CornerPolicy>(m, "CornerPolicy")
         .value("RequireExplicit", axis::topology::CornerPolicy::RequireExplicit)
         .value("GaussianLatLon", axis::topology::CornerPolicy::GaussianLatLon)
@@ -374,7 +414,19 @@ NB_MODULE(axis_py, m) {
         .def_rw("increasing", &axis::topology::LongitudePeriodicity::increasing);
 
     // ─── Mesh wrapper class ──────────────────────────────────────────────────
-    nb::class_<HostMesh>(m, "Mesh").def_prop_ro("n_nodes", &HostMesh::n_nodes).def_prop_ro("n_cells", &HostMesh::n_cells);
+    nb::class_<HostMesh>(m, "Mesh")
+        .def_prop_ro("n_nodes", &HostMesh::n_nodes)
+        .def_prop_ro("n_cells", &HostMesh::n_cells)
+        .def_prop_ro("coordinate_system", &HostMesh::coord_system)
+        .def_prop_rw(
+            "boundary_model", [](const HostMesh &mesh) { return mesh.geometry_metadata().boundary_model; },
+            [](HostMesh &mesh, axis::topology::BoundaryModel model) {
+                auto geometry = mesh.geometry_metadata();
+                geometry.boundary_model = model;
+                mesh.set_geometry_metadata(geometry);
+            });
+
+    bind_point_locator(m);
 
     // ─── StructuredGrid wrapper class ────────────────────────────────────────
     nb::class_<axis::topology::StructuredGrid<Kokkos::HostSpace>>(m, "StructuredGrid")
@@ -544,7 +596,8 @@ NB_MODULE(axis_py, m) {
 
     // Make an unstructured UGRID mesh
     m.def("make_ugrid_mesh", &make_ugrid_mesh, "node_coords"_a, "conn_offsets"_a, "conn_indices"_a, "cell_mask"_a = nb::none(),
-          "Create an unstructured UGRID mesh, optionally masking inactive cells");
+          "coordinate_system"_a = axis::topology::CoordinateSystem::SphericalDeg, "boundary_model"_a = axis::topology::BoundaryModel::Unspecified,
+          "Create an unstructured UGRID mesh with optional coordinate and boundary metadata");
 
     m.def(
         "triangulate_poly_cells",

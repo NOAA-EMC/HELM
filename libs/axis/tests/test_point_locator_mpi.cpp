@@ -166,6 +166,95 @@ void review_regressions() {
         "review polygon basis");
     check(failures == 0, "review regressions failed");
 }
+void numerical_precision_regressions() {
+    int failures = 0;
+    auto run = [&](auto test, const char *name) {
+        try {
+            test();
+        } catch (const std::exception &e) {
+            ++failures;
+            std::cerr << name << ": " << e.what() << '\n';
+        }
+    };
+    run(
+        [] {
+            for (double scale : {1e-13, 1., 1e6, 1e7, 1e8, 1e150}) {
+                auto m = mesh({{0, 0, 0}, {scale, 2 * scale, 3 * scale}, {3 * scale, 3 * scale, 5 * scale}, {2 * scale, scale, 2 * scale}}, {0, 4},
+                              BoundaryModel::CartesianStraight, CoordinateSystem::Cartesian3D);
+                PointLocationOptions opts;
+                opts.tolerance = 0;
+                PointLocator loc(m, std::vector<index_t>{1}, opts);
+                std::vector<index_t> ids{7, 8};
+                std::vector<double> xyz{1.5 * scale, 1.5 * scale, 1.5 * scale, 1.5 * scale, 2.5 * scale, (2.5 + 1e-6) * scale};
+                auto r = loc.locate(points(ids, xyz, CoordinateSystem::Cartesian3D));
+                check(r[0].status == PointLocationStatus::Interior, "oblique interior");
+                check(r[1].status == PointLocationStatus::Unmapped, "oblique outside plane");
+            }
+        },
+        "large oblique cells");
+    run(
+        [] {
+            for (double scale : {1e-13, 1e-8, 1., 1e6}) {
+                auto m = mesh({{0, 0, 0}, {2 * scale, 0, 0}, {.5 * scale, .5 * scale, 0}, {0, 2 * scale, 0}}, {0, 4},
+                              BoundaryModel::CartesianStraight, CoordinateSystem::Cartesian3D);
+                rejects([&] { PointLocator bad(m, std::vector<index_t>{1}); }, "scaled concave polygon must reject");
+                auto warped = mesh({{0, 0, 0}, {scale, 0, 0}, {scale, scale, scale * 1e-5}, {0, scale, 0}}, {0, 4}, BoundaryModel::CartesianStraight,
+                                   CoordinateSystem::Cartesian3D);
+                rejects([&] { PointLocator bad(warped, std::vector<index_t>{1}); }, "scaled warped polygon must reject");
+            }
+        },
+        "small invalid geometry");
+    run(
+        [] {
+            auto m = mesh({{10, 40, 0}, {12, 40, 0}, {12, 42, 0}, {10, 42, 0}}, {0, 4}, BoundaryModel::GreatCircle, CoordinateSystem::SphericalDeg);
+            PointLocationOptions opts;
+            opts.tolerance = 0;
+            PointLocator loc(m, std::vector<index_t>{42}, opts);
+            std::vector<index_t> ids{1, 2, 3, 4, 5};
+            std::vector<double> xyz{10, 12, 12, 10, 9.999999, 40, 40, 42, 42, 41, 0, 0, 0, 0, 0};
+            auto r = loc.locate(points(ids, xyz, CoordinateSystem::SphericalDeg));
+            for (size_t k = 0; k < 4; ++k)
+                check(r[k].cell_id == 42 && r[k].status == PointLocationStatus::Boundary, "exact spherical vertex at zero tolerance");
+            check(r[4].status == PointLocationStatus::Unmapped, "zero tolerance keeps outside point unmapped");
+        },
+        "zero tolerance vertices");
+    check(failures == 0, "numerical precision regressions");
+}
+void distributed_precision_regressions(int rank, int size) {
+    std::vector<std::array<double, 3>> vertices;
+    std::vector<index_t> offsets{0}, cells;
+    if (rank < 2) {
+        vertices = {{10, 40, 0}, {12, 40, 0}, {12, 42, 0}, {10, 42, 0}};
+        offsets.push_back(4);
+        cells.push_back(rank == 0 ? 90 : 10);
+    }
+    auto m = mesh(vertices, offsets, BoundaryModel::GreatCircle, CoordinateSystem::SphericalDeg);
+    PointLocationOptions opts;
+    opts.tolerance = 0;
+    DistributedPointLocator loc(m, cells, MPI_COMM_WORLD, opts);
+    std::vector<index_t> ids{rank * 10, rank * 10 + 1, rank * 10 + 2, rank * 10 + 3};
+    std::vector<double> xyz{10, 12, 12, 10, 40, 40, 42, 42, 0, 0, 0, 0};
+    auto r = loc.locate(points(ids, xyz, CoordinateSystem::SphericalDeg));
+    for (const auto &result : r)
+        check(result.cell_id == (size > 1 ? 10 : 90) && result.owner_rank == (size > 1 ? 1 : 0) && result.status == PointLocationStatus::Boundary,
+              "distributed zero-tolerance stable tie");
+    for (double scale : {1e-13, 1e6, 1e150}) {
+        vertices.clear();
+        offsets = {0};
+        cells.clear();
+        if (rank == 0) {
+            vertices = {{0, 0, 0}, {scale, 2 * scale, 3 * scale}, {3 * scale, 3 * scale, 5 * scale}, {2 * scale, scale, 2 * scale}};
+            offsets.push_back(4);
+            cells.push_back(7);
+        }
+        auto planar = mesh(vertices, offsets, BoundaryModel::CartesianStraight, CoordinateSystem::Cartesian3D);
+        DistributedPointLocator oblique(planar, cells, MPI_COMM_WORLD, opts);
+        ids = {rank};
+        xyz = {1.5 * scale, 1.5 * scale, 2.5 * scale};
+        auto result = oblique.locate(points(ids, xyz, CoordinateSystem::Cartesian3D));
+        check(result[0].cell_id == 7 && result[0].status == PointLocationStatus::Interior, "distributed scaled oblique cell");
+    }
+}
 void collective_failures(int rank, int size) {
     auto m = mesh(rank == 0 ? std::vector<std::array<double, 3>>{{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}} : std::vector<std::array<double, 3>>{},
                   rank == 0 ? std::vector<index_t>{0, 4} : std::vector<index_t>{0}, BoundaryModel::CartesianStraight, CoordinateSystem::Cartesian3D);
@@ -315,10 +404,12 @@ int main(int argc, char **argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     int failed = 0;
     try {
+        numerical_precision_regressions();
         review_regressions();
         local_tests();
         geometry_failures();
         distributed_tests(rank, size);
+        distributed_precision_regressions(rank, size);
         collective_failures(rank, size);
         larger_partitions(rank, size);
     } catch (const std::exception &e) {

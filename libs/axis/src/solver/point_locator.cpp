@@ -15,9 +15,16 @@ constexpr double pi = std::numbers::pi;
 V sub(V a, V b) {
     return {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
 }
-V cross(V a, V b) {
-    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
+// Compensate cancellation in edge cross products before normalizing them.
+double difference_of_products(double a, double b, double c, double d) {
+    double product = c * d;
+    return std::fma(a, b, -product) + std::fma(-c, d, product);
 }
+V cross(V a, V b) {
+    return {difference_of_products(a[1], b[2], a[2], b[1]), difference_of_products(a[2], b[0], a[0], b[2]),
+            difference_of_products(a[0], b[1], a[1], b[0])};
+}
+constexpr double relative_roundoff = 64 * std::numeric_limits<double>::epsilon();
 double dot(V a, V b) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
@@ -49,6 +56,7 @@ struct Cell {
     std::vector<V> vertices, normals;
     V plane{};
     double lon0 = 0, lon1 = 0, lat0 = 0, lat1 = 0;
+    double roundoff = 0;
 };
 }  // namespace
 using Box = ArborX::Box<3, double>;
@@ -63,6 +71,7 @@ struct PointLocator::Impl {
     std::array<double, 6> box{INFINITY, INFINITY, INFINITY, -INFINITY, -INFINITY, -INFINITY};
     PointLocationStatus contains(const Cell &c, V p) const {
         bool boundary = false;
+        const double effective_tolerance = tol + c.roundoff;
         if (model == BoundaryModel::ConstantLatitude) {
             // atan2 retains polar latitude when sin(latitude) rounds to 1.
             double lat = std::atan2(p[2], std::hypot(p[0], p[1]));
@@ -70,12 +79,14 @@ struct PointLocator::Impl {
             // coordinate separation (which is singular at the poles).
             double west = -std::sin(c.lon0) * p[0] + std::cos(c.lon0) * p[1];
             double east = std::sin(c.lon1) * p[0] - std::cos(c.lon1) * p[1];
-            double threshold = std::sin(tol);
-            if (lat < c.lat0 - tol || lat > c.lat1 + tol || west < -threshold || east < -threshold) return PointLocationStatus::Unmapped;
-            boundary = std::abs(lat - c.lat0) <= tol || std::abs(lat - c.lat1) <= tol || std::abs(west) <= threshold || std::abs(east) <= threshold;
+            double threshold = std::sin(tol) + c.roundoff;
+            if (lat < c.lat0 - effective_tolerance || lat > c.lat1 + effective_tolerance || west < -threshold || east < -threshold)
+                return PointLocationStatus::Unmapped;
+            boundary = std::abs(lat - c.lat0) <= effective_tolerance || std::abs(lat - c.lat1) <= effective_tolerance ||
+                       std::abs(west) <= threshold || std::abs(east) <= threshold;
         } else {
-            if (!is_sphere && std::abs(dot(c.plane, sub(p, c.vertices[0]))) > tol) return PointLocationStatus::Unmapped;
-            double threshold = is_sphere ? std::sin(tol) : tol;
+            if (!is_sphere && std::abs(dot(c.plane, sub(p, c.vertices[0]))) > effective_tolerance) return PointLocationStatus::Unmapped;
+            double threshold = is_sphere ? std::sin(tol) + c.roundoff : effective_tolerance;
             for (size_t i = 0; i < c.normals.size(); ++i) {
                 double d = dot(c.normals[i], is_sphere ? p : sub(p, c.vertices[i]));
                 if (d < -threshold) return PointLocationStatus::Unmapped;
@@ -180,9 +191,11 @@ PointLocator::PointLocator(const UnstructuredMesh<Kokkos::HostSpace> &mesh, std:
                 require(std::abs(inward) > 0, "point locator: degenerate polygon");
                 if (inward < 0) normal = scale(normal, -1);
                 for (auto v : c.vertices) {
-                    require(dot(normal, p->is_sphere ? v : sub(v, a)) >= -1e-12, "point locator: nonconvex polygon");
+                    require(dot(normal, p->is_sphere ? v : sub(v, a)) >= -relative_roundoff * (p->is_sphere ? 1. : norm(sub(v, a))),
+                            "point locator: nonconvex polygon");
                     if (!p->is_sphere)
-                        require(std::abs(dot(c.plane, sub(v, c.vertices[0]))) <= 1e-10, "point locator: nonplanar polygon");
+                        require(std::abs(dot(c.plane, sub(v, c.vertices[0]))) <= relative_roundoff * norm(sub(v, c.vertices[0])),
+                                "point locator: nonplanar polygon");
                     else
                         require(dot(center, v) > 1e-12, "point locator: polygon must fit an open hemisphere");
                 }
@@ -199,7 +212,14 @@ PointLocator::PointLocator(const UnstructuredMesh<Kokkos::HostSpace> &mesh, std:
             for (auto v : c.vertices) radius = std::max(radius, norm(sub(v, center)));
             for (size_t j = 0; j < c.normals.size(); ++j) margin = std::min(margin, dot(c.normals[j], sub(center, c.vertices[j])));
         }
-        double padding = p->is_sphere ? p->tol : 2 * p->tol * (1 + radius / margin);
+        // This arithmetic floor is distinct from the user-selected geometric
+        // tolerance. Use it for both predicates and conservative search bounds.
+        double coordinate_scale = p->is_sphere ? 1. : 0.;
+        for (const auto &v : c.vertices)
+            for (double x : v) coordinate_scale = std::max(coordinate_scale, std::abs(x));
+        c.roundoff = relative_roundoff * coordinate_scale;
+        double effective_tolerance = p->tol + c.roundoff;
+        double padding = p->is_sphere ? effective_tolerance : 2 * effective_tolerance * (1 + radius / margin);
         std::array<double, 6> cb{INFINITY, INFINITY, INFINITY, -INFINITY, -INFINITY, -INFINITY};
         for (int d = 0; d < 3; ++d) {
             if (p->is_sphere) {

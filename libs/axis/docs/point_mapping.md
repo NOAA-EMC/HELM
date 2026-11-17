@@ -42,6 +42,45 @@ owner rank 0. Mesh masks do not alter geometric containment. There is no
 nearest-cell fallback. Overlapping cells and shared boundaries select the
 smallest stable containing cell ID, independently of partition order.
 
+The Python package exposes the same serial and distributed interface. UGRID
+meshes can declare their coordinate and boundary models when they are built;
+the defaults preserve the existing spherical-degree, unspecified-boundary
+behavior.
+
+```python
+import numpy as np
+import axis
+
+mesh = axis.make_ugrid_mesh(
+    node_coords, conn_offsets, conn_indices,
+    coordinate_system=axis.CoordinateSystem.Cartesian3D,
+    boundary_model=axis.BoundaryModel.CartesianStraight,
+)
+locator = axis.PointLocator(mesh, cell_ids, tolerance=0.0)
+mapping = locator.locate(point_ids, point_coordinates)
+# mapping.cell_ids, mapping.status, mapping.owner_ranks, ... are NumPy arrays
+```
+
+For distributed mapping, install the `mpi` extra (`axis-regrid[mpi]`) and pass
+an mpi4py intracommunicator. Every rank calls construction, each query, and
+`close` in the same order. Input conversion errors are reported collectively.
+The context manager releases AXIS's duplicated communicator before MPI shuts
+down:
+
+```python
+from mpi4py import MPI
+
+with axis.DistributedPointLocator(mesh, owned_cell_ids, MPI.COMM_WORLD) as locator:
+    mapping = locator.locate(local_point_ids, local_point_coordinates)
+```
+
+Python point and cell IDs must be one-dimensional, nonnegative, unique signed
+64-bit integers. Coordinates are NumPy-compatible `[n_points,2 or 3]` arrays;
+the wrapper accepts either row or column-major input and passes a Fortran-order
+array to the C++ API. Result columns own their memory and remain valid after
+the locator is closed or deleted. Importing AXIS or using the serial locator
+does not import mpi4py.
+
 A host rank/index belongs to the locator's current mesh ownership epoch. Only
 use an owner-local index to access arrays on that owner rank, and translate it
 through application cell ordering where necessary. Stable IDs, not these
@@ -64,6 +103,8 @@ containment is with respect to the supplied boundaries, not an inferred truth.
 Tolerance defaults to `1e-10`: Cartesian length units or spherical radians.
 It is an absolute geometric tolerance; values must be finite in `[0,0.01)`.
 A candidate within tolerance of a boundary participates in stable-ID tie-breaking.
+Containment and search bounds also include a small scale-relative floating-point
+roundoff allowance, so exact boundaries remain candidates at zero user tolerance.
 
 ## MPI and resource behavior
 
