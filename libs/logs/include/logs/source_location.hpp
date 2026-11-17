@@ -5,15 +5,16 @@
 /// @brief Source_Location optional annotation type.
 
 #include <string>
+#include <filesystem>
 
 namespace logs {
 
 /// Caller-supplied source-location annotation. When absent, the Log_Record
 /// stores std::nullopt rather than fabricating field values.
 struct Source_Location {
-    std::string file;      ///< source file name, verbatim
-    int line{0};           ///< line number, guaranteed >= 1 when present
-    std::string function;  ///< function name, verbatim
+    std::filesystem::path file;  ///< source file name, verbatim
+    int line{0};                 ///< line number, guaranteed >= 1 when present
+    std::string function;        ///< function name, verbatim
 };
 
 }  // namespace logs
