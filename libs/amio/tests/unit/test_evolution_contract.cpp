@@ -849,6 +849,65 @@ void test_context_initialization_outputs_and_capability_query() {
             expect(amio_release_step_lease(persistent_lease) == AMIO_OK, "persistent lease releases through its matching API");
         }
         expect(amio_close_dataset_ex(dataset) == AMIO_OK, "evolution dataset closes after schema registration");
+#ifdef AMIO_TEST_HAS_NETCDF
+        {
+            const auto large_root = std::filesystem::temp_directory_path() / "amio-evolution-oversized-read";
+            std::filesystem::remove_all(large_root, ec);
+            const auto large_location = large_root.string();
+            auto large_descriptor = dataset_descriptor;
+            large_descriptor.location = large_location.data();
+            large_descriptor.location_bytes = large_location.size();
+            large_descriptor.budget_bytes = 64u * 1024u * 1024u;
+            amio_dataset_handle large_dataset = nullptr;
+            expect(amio_open_dataset_ex(context, &large_descriptor, &large_dataset) == AMIO_OK, "open oversized-read collection");
+            if (large_dataset != nullptr) {
+                constexpr std::size_t count = 16u * 1024u * 1024u / sizeof(float) + 1;
+                amio_dimension_descriptor_t large_dimension{};
+                large_dimension.struct_size = sizeof(large_dimension);
+                large_dimension.version = 1;
+                large_dimension.name = "x";
+                large_dimension.name_bytes = 1;
+                large_dimension.extent = count;
+                amio_variable_descriptor_t large_variable{};
+                large_variable.struct_size = sizeof(large_variable);
+                large_variable.version = 1;
+                large_variable.name = "v";
+                large_variable.name_bytes = 1;
+                large_variable.source_dtype = AMIO_DTYPE_F32;
+                large_variable.stored_dtype = AMIO_DTYPE_F32;
+                large_variable.required = 1;
+                large_variable.dimension_count = 1;
+                large_variable.dimensions = &large_dimension;
+                amio_schema_descriptor_t large_schema_descriptor{};
+                large_schema_descriptor.struct_size = sizeof(large_schema_descriptor);
+                large_schema_descriptor.version = 1;
+                large_schema_descriptor.variable_count = 1;
+                large_schema_descriptor.variables = &large_variable;
+                amio_schema_handle large_schema = nullptr;
+                expect(amio_define_schema(large_dataset, &large_schema_descriptor, &large_schema) == AMIO_OK, "define oversized field");
+                amio_step_descriptor_t large_step_descriptor{};
+                large_step_descriptor.struct_size = sizeof(large_step_descriptor);
+                large_step_descriptor.version = 1;
+                large_step_descriptor.schema = large_schema;
+                amio_step_handle large_step = nullptr;
+                expect(amio_begin_step(large_dataset, &large_step_descriptor, &large_step) == AMIO_OK, "begin oversized field step");
+                std::vector<float> input(count, 7.25f), output(count, 0.0f);
+                amio_operation_handle large_operation = nullptr;
+                expect(amio_put_field(large_step, "v", 1, input.data(), input.size() * sizeof(float), &large_operation) == AMIO_OK,
+                       "submit oversized field");
+                expect(amio_end_step(large_step) == AMIO_OK, "publish oversized field");
+                std::size_t required = 0;
+                expect(amio_read_step_field(large_dataset, 0, "v", 1, nullptr, output.data(), output.size() * sizeof(float), &required) == AMIO_OK &&
+                           required == input.size() * sizeof(float) && output == input,
+                       "a field larger than the read cache falls back to storage");
+                if (large_operation) (void)amio_release_operation(large_operation);
+                if (large_step) (void)amio_release_step_handle(large_step);
+                if (large_schema) (void)amio_release_schema(large_schema);
+                expect(amio_close_dataset_ex(large_dataset) == AMIO_OK, "close oversized-read collection");
+            }
+            std::filesystem::remove_all(large_root, ec);
+        }
+#endif
         expect(amio_release_context(context) == AMIO_OK, "context closes after its dataset is released");
         constexpr char diagnostics_off[] = "{\"diagnostics\":{\"enabled\":false}}";
         amio_context_descriptor_t disabled_descriptor = descriptor;

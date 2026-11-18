@@ -179,6 +179,7 @@ struct ProducerStepPayload {
         nullptr, &amio::detail::destroy_netcdf_step_writer};
     std::unique_ptr<amio::detail::ProgressEngine> async_progress;
     std::shared_ptr<const amio::detail::Schema> async_schema;
+    std::map<std::string, amio::detail::ExecutedField, std::less<>> async_results;
     bool async_finished = false;
     amio_status_t async_result = AMIO_OK;
     std::map<std::string, amio::detail::RegionSelection, std::less<>> partitions;
@@ -589,6 +590,9 @@ amio_status_t enqueue_netcdf_transfer(ProducerStepPayload &step, const std::stri
                     const void *data =
                         result.bytes.empty() ? static_cast<const void *>(contribution->bytes.data()) : static_cast<const void *>(result.bytes.data());
                     amio::detail::write_netcdf_step_writer(*step.async_driver, field, contribution->region, data);
+                    result.bytes.clear();
+                    result.bytes.shrink_to_fit();
+                    step.async_results.emplace(field, std::move(result));
                     operation->mark(amio::detail::OperationMilestone::PayloadComplete);
                 }
             } catch (...) {
@@ -2854,6 +2858,7 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
     std::size_t operator_scratch_descriptors = 0;
     std::string failed_operator_field;
     for (const auto &[name, contribution] : coordinator.contributions()) {
+        if (producer_step->async_driver) break;
         const auto &variable = schema_it->second->variables().at(name);
         if (variable.source_dtype == variable.stored_dtype) continue;
         if (contribution.bytes.size() > std::numeric_limits<std::size_t>::max() / 2 ||
@@ -2877,6 +2882,16 @@ AMIO_API amio_status_t amio_end_step(amio_step_handle step) {
                 operator_status = AMIO_ERR_SCHEMA_MISMATCH;
                 failed_operator_field = name;
                 break;
+            }
+            if (producer_step->async_driver) {
+                auto cached = producer_step->async_results.find(name);
+                if (cached == producer_step->async_results.end()) {
+                    operator_status = AMIO_ERR_BACKEND_FAILURE;
+                    failed_operator_field = name;
+                    break;
+                }
+                operated_fields.emplace(name, std::move(cached->second));
+                continue;
             }
             amio::detail::ExecutedField result;
             operator_status = amio::detail::execute_field_pipeline(variable->second, contribution.bytes, contribution.region.offsets,
@@ -3432,7 +3447,8 @@ AMIO_API amio_status_t amio_read_step_field(amio_dataset_handle dataset, uint64_
         record_step_read_cache_occupancy(*owner, step_id, field_name);
         return AMIO_OK;
     }
-    if (cache_status != AMIO_ERR_BACKEND_FAILURE) return cache_status;
+    // An oversized field cannot be cached, but can still be read from storage.
+    if (cache_status != AMIO_ERR_BACKEND_FAILURE && cache_status != AMIO_ERR_BUDGET_EXCEEDED) return cache_status;
 
     const auto payload_path = (std::filesystem::path(owner->location) / payload_it->relative_path).string();
     try {
