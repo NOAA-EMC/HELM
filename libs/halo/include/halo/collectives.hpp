@@ -12,6 +12,7 @@
 
 #include <mpi.h>
 
+#include <climits>
 #include <cstddef>
 #include <halo/communicator.hpp>
 #include <halo/detail/mpi_datatype.hpp>
@@ -19,6 +20,7 @@
 #include <halo/error_policy.hpp>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace halo {
@@ -230,6 +232,54 @@ template <typename T>
         detail::handle_mpi_error(rc, comm.rank(), "MPI_Allreduce", comm.handle());  // Req 3.4
     }
     return output;
+}
+
+/// Collective precondition: all ranks throw together, before the next exchange.
+inline void collective_require(const Communicator &comm, bool valid, const char *message) {
+    if (allreduce<int>(comm, {valid ? 1 : 0}, MPI_MIN)[0] == 0) throw std::invalid_argument(message);
+}
+
+/// Variable-size peer exchange. Counts and displacements are in T elements.
+/// The send buffer is grouped by destination rank; output is grouped by source.
+/// Unlike allgatherv, this does not replicate each payload on every rank.
+template <typename T>
+struct Alltoall_Result {
+    std::vector<T> buffer;
+    std::vector<int> counts, displacements;
+};
+
+template <typename T>
+[[nodiscard]] Alltoall_Result<T> alltoallv(const Communicator &comm, const std::vector<T> &send, const std::vector<int> &counts) {
+    static_assert(detail::has_native_mpi_type_v<T>, "HALO alltoallv requires a supported MPI type");
+    bool valid = counts.size() == static_cast<std::size_t>(comm.size());
+    std::size_t total = 0;
+    for (int n : counts) {
+        valid = valid && n >= 0;
+        if (n >= 0) total += static_cast<std::size_t>(n);
+    }
+    valid = valid && total == send.size() && total <= static_cast<std::size_t>(INT_MAX);
+    collective_require(comm, valid, "halo::alltoallv: invalid counts, buffer length, or MPI count overflow");
+    auto displacements = detail::prefix_sum(counts);
+    Alltoall_Result<T> out;
+    out.counts.resize(comm.size());
+    {
+        detail::Serialized_MPI_Guard guard;
+        int rc = MPI_Alltoall(counts.data(), 1, MPI_INT, out.counts.data(), 1, MPI_INT, comm.handle());
+        if (rc != MPI_SUCCESS) detail::handle_mpi_error(rc, comm.rank(), "MPI_Alltoall", comm.handle());
+    }
+    std::size_t received = 0;
+    for (int n : out.counts) received += static_cast<std::size_t>(n);
+    collective_require(comm, received <= static_cast<std::size_t>(INT_MAX), "halo::alltoallv: receive count overflow");
+    out.displacements = detail::prefix_sum(out.counts);
+    out.buffer.resize(received);
+    {
+        detail::Serialized_MPI_Guard guard;
+        const auto dt = detail::mpi_datatype_for<T>();
+        int rc = MPI_Alltoallv(send.data(), counts.data(), displacements.data(), dt, out.buffer.data(), out.counts.data(), out.displacements.data(),
+                               dt, comm.handle());
+        if (rc != MPI_SUCCESS) detail::handle_mpi_error(rc, comm.rank(), "MPI_Alltoallv", comm.handle());
+    }
+    return out;
 }
 
 }  // namespace halo

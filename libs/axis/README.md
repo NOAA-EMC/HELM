@@ -6,7 +6,7 @@ stateless spatial interpolation (regridding) for Earth-system fields.
 AXIS replaces the legacy ESMF spatial-discretization stack (`ESMF_Mesh`,
 `ESMF_Grid`, `ESMF_LocStream`, `ESMF_Regrid`, and the offline
 `ESMF_RegridWeightGen` application) with a decentralized, zero-copy,
-hardware-portable toolkit built on Kokkos, now fully packaged for Python, `xarray`, and **Dask parallel computing**.
+hardware-portable toolkit built on Kokkos, packaged for Python and `xarray`, with optional **Dask parallel computing**.
 
 ---
 
@@ -42,14 +42,93 @@ AXIS represents a massive paradigm shift in high-performance Earth-system regrid
 
 ---
 
-## 🐍 Python & xarray/Dask Integration
+## Python installation with pip or uv
 
-AXIS is fully packaged for Python with deep `xarray`, `cf-xarray`, and **Dask** distributed cluster support. It installs seamlessly using standard packaging tools:
+AXIS includes a compiled C++ extension, so installing from this repository builds native code. Python dependencies are installed by pip or uv; CMake, a C++20 compiler, and an MPI C++ implementation must already be available. The build fetches Kokkos, KokkosKernels, and ArborX if they are not installed, so the first build needs network access. PROJ and the NetCDF C library are optional and enabled when found.
+
+### Prerequisites
+
+- Python 3.10 or newer
+- CMake 3.21 or newer
+- A C++20 compiler
+- MPI with a working C++ compiler wrapper (`mpicxx` or equivalent)
+- Git and network access on the first build when native libraries are not installed
+
+On macOS with Homebrew, install the native tools first:
 
 ```bash
-# Compile and install AXIS with Python bindings globally
-pip install ./libs/axis
+brew install cmake open-mpi llvm libomp
+
+export CC="$(brew --prefix llvm)/bin/clang"
+export CXX="$(brew --prefix llvm)/bin/clang++"
+export CXXFLAGS="-fopenmp=libomp"
+export CPPFLAGS="-I$(brew --prefix libomp)/include"
+export LDFLAGS="-L$(brew --prefix libomp)/lib -Wl,-rpath,$(brew --prefix libomp)/lib"
 ```
+
+On Debian or Ubuntu:
+
+```bash
+sudo apt-get install build-essential cmake git libopenmpi-dev openmpi-bin
+```
+
+### Install with pip
+
+Run from the repository root. Use a virtual environment so the compiled package and Python dependencies stay together:
+
+```bash
+cd libs/axis
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install .
+```
+
+To add optional NetCDF-backed xarray file I/O and/or Dask support:
+
+```bash
+python -m pip install '.[netcdf,dask]'
+```
+
+For an editable development install, use `python -m pip install -e '.[netcdf,dask]'` from `libs/axis`.
+
+### Install with uv
+
+The AXIS Python project lives in `libs/axis`:
+
+```bash
+cd libs/axis
+uv sync
+uv run python -c 'import axis; print("AXIS import succeeded")'
+```
+
+Add optional file I/O, Dask, or the development tools declared in `pyproject.toml`:
+
+```bash
+uv sync --extra netcdf --extra distributed --group test
+uv sync --all-groups
+```
+
+After making C++ or binding changes, explicitly rebuild the editable installation:
+
+```bash
+uv pip install --python .venv/bin/python --reinstall-package axis-regrid -e .
+```
+
+Keep using the same Python environment that uv created by invoking commands with `uv run`.
+
+### Check the installation
+
+```bash
+python -c 'import axis; axis.make_regular_mesh(4, 4, 0.0, 0.0, 1.0, 1.0); print("AXIS native mesh created")'
+axis-regrid --help
+```
+
+If CMake reports that MPI is missing, install an MPI implementation and ensure `mpicxx` is on `PATH`, or set `MPI_CXX_COMPILER` to its full path. If CMake cannot fetch a dependency, install Kokkos, KokkosKernels, and ArborX in a prefix visible through `CMAKE_PREFIX_PATH`, or build from a network-enabled environment.
+
+`pip install` and `uv sync` compile AXIS locally; they do not download a prebuilt platform wheel. Native wheel distribution needs a deliberate MPI/Kokkos runtime strategy for each supported platform.
+
+AXIS integrates with `xarray`; Dask is optional and can be installed with the `dask` extra. The package does not require `cf-xarray` for its current Python API.
 
 ### 1. Basic Python Usage with xarray Accessor
 AXIS registers a custom **`.axis`** accessor namespace on all xarray Datasets and DataArrays:
@@ -89,8 +168,30 @@ fast_regridder = axis.Regridder(ds_src, ds_dst, weights_file="my_weights.bin")
 result = fast_regridder(ds_src.temperature)
 ```
 
-### 4. Flawless Dask Distributed Parallelism
-When running on backed Dask chunk-wise arrays, AXIS automatically serializes its C++ compiled weights and distributes them across all remote worker nodes in parallel using `client.run`. For local process/thread-wise schedulers, it leverages a thread-safe worker cache to completely bypass Python pickling limits, ensuring zero `PicklingError`s and beautiful, lazy parallel scalability.
+### 4. Dask execution
+
+Dask is optional. Install local Dask array support with `python -m pip install '.[dask]'`; install the distributed scheduler with `python -m pip install '.[distributed]'`. For editable development, use `python -m pip install -e '.[dask]'` or `python -m pip install -e '.[distributed]'`. With uv, use `uv sync --extra dask` or `uv sync --extra distributed`.
+
+AXIS keeps horizontal source spatial dimensions together as one core chunk for each task. Vertical interpolation similarly requires the complete source-level dimension and complete level-coordinate core dimensions in one chunk. Independent dimensions such as time can remain split into smaller chunks. AXIS rejects split core dimensions before creating the execution graph; explicitly rechunk them when the block size fits worker memory:
+
+```python
+field = field.chunk({"lat": -1, "lon": -1})
+```
+
+Supported schedulers are Dask's synchronous and threaded local schedulers, and Dask Distributed. The local multiprocessing scheduler is unsupported because native weight matrices are process-local. Distributed workers must have a compatible AXIS installation and native extension. AXIS registers serialized weights with a Dask worker lifecycle plugin, which reconstructs the native matrix on current and newly started workers. It uses `Client.register_plugin` in the current 2026.7.1 lock target, with a fallback to `Client.register_worker_plugin`; OMD's [worker lifecycle docs](https://github.com/dask/dask/blob/9dc535daa30d7d36d63d4a003b54342fbc7032db/docs/source/customize-initialization.rst#L112-L125) and [plugin registration example](https://github.com/dask/dask/blob/9dc535daa30d7d36d63d4a003b54342fbc7032db/docs/source/changelog.rst#L2768-L2785) informed this path. Call `regridder.close()` when finished to unregister that worker plugin and release local cached weights.
+
+```python
+from dask.distributed import Client
+import axis
+
+regridder = axis.Regridder(source_grid, target_grid, method="bilinear")
+with Client() as client:
+    lazy_result = regridder(field)  # graph construction does not compute the field
+    result = lazy_result.compute()
+    regridder.close()
+```
+
+For distributed use, construct the graph while the desired `Client` is active, as above. If Distributed is not installed, use the `distributed` extra. The current local `uv.lock` resolves Dask 2026.7.1; OMD's Dask 2026.8.0 documentation informed the lifecycle design but is not a tested compatibility claim.
 
 ---
 

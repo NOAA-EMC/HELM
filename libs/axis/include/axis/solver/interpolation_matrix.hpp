@@ -25,8 +25,10 @@
 #include <Kokkos_Core.hpp>
 #include <Kokkos_Sort.hpp>
 #include <algorithm>
+#include <axis/solver/linear_reconstruction.hpp>
 #include <axis/types.hpp>
 #include <cstddef>
+#include <stdexcept>
 
 namespace axis::solver {
 
@@ -91,6 +93,18 @@ class InterpolationMatrix {
           n_src_(n_src),
           n_dst_(n_dst) {}
 
+    /// True when apply must reconstruct the supplied field, not just multiply S.
+    [[nodiscard]] bool has_linear_reconstruction() const noexcept {
+        return linear_.enabled;
+    }
+    [[nodiscard]] const auto &linear_reconstruction() const noexcept {
+        return linear_;
+    }
+    void set_linear_reconstruction(LinearReconstruction<MemorySpace> data) {
+        if (has_csr_) throw std::logic_error("attach linear reconstruction before to_csr()");
+        linear_ = std::move(data);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Scalar accessors
     // ─────────────────────────────────────────────────────────────────────────
@@ -117,7 +131,8 @@ class InterpolationMatrix {
     // wrapping the internal Kokkos::View data pointers. No allocation or copy.
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// Interpolation weights S: [nnz].
+    /// Base interpolation weights S: [nnz]. For linear reconstruction these
+    /// omit field-dependent gradient contributions; use solver::apply().
     [[nodiscard]] field_view<const double, 1> factor_list() const noexcept {
         return field_view<const double, 1>{factor_list_.data(), factor_list_.extent(0)};
     }
@@ -214,10 +229,25 @@ class InterpolationMatrix {
         auto h_perm_ptr = h_perm.data();
         auto h_row_ptr = h_row.data();
         auto h_col_ptr = h_col.data();
-        std::sort(h_perm_ptr, h_perm_ptr + n_nz, [h_row_ptr, h_col_ptr](index_t a, index_t b) {
+        auto less = [h_row_ptr, h_col_ptr](index_t a, index_t b) {
             if (h_row_ptr[a] != h_row_ptr[b]) return h_row_ptr[a] < h_row_ptr[b];
             return h_col_ptr[a] < h_col_ptr[b];
-        });
+        };
+        bool grouped = true;
+        for (std::size_t k = 1; k < n_nz; ++k)
+            if (h_row_ptr[k] < h_row_ptr[k - 1]) {
+                grouped = false;
+                break;
+            }
+        if (grouped) {
+            for (std::size_t begin = 0; begin < n_nz;) {
+                std::size_t end = begin + 1;
+                while (end < n_nz && h_row_ptr[end] == h_row_ptr[begin]) ++end;
+                if (!std::is_sorted(h_perm_ptr + begin, h_perm_ptr + end, less)) std::sort(h_perm_ptr + begin, h_perm_ptr + end, less);
+                begin = end;
+            }
+        } else
+            std::sort(h_perm_ptr, h_perm_ptr + n_nz, less);
 
         // --- Step 2: Build CSR arrays on host ---
         Kokkos::View<index_t *, Kokkos::HostSpace> h_row_ptr_csr("h_csr_row_ptr", n_rows + 1);
@@ -251,6 +281,14 @@ class InterpolationMatrix {
         Kokkos::deep_copy(col_idx_, h_col_idx);
         Kokkos::deep_copy(csr_vals_, h_csr_vals);
 
+        if (linear_.enabled) {
+            auto h_moments = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, linear_.moments);
+            linear_.csr_moments = Kokkos::View<double *[2], MemorySpace>("csr_linear_moments", n_nz);
+            auto sorted = Kokkos::create_mirror_view(linear_.csr_moments);
+            for (std::size_t k = 0; k < n_nz; ++k)
+                for (int d = 0; d < 2; ++d) sorted(k, d) = h_moments(h_perm(k), d);
+            Kokkos::deep_copy(linear_.csr_moments, sorted);
+        }
         has_csr_ = true;
     }
 
@@ -343,6 +381,8 @@ class InterpolationMatrix {
     }
 
    private:
+    LinearReconstruction<MemorySpace> linear_;
+
     // COO storage
     Kokkos::View<double *, MemorySpace> factor_list_;  ///< weights [nnz]
     Kokkos::View<index_t *, MemorySpace> factor_row_;  ///< destination indices [nnz]

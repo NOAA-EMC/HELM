@@ -26,3 +26,21 @@ set_target_properties(axis_benchmarks PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
 )
+
+# Focused linear-conservative setup/apply diagnostic (docs/linear_conservative.md).
+add_executable(axis_linear_benchmark linear_conservative.cpp)
+target_link_libraries(axis_linear_benchmark PRIVATE axis)
+set_target_properties(axis_linear_benchmark PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+)
+
+# Real-MPI distributed scaling harness (docs/distributed.md); needs HALO.
+if(TARGET halo)
+    add_executable(axis_distributed_scaling distributed_scaling.cpp)
+    target_link_libraries(axis_distributed_scaling PRIVATE axis halo)
+    set_target_properties(axis_distributed_scaling PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+    )
+endif()
