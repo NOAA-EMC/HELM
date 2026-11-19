@@ -5,6 +5,7 @@
 /// @brief Stack_Frame data type and format_stack_trace() pure formatter.
 
 #include <cstddef>
+#include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
@@ -16,7 +17,7 @@ namespace logs {
 /// it only formats supplied data.
 struct Stack_Frame {
     std::optional<std::string> function;
-    std::optional<std::string> file;
+    std::optional<std::filesystem::path> file;
     std::optional<int> line;
 };
 
