@@ -149,7 +149,7 @@ class StagingPool {
     //                    exceeds `buffer_count` slots and an exhausted
     //                    pool times out to backpressure (R2.6).
     StagingPool(std::size_t buffer_count, std::size_t buffer_capacity, std::int64_t timeout_ms, std::size_t max_buffer_count,
-                GrowMode mode = GrowMode::Grow);
+                GrowMode mode = GrowMode::Grow, std::size_t max_retained_bytes = static_cast<std::size_t>(-1));
 
     // Non-copyable, non-movable (owns raw memory).
     StagingPool(const StagingPool &) = delete;
@@ -216,6 +216,11 @@ class StagingPool {
     // tests only.
     std::size_t committed_bytes() const noexcept;
 
+    /** Return the hard ceiling for all retained staging capacities, including free buffers. */
+    std::size_t max_retained_bytes() const noexcept {
+        return max_retained_bytes_;
+    }
+
     // allocated_buffer_count -- number of buffers whose storage has been
     // committed (data != nullptr).  Diagnostics / tests only.
     std::size_t allocated_buffer_count() const noexcept;
@@ -237,7 +242,7 @@ class StagingPool {
     // at least `required_bytes`, allocating or growing it as needed.
     // Caller must hold mu_.  Updates buffers_[buf_idx].data and
     // .capacity_bytes.
-    void ensure_storage(std::size_t buf_idx, std::size_t required_bytes);
+    bool ensure_storage(std::size_t buf_idx, std::size_t required_bytes);
 
     mutable std::mutex mu_;
     std::condition_variable cv_;
@@ -260,6 +265,7 @@ class StagingPool {
     std::size_t buffer_capacity_;
     std::int64_t timeout_ms_;
     GrowMode grow_mode_;
+    std::size_t max_retained_bytes_;
     bool grow_warned_ = false;  // one-time WARN past the configured count
 };
 

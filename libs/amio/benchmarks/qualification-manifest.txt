@@ -1,0 +1,5 @@
+# AMIO matched-output benchmark workload v1
+steps=8
+fields=2
+cells=65536
+seed=1729

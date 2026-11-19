@@ -4,7 +4,7 @@
 // Feature: driver-io-regrid-perf
 // Property 1: In-memory init equals file-based init.
 //
-// For any VALID AMIO manifest: writing that manifest to a temp file and
+// For any valid serial-compatible AMIO manifest: writing that manifest to a temp file and
 // calling amio_init(path, &core_b) must agree, outcome-for-outcome, with
 // calling amio_init_from_string(content, "yaml", &core_a) on the same
 // content.  Both must return AMIO_OK (the manifest is valid) and each
@@ -51,7 +51,7 @@ static bool is_config_expected_valid(const Config &cfg) {
     if (cfg.staging_pool.buffer_capacity_bytes < 1 || cfg.staging_pool.buffer_capacity_bytes > 1'073'741'824) {
         return false;
     }
-    if (cfg.worker_pool.threads < 1 || cfg.worker_pool.threads > 256) {
+    if (cfg.worker_pool.threads > 256) {
         return false;
     }
     if (cfg.prefetch.depth < 1 || cfg.prefetch.depth > 1024) {
@@ -94,7 +94,7 @@ static bool is_config_expected_valid(const Config &cfg) {
 // ===================================================================
 // Property Test DP1: In-memory init equals file-based init.
 //
-// For any valid manifest content: amio_init_from_string(content) and
+// For any valid serial-compatible manifest content: amio_init_from_string(content) and
 // amio_init(path) both return AMIO_OK and each mints a usable (non-null)
 // core handle.  Both handles are finalized.
 //
@@ -104,11 +104,18 @@ static bool is_config_expected_valid(const Config &cfg) {
 TEST_CASE("Feature: driver-io-regrid-perf, Property 1: in-memory init equals file-based init", "[pbt][driver-io-regrid-perf][dp1][inmem_init]") {
     auto result = rc::check(
         "amio_init_from_string(content) agrees with amio_init(path) for a valid "
-        "manifest: both succeed and yield a usable core handle",
+        "serial-compatible manifest: both succeed and yield a usable core handle",
         []() {
             // Generate a VALID manifest Config (same style as P2c/P2d/P2e).
             auto cfg = *rc::gen::arbitrary<Config>();
             RC_PRE(is_config_expected_valid(cfg));
+
+            // These tests do not initialize MPI or require host-specific
+            // worker placement; keep both initialization paths serial.
+            cfg.io_ranks.clear();
+            cfg.worker_pool.threads = 0;
+            cfg.worker_pool.cpu_cores.clear();
+            cfg.worker_pool.numa_domain.reset();
 
             // Produce the YAML content once; both paths use the same bytes.
             std::string yaml = ConfigLoader::serialize(cfg);

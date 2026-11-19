@@ -38,6 +38,14 @@ on:
       - "docker-compose.yml"
       - ".github/workflows/amio-ci.yml"
   workflow_dispatch:
+    inputs:
+      run_extended_qualification:
+        description: "Run the infrastructure-gated 64/256/1024-rank qualification"
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 5 * * 1"
 
 jobs:
   amio:
@@ -104,7 +112,7 @@ jobs:
             rm -rf /tmp/amio_consumer && mkdir -p /tmp/amio_consumer
             cat > /tmp/amio_consumer/CMakeLists.txt <<EOF
           cmake_minimum_required(VERSION 3.21)
-          project(amio_consumer LANGUAGES C)
+          project(amio_consumer LANGUAGES C CXX)
           find_package(AMIO REQUIRED)
           add_executable(consumer main.c)
           target_link_libraries(consumer PRIVATE AMIO::public_headers)
@@ -143,5 +151,47 @@ jobs:
             cd /tmp/build-Release
             export CMAKE_PREFIX_PATH=/opt/helm
             ctest -L cmake --output-on-failure
-            ctest -L integration --output-on-failure || true
+            ctest -L integration --output-on-failure
           '
+
+  extended-qualification:
+    name: Extended qualification preflight (infrastructure gated)
+    if: github.event_name == 'schedule' || inputs.run_extended_qualification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Require certified scale runner, storage, and device readiness
+        env:
+          SCALE_READY: ${{ vars.AMIO_EXTENDED_QUALIFICATION_READY }}
+          OBJECT_STORE_READY: ${{ vars.AMIO_OBJECT_STORE_QUALIFICATION_READY }}
+          DEVICE_READY: ${{ vars.AMIO_DEVICE_QUALIFICATION_READY }}
+        run: |
+          if [ "$SCALE_READY" != "true" ] || [ "$OBJECT_STORE_READY" != "true" ] || [ "$DEVICE_READY" != "true" ]; then
+            echo "Extended AMIO qualification was requested, but one or more readiness variables are unset. Configure AMIO_EXTENDED_QUALIFICATION_READY, AMIO_OBJECT_STORE_QUALIFICATION_READY, and AMIO_DEVICE_QUALIFICATION_READY only after the corresponding certified runner, allocation, credentials, and device are available."
+            exit 1
+          fi
+
+      - name: Run long-duration qualification fixtures
+        run: |
+          set -euo pipefail
+          docker compose up -d --build
+          docker compose exec -T helm-dev bash -lc '
+            set -e
+            for p in conf logs halo; do
+              cmake -S libs/$p -B /tmp/dep-$p -GNinja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_INSTALL_PREFIX=/opt/helm >/dev/null
+              cmake --build /tmp/dep-$p --parallel $(nproc) >/dev/null
+              cmake --install /tmp/dep-$p >/dev/null
+            done
+            cmake -S libs/amio -B /tmp/build-Release -GNinja -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH=/opt/helm -DAMIO_BUILD_TESTING=ON -DAMIO_BUILD_EXAMPLES=ON \
+              -DAMIO_FORCE_NCZARR=ON
+            cmake --build /tmp/build-Release --parallel $(nproc)
+            cd /tmp/build-Release && ctest -L qualification --output-on-failure --timeout 3600
+          '
+
+      - name: Publish infrastructure readiness without claiming scale acceptance
+        run: |
+          echo "The qualification-labelled fixtures completed. SC-002, SC-004, and SC-008 remain unqualified: they require the certified destination, measured 64/256/1024-rank harness, and actual device evidence. See libs/amio/docs/site/development/qualification.md, libs/amio/tests/qualification/, and libs/amio/benchmarks/ for committed qualification inputs; fixture success is not scale or device acceptance."

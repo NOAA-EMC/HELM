@@ -25,7 +25,7 @@
 //   * Enforcement of all numeric ranges:
 //       buffer_count      [1, 4096]
 //       buffer_capacity   [1, 1 GiB]
-//       threads           [1, 256]
+//       threads           [0, 256] (0 selects synchronous writes)
 //       prefetch.depth    [1, 1024]
 //       read_timeout_s    [1, 3600]
 //       staging_timeout_ms[1, 60000]
@@ -84,11 +84,11 @@ struct StagingPoolConfig {
     std::size_t max_buffer_count = 4096;          // [buffer_count, 4096]
 };
 
-// WorkerPoolConfig (config-level) -- thread pool sizing and pinning.
+/** @brief Manifest worker settings; zero threads selects synchronous writes without a worker pool. */
 struct WorkerPoolCfg {
-    std::size_t threads = 1;         // [1, 256]
-    std::vector<int> cpu_cores;      // optional CPU core list
-    std::optional<int> numa_domain;  // optional NUMA domain
+    std::size_t threads = 1;        /**< Worker count in [0, 256]; zero runs writes synchronously. */
+    std::vector<int> cpu_cores;     /**< Optional worker CPU bindings. */
+    std::optional<int> numa_domain; /**< Optional worker NUMA binding. */
 };
 
 // PrefetchConfig -- look-ahead prefetch settings.
@@ -102,6 +102,8 @@ struct BackpressureCfg {
     std::size_t low_watermark = 0;
     std::size_t high_watermark = 0;
     std::size_t queue_capacity = 1024;
+    std::size_t prefetch_capacity = 1024; /**< Maximum background read-ahead tasks retained by the worker pool. */
+    std::size_t timeout_ms = 5000;        /**< Maximum admission wait in milliseconds before rejecting a write. */
 };
 
 // CodecConfig -- lossless codec settings.
@@ -112,6 +114,34 @@ struct CodecConfig {
 
     // The active codec selection (must be on the allow-list).
     std::string active_codec;
+};
+
+struct EvolutionBudgetConfig {
+    std::size_t total_bytes = 0;
+    std::size_t staging_bytes = 0;
+    std::size_t metadata_bytes = 0;
+    std::size_t transport_bytes = 0;
+    std::size_t view_bytes = 0;
+    std::size_t control_reserve_bytes = 0;
+    std::size_t total_descriptors = 0;
+    std::size_t control_reserve_descriptors = 0;
+    std::size_t chunk_bytes = 0;
+    std::size_t credits_per_peer = 0;
+};
+
+struct EvolutionConfig {
+    bool enabled = false;
+    int version = 0;
+    std::string execution_mode = "persistent_direct";
+    std::string progress_mode = "background";
+    std::string layout = "step_collection";
+    std::string destination_backend;
+    std::string destination_path;
+    std::string create_policy = "exclusive";
+    std::vector<int> producers;
+    std::vector<int> writers;
+    std::vector<int> consumers;
+    EvolutionBudgetConfig budgets;
 };
 
 // Config -- top-level configuration struct.
@@ -139,6 +169,9 @@ struct Config {
 
     // MPI I/O rank set (empty = all ranks participate).
     std::vector<int> io_ranks;
+
+    // Additive strict schema used only when amio_version is present.
+    EvolutionConfig evolution;
 };
 
 // ===================================================================
@@ -162,7 +195,7 @@ class ConfigLoader {
     static constexpr std::size_t kMaxBufferCount = 4096;
     static constexpr std::size_t kMinBufferCapacity = 1;
     static constexpr std::size_t kMaxBufferCapacity = 1'073'741'824;  // 1 GiB
-    static constexpr std::size_t kMinThreads = 1;
+    static constexpr std::size_t kMinThreads = 0;
     static constexpr std::size_t kMaxThreads = 256;
     static constexpr std::size_t kMinPrefetchDepth = 1;
     static constexpr std::size_t kMaxPrefetchDepth = 1024;
@@ -240,7 +273,8 @@ inline bool operator==(const PrefetchConfig &a, const PrefetchConfig &b) {
 }
 
 inline bool operator==(const BackpressureCfg &a, const BackpressureCfg &b) {
-    return a.low_watermark == b.low_watermark && a.high_watermark == b.high_watermark && a.queue_capacity == b.queue_capacity;
+    return a.low_watermark == b.low_watermark && a.high_watermark == b.high_watermark && a.queue_capacity == b.queue_capacity &&
+           a.prefetch_capacity == b.prefetch_capacity && a.timeout_ms == b.timeout_ms;
 }
 
 inline bool operator==(const CodecConfig &a, const CodecConfig &b) {
@@ -250,7 +284,21 @@ inline bool operator==(const CodecConfig &a, const CodecConfig &b) {
 inline bool operator==(const Config &a, const Config &b) {
     return a.staging_pool == b.staging_pool && a.worker_pool == b.worker_pool && a.prefetch == b.prefetch &&
            a.staging_timeout_ms == b.staging_timeout_ms && a.backpressure == b.backpressure && a.backend == b.backend && a.codec == b.codec &&
-           a.io_ranks == b.io_ranks;
+           a.io_ranks == b.io_ranks && a.evolution.enabled == b.evolution.enabled && a.evolution.version == b.evolution.version &&
+           a.evolution.execution_mode == b.evolution.execution_mode && a.evolution.progress_mode == b.evolution.progress_mode &&
+           a.evolution.layout == b.evolution.layout && a.evolution.destination_backend == b.evolution.destination_backend &&
+           a.evolution.destination_path == b.evolution.destination_path && a.evolution.create_policy == b.evolution.create_policy &&
+           a.evolution.producers == b.evolution.producers && a.evolution.writers == b.evolution.writers &&
+           a.evolution.consumers == b.evolution.consumers && a.evolution.budgets.total_bytes == b.evolution.budgets.total_bytes &&
+           a.evolution.budgets.staging_bytes == b.evolution.budgets.staging_bytes &&
+           a.evolution.budgets.metadata_bytes == b.evolution.budgets.metadata_bytes &&
+           a.evolution.budgets.transport_bytes == b.evolution.budgets.transport_bytes &&
+           a.evolution.budgets.view_bytes == b.evolution.budgets.view_bytes &&
+           a.evolution.budgets.control_reserve_bytes == b.evolution.budgets.control_reserve_bytes &&
+           a.evolution.budgets.total_descriptors == b.evolution.budgets.total_descriptors &&
+           a.evolution.budgets.control_reserve_descriptors == b.evolution.budgets.control_reserve_descriptors &&
+           a.evolution.budgets.chunk_bytes == b.evolution.budgets.chunk_bytes &&
+           a.evolution.budgets.credits_per_peer == b.evolution.budgets.credits_per_peer;
 }
 
 inline bool operator!=(const Config &a, const Config &b) {
