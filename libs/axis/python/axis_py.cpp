@@ -20,7 +20,9 @@
 #include <nanobind/stl/vector.h>
 
 #include <Kokkos_Core.hpp>
+#include <algorithm>
 #include <axis/detail/gnomonic_projector.hpp>
+#include <axis/detail/local_weight_block.hpp>
 #include <axis/detail/regular_grid_detector.hpp>
 #include <axis/detail/spherical_clipper.hpp>
 #include <axis/detail/spherical_geometry.hpp>
@@ -57,6 +59,8 @@
 #ifdef AXIS_HAVE_NETCDF
 #include <axis/io/esmf_weight_io.hpp>
 #endif
+
+#include "../src/distributed/search_geometry.hpp"
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -830,6 +834,105 @@ NB_MODULE(axis_py, m) {
             return axis::solver::WeightGenerator::generate<Kokkos::HostSpace>(src, dst, cfg);
         },
         "src_mesh"_a, "dst_mesh"_a, "config"_a, "Generate interpolation weights with a RegridConfig dictionary");
+
+    m.def(
+        "_generate_local_weight_block",
+        [](const HostMesh &src, const HostMesh &dst, const nb::dict &config) -> HostMatrix {
+            ensure_kokkos();
+            return axis::detail::generate_local_weight_block(src, dst, parse_regrid_config(config));
+        },
+        "src_mesh"_a, "dst_mesh"_a, "config"_a, "Generate a weight block with mesh-local row and column indices");
+
+    m.def(
+        "_conservative_tile_bounds",
+        [](const HostMesh &mesh) {
+            ensure_kokkos();
+            axis::solver::RegridConfig config;
+            config.method = axis::solver::InterpolationMethod::Conservative1stOrder;
+            config.line_type = axis::solver::LineType::GreatCircle;
+            auto geometry = axis::distributed::detail::search_geometry(mesh, config);
+            std::vector<float> bounds(6);
+            for (int d = 0; d < 3; ++d) {
+                bounds[d] = std::numeric_limits<float>::infinity();
+                bounds[d + 3] = -bounds[d];
+                for (std::size_t i = 0; i < mesh.n_cells(); ++i) {
+                    bounds[d] = std::min(bounds[d], geometry.boxes(i, d));
+                    bounds[d + 3] = std::max(bounds[d + 3], geometry.boxes(i, d + 3));
+                }
+            }
+            return bounds;
+        },
+        "mesh"_a, "Return great-circle conservative bounds for a mesh tile");
+
+    m.def(
+        "_stencil_query_points",
+        [](const HostMesh &mesh, const nb::dict &config) {
+            ensure_kokkos();
+            auto geometry = axis::distributed::detail::search_geometry(mesh, parse_regrid_config(config));
+            auto points = nb::list();
+            for (std::size_t i = 0; i < mesh.n_cells(); ++i)
+                points.append(nb::make_tuple(geometry.points(i, 0), geometry.points(i, 1), geometry.points(i, 2)));
+            return points;
+        },
+        "mesh"_a, "config"_a);
+
+    m.def("_pack_reconstruction", [](const HostMatrix &matrix) {
+        const auto &data = matrix.linear_reconstruction();
+        auto indices = [](const auto &view) {
+            std::vector<axis::index_t> result(view.extent(0));
+            for (std::size_t i = 0; i < result.size(); ++i) result[i] = view(i);
+            return result;
+        };
+        auto pairs = [](const auto &view) {
+            std::vector<double> out;
+            for (std::size_t i = 0; i < view.extent(0); ++i) {
+                out.push_back(view(i, 0));
+                out.push_back(view(i, 1));
+            }
+            return out;
+        };
+        return nb::make_tuple(data.limited, pairs(data.moments), indices(data.neighbor_offsets), indices(data.neighbors),
+                              pairs(data.gradient_coefficients), indices(data.control_offsets), pairs(data.control_points));
+    });
+    m.def("_restore_reconstruction", [](HostMatrix &matrix, bool limited, const std::vector<double> &moments,
+                                        const std::vector<axis::index_t> &offsets, const std::vector<axis::index_t> &neighbors,
+                                        const std::vector<double> &coefficients, const std::vector<axis::index_t> &controls,
+                                        const std::vector<double> &points) {
+        using Mem = Kokkos::HostSpace;
+        auto indices = [](const char *name, const auto &values) {
+            Kokkos::View<axis::index_t *, Mem> view(name, values.size());
+            std::copy(values.begin(), values.end(), view.data());
+            return view;
+        };
+        auto pairs = [](const char *name, const auto &values) {
+            Kokkos::View<double *[2], Mem> view(name, values.size() / 2);
+            for (std::size_t i = 0; i < view.extent(0); ++i) {
+                view(i, 0) = values[2 * i];
+                view(i, 1) = values[2 * i + 1];
+            }
+            return view;
+        };
+        if (moments.size() != 2 * matrix.nnz() || offsets.size() != matrix.n_src() + 1 || coefficients.size() != 2 * neighbors.size() ||
+            controls.size() != matrix.n_src() + 1 || points.size() % 2)
+            throw std::invalid_argument("invalid reconstruction payload");
+        auto valid_offsets = [](const auto &values, std::size_t count) {
+            return values.front() == 0 && values.back() >= 0 && static_cast<std::size_t>(values.back()) == count &&
+                   std::is_sorted(values.begin(), values.end());
+        };
+        if (!valid_offsets(offsets, neighbors.size()) || !valid_offsets(controls, points.size() / 2) ||
+            std::any_of(neighbors.begin(), neighbors.end(), [&](auto cell) { return cell < 0 || static_cast<std::size_t>(cell) >= matrix.n_src(); }))
+            throw std::invalid_argument("invalid reconstruction indices");
+        axis::solver::LinearReconstruction<Mem> data;
+        data.enabled = true;
+        data.limited = limited;
+        data.moments = pairs("dask_moments", moments);
+        data.neighbor_offsets = indices("dask_neighbor_offsets", offsets);
+        data.neighbors = indices("dask_neighbors", neighbors);
+        data.gradient_coefficients = pairs("dask_gradient_coefficients", coefficients);
+        data.control_offsets = indices("dask_control_offsets", controls);
+        data.control_points = pairs("dask_control_points", points);
+        matrix.set_linear_reconstruction(std::move(data));
+    });
 
     // ─── Apply weights to a 1-D numpy array (Req 12.3) ──────────────────────
 

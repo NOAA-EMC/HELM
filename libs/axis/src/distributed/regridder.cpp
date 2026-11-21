@@ -6,6 +6,7 @@
 /// weight generation, apply with halo refresh, and the accompanying statistics.
 
 #include <array>
+#include <axis/detail/local_weight_block.hpp>
 #include <axis/distributed/regridder.hpp>
 #include <axis/solver/apply.hpp>
 #include <axis/solver/weight_generator.hpp>
@@ -265,7 +266,7 @@ struct DistributedRegridder::Impl {
         std::string error;
         try {
             if (dst.n_cells())
-                full = solver::WeightGenerator::generate(source_geometry, dst, method_config);
+                full = axis::detail::generate_local_weight_block(source_geometry, dst, method_config);
             else {
                 auto ns = source_geometry.n_cells();
                 full = Matrix(view<double>("empty_weights", {}), view<index_t>("empty_rows", {}), view<index_t>("empty_cols", {}),
