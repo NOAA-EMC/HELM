@@ -139,7 +139,9 @@ budget excess fail collectively. Output size follows local point count;
 there is no fixed source-count limit. Allocator exhaustion is not a recoverable
 collective error guarantee.
 
-ArborX indexes local cell boxes. Planar bounds include tolerance at acute
+ArborX indexes local cell boxes and processes bounded batches of queries. Each
+query reduces candidates directly to its lowest matching stable cell ID.
+Planar bounds include tolerance at acute
 corners. Spherical bounds use conservative caps that include the accepted
 tolerance region. Small cells can be pruned individually, and the combined
 bounds let MPI and Dask skip disjoint partitions.
@@ -203,3 +205,34 @@ mesh coordinate system. Each point keeps its input ID and receives one cell ID
 and local cell index. Equal distances resolve to the smallest cell ID.
 Nearest-center queries always map to a cell, including outside a regional
 mesh. Use containment when outside points must remain unmapped.
+
+### Reuse a registration
+
+Construct `axis.PointRegistration(result.point_ids, result.cell_ids)` from
+computed locator output. Save it with the original coordinates, a grid key
+that fingerprints geometry and stable cell IDs, and a lookup key that
+includes coordinate units, method and tolerance. Load checks those keys and
+the ordered source IDs and coordinates before returning the mapping.
+`local_indices(owned_cell_ids)` resolves it against the current partition.
+Use `cell_ids == -1` to distinguish points that were originally unmapped
+from points whose cells are owned elsewhere.
+
+### Direct grid indexing
+
+`axis.index_latlon_grid` accepts ascending longitude and latitude edges in
+degrees. Enable `periodic=True` for a full longitude cycle.
+`axis.index_cubed_sphere` accepts Cartesian directions, six face bases in
+mesh storage order, and shared gnomonic u and v edges. Both return cell rows
+that can index a stable cell ID array. Shared edges use the higher bin and
+cube face ties use the first face. Use polygon containment when the
+smallest-stable-cell-ID boundary rule or a non-gnomonic geometry is required.
+
+### Load Dask partitions on workers
+
+Install `axis-regrid[distributed]` and pass serializable loaders to
+`DistributedPointLocator.from_shards`. Each loader opens storage available
+to the workers and returns a compact CSR geometry dictionary and stable
+cell IDs. The client receives bounds and validation results. A lookup can
+rebuild a missing worker index using the same loader. The underlying mesh
+and cell order must stay immutable for the life of the locator. Size
+storage shards and worker assignments so the active indexes fit in memory.

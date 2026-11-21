@@ -114,10 +114,11 @@ std::vector<solver::PointLocation> DistributedPointLocator::locate(solver::Point
             auto recv = halo::bounded_peer_exchange<double>(p.comm, send, dst, src, batch * 3);
             std::vector<long long> response;
             response.reserve(recv.size());
-            for (size_t k = 0; k < recv.size(); k += 3) {
-                auto match = p.local->locate_canonical({recv[k], recv[k + 1], recv[k + 2]});
+            std::vector<V> incoming;
+            incoming.reserve(recv.size() / 3);
+            for (size_t k = 0; k < recv.size(); k += 3) incoming.push_back({recv[k], recv[k + 1], recv[k + 2]});
+            for (const auto &match : p.local->locate_canonical(incoming))
                 response.insert(response.end(), {match.cell_id, match.owner_local_index, static_cast<long long>(match.status)});
-            }
             auto matches = halo::bounded_peer_exchange<long long>(p.comm, response, src, dst, batch * 3);
             for (size_t j = 0; j < selected.size(); ++j) {
                 auto &best = results[selected[j]];

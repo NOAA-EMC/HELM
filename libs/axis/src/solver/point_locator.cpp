@@ -112,6 +112,7 @@ struct PointLocator::Impl {
     BoundaryModel model;
     bool is_sphere;
     double tol;
+    std::size_t batch_size;
     std::array<double, 6> box{INFINITY, INFINITY, INFINITY, -INFINITY, -INFINITY, -INFINITY};
     PointLocationStatus contains(const Cell &c, V p) const {
         bool boundary = false;
@@ -143,6 +144,8 @@ struct PointLocator::Impl {
 PointLocator::PointLocator(const UnstructuredMesh<Kokkos::HostSpace> &mesh, std::span<const index_t> ids, PointLocationOptions options) {
     auto p = std::make_shared<Impl>();
     p->tol = options.tolerance;
+    require(options.query_batch_size > 0, "point locator: query batch size must be positive");
+    p->batch_size = std::min(options.query_batch_size, std::size_t{65536});
     p->is_sphere = spherical(mesh.coord_system());
     p->model = mesh.geometry_metadata().boundary_model;
     require(std::isfinite(p->tol) && p->tol >= 0 && p->tol < .01, "point locator: invalid tolerance");
@@ -309,35 +312,42 @@ std::vector<V> PointLocator::canonical_points(PointSetView points) const {
     }
     return result;
 }
-PointLocation PointLocator::locate_canonical(const V &p) const {
-    PointLocation best;
-    if (impl_->cells.empty()) return best;
-    Kokkos::View<decltype(ArborX::intersects(ArborX::Point<3, double>{})) *, Kokkos::HostSpace> queries("point_query", 1);
-    queries(0) = ArborX::intersects(ArborX::Point<3, double>{p[0], p[1], p[2]});
-    Kokkos::View<Tree::value_type *, Kokkos::HostSpace> candidates;
-    Kokkos::View<int *, Kokkos::HostSpace> offsets;
-    impl_->tree->query(Kokkos::DefaultHostExecutionSpace{}, queries, candidates, offsets);
-    for (size_t k = 0; k < candidates.extent(0); ++k) {
-        const auto &c = impl_->cells[candidates(k).index];
-        auto status = impl_->contains(c, p);
-        if (status != PointLocationStatus::Unmapped && (best.cell_id < 0 || c.id < best.cell_id)) {
-            best.cell_id = c.id;
-            best.owner_rank = 0;
-            best.owner_local_index = c.local;
-            best.status = status;
+std::vector<PointLocation> PointLocator::locate_canonical(std::span<const V> points) const {
+    std::vector<PointLocation> results(points.size());
+    if (impl_->cells.empty() || points.empty()) return results;
+
+    using Query = decltype(ArborX::attach(ArborX::intersects(ArborX::Point<3, double>{}), std::size_t{}));
+    const auto batch = std::min(impl_->batch_size, points.size());
+    Kokkos::View<Query *, Kokkos::HostSpace> storage("point_queries", batch);
+    const auto *locator = impl_.get();
+    for (std::size_t start = 0; start < points.size(); start += batch) {
+        const auto count = std::min(batch, points.size() - start);
+        auto queries = Kokkos::subview(storage, std::make_pair(std::size_t{0}, count));
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto &p = points[start + i];
+            queries(i) = ArborX::attach(ArborX::intersects(ArborX::Point<3, double>{p[0], p[1], p[2]}), i);
         }
+        const auto *coords = points.data() + start;
+        auto *output = results.data() + start;
+        Kokkos::DefaultHostExecutionSpace exec;
+        // ArborX traverses each query on one host thread. Reduce candidates
+        // directly into its result so overlapping boxes need no candidate array.
+        locator->tree->query(exec, queries, [=](const auto &query, const auto &value) {
+            const auto row = ArborX::getData(query);
+            auto &best = output[row];
+            const auto &cell = locator->cells[value.index];
+            if (best.cell_id >= 0 && cell.id >= best.cell_id) return;
+            const auto status = locator->contains(cell, coords[row]);
+            if (status != PointLocationStatus::Unmapped) best = {-1, cell.id, 0, cell.local, status};
+        });
+        exec.fence();
     }
-    return best;
+    return results;
 }
 std::vector<PointLocation> PointLocator::locate(PointSetView points) const {
     auto coords = canonical_points(points);
-    std::vector<PointLocation> result;
-    result.reserve(coords.size());
-    for (size_t i = 0; i < coords.size(); ++i) {
-        auto r = locate_canonical(coords[i]);
-        r.point_id = points.ids[i];
-        result.push_back(r);
-    }
+    auto result = locate_canonical(coords);
+    for (std::size_t i = 0; i < result.size(); ++i) result[i].point_id = points.ids[i];
     return result;
 }
 std::array<double, 6> PointLocator::bounds() const {

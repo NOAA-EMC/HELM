@@ -52,6 +52,7 @@ from .axis_py import (
     reconstruct_gradient,
     write_gmsh,
 )
+from .point_registration import PointRegistration, index_cubed_sphere, index_latlon_grid
 from .point_locator import (
     DistributedPointLocator,
     NearestCellLocator,
@@ -80,6 +81,9 @@ __all__ = [
     "PointLocator",
     "NearestCellLocator",
     "NearestCellResult",
+    "PointRegistration",
+    "index_cubed_sphere",
+    "index_latlon_grid",
     "DistributedPointLocator",
     "PointLocationResult",
     "PointLocationStatus",

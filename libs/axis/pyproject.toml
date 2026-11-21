@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 nearest = ["scipy"]
+distributed = ["dask[distributed]"]
 netcdf = [
     "netCDF4",
 ]

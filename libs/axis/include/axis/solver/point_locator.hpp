@@ -51,6 +51,6 @@ class PointLocator {
     /// Canonical query representation: Cartesian xyz or unit-sphere xyz.
     [[nodiscard]] std::vector<std::array<double, 3>> canonical_points(PointSetView points) const;
     /// Internal routing primitive; returns the smallest containing stable ID.
-    [[nodiscard]] PointLocation locate_canonical(const std::array<double, 3> &point) const;
+    [[nodiscard]] std::vector<PointLocation> locate_canonical(std::span<const std::array<double, 3>> points) const;
 };
 }  // namespace axis::solver

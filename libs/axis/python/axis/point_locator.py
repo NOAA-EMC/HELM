@@ -253,6 +253,20 @@ def _initialize_worker_locator(
     return np.asarray(locator._native.bounds(), dtype=np.float64)
 
 
+def _initialize_storage_locator(
+    token: str, partition_id: int, spec: tuple[Any, str, str, float, int]
+) -> tuple[np.ndarray, np.ndarray]:
+    loader, coordinate_system, boundary_model, tolerance, batch_size = spec
+    shard, cell_ids = loader()
+    ids = _integer_ids(cell_ids, "cell_ids")
+    bounds = _initialize_worker_locator(token, partition_id, shard, ids, coordinate_system, boundary_model, tolerance, batch_size)
+    return bounds, ids
+
+
+def _storage_ids(result: tuple[np.ndarray, np.ndarray], buckets: int) -> tuple[np.ndarray, ...]:
+    return _split_id_buckets(result[1], buckets)
+
+
 def _release_worker_locators(token: str) -> None:
     for key in [key for key in _WORKER_LOCATORS if key[0] == token]:
         del _WORKER_LOCATORS[key]
@@ -264,9 +278,13 @@ def _worker_locate(
     point_ids: np.ndarray,
     coordinates: np.ndarray,
     coordinate_system_name: str,
+    storage: tuple[Any, str, str, float, int] | None = None,
 ) -> dict[str, np.ndarray]:
     key = (token, partition_id)
     locator = _WORKER_LOCATORS.get(key)
+    if locator is None and storage is not None:
+        _initialize_storage_locator(token, partition_id, storage)
+        locator = _WORKER_LOCATORS[key]
     if locator is None:
         raise RuntimeError(f"point locator worker cache is missing partition {partition_id}")
     coordinate_system = getattr(axis_py.CoordinateSystem, coordinate_system_name)
@@ -287,6 +305,7 @@ def _query_chunk(
     bounds_by_partition: np.ndarray,
     query_batch_size: int,
     ids_are_valid: bool,
+    storage: dict[int, tuple[Any, str, str, float, int]] | None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Route one aligned point chunk through its candidate worker locators."""
     from distributed import worker_client
@@ -323,8 +342,10 @@ def _query_chunk(
                         ids[global_rows],
                         coords[global_rows],
                         coordinate_system_name,
+                        None if storage is None else storage[partition_id],
                         workers=[worker_by_partition[partition_id]],
-                        allow_other_workers=False,
+                        allow_other_workers=storage is not None,
+                        retries=1 if storage is not None else 0,
                         pure=False,
                     ),
                 )
@@ -435,6 +456,7 @@ class DistributedPointLocator:
         self._coordinate_system_name = mesh.coordinate_system.name
         self._query_batch_size = options.query_batch_size
         self._worker_by_partition = dict(enumerate(workers))
+        self._storage: dict[int, tuple[Any, str, str, float, int]] | None = None
         self._bounds_by_partition = np.empty((len(workers), 6), dtype=np.float64)
 
         try:
@@ -468,11 +490,80 @@ class DistributedPointLocator:
             self._closed = True
             raise
 
+        self._register_lifetime()
+
+    def _register_lifetime(self) -> None:
         _live_distributed_locators.add(self)
         global _atexit_registered
         if not _atexit_registered:
             atexit.register(_close_distributed_locators)
             _atexit_registered = True
+
+    @classmethod
+    def from_shards(
+        cls,
+        loaders: Any,
+        *,
+        coordinate_system: Any,
+        boundary_model: Any,
+        client: Any = None,
+        tolerance: float = 1e-10,
+        query_batch_size: int = 128,
+    ) -> DistributedPointLocator:
+        """Build from worker-side loaders of immutable compact mesh shards.
+
+        Each loader returns a geometry dict and a stable cell ID array. The
+        dict contains node_coords, conn_offsets and conn_indices.
+        """
+        from distributed import Client, get_client
+
+        client = get_client() if client is None else client
+        if not isinstance(client, Client):
+            raise ValueError("client must be a distributed.Client")
+        if not isinstance(coordinate_system, axis_py.CoordinateSystem) or not isinstance(boundary_model, axis_py.BoundaryModel):
+            raise ValueError("a supported coordinate system and boundary model are required")
+        loaders = tuple(loaders)
+        workers = sorted(client.scheduler_info().get("workers", {}))
+        if not workers or not loaders or not all(callable(load) for load in loaders):
+            raise ValueError("at least one active worker and one callable shard loader are required")
+        options = _options(tolerance, 64, 24, query_batch_size)
+        self = cls.__new__(cls)
+        self._client, self._token, self._closed = client, uuid.uuid4().hex, False
+        self._coordinate_system = coordinate_system
+        self._coordinate_system_name = coordinate_system.name
+        self._query_batch_size = options.query_batch_size
+        self._worker_by_partition = {i: workers[i % len(workers)] for i in range(len(loaders))}
+        self._storage = {
+            i: (load, coordinate_system.name, boundary_model.name, options.tolerance, options.query_batch_size)
+            for i, load in enumerate(loaders)
+        }
+        try:
+            loaded = [
+                client.submit(
+                    _initialize_storage_locator,
+                    self._token,
+                    i,
+                    spec,
+                    workers=[self._worker_by_partition[i]],
+                    allow_other_workers=True,
+                    pure=False,
+                )
+                for i, spec in self._storage.items()
+            ]
+            bounds = [client.submit(operator.getitem, future, 0) for future in loaded]
+            n = len(workers)
+            ids = [client.submit(_storage_ids, future, n) for future in loaded]
+            checks = [
+                client.submit(_validate_id_bucket, *(client.submit(operator.getitem, future, b) for future in ids))
+                for b in range(n)
+            ]
+            client.gather(checks)
+            self._bounds_by_partition = np.asarray(client.gather(bounds))
+        except Exception:
+            self.close()
+            raise
+        self._register_lifetime()
+        return self
 
     def locate(self, point_ids: Any, coordinates: Any, *, coordinate_system: Any = None) -> PointLocationResult:
         if self._closed:
@@ -526,6 +617,7 @@ class DistributedPointLocator:
                 self._bounds_by_partition,
                 self._query_batch_size,
                 ids_are_valid,
+                self._storage,
             )
             for column_index, dtype in enumerate((np.int64, np.int64, np.int32, np.int64, np.int64)):
                 result_chunks[column_index].append(
