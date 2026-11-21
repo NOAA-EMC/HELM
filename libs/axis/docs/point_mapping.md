@@ -140,10 +140,10 @@ there is no fixed source-count limit. Allocator exhaustion is not a recoverable
 collective error guarantee.
 
 ArborX indexes local cell boxes. Planar bounds include tolerance at acute
-corners. Spherical boxes currently conservatively cover the full unit sphere,
-so spherical queries visit every nonempty rank and consider all its cells.
-This preserves curved-edge/polar correctness but limits spherical throughput;
-tighter spherical bounds are a future optimization, not a scaling claim.
+corners. Spherical bounds use conservative caps that include the accepted
+tolerance region. Small cells can be pruned individually, and the combined
+bounds let MPI and Dask skip disjoint partitions.
+
 Bounds, local trees, retained geometry, outputs and allocator overhead are
 outside the ID-directory budget; it is not a total RSS cap. ID directories
 can be imbalanced by adversarial ID distributions and fail at the configured
@@ -192,3 +192,14 @@ Property tests, Fortran, PROJ and NetCDF were disabled for this verification.
 closure and has merged into `feature/paper-source`, the base branch of PR #39.
 The point locator changes are stacked on that updated branch, so the bicubic
 fix lands first while the C++ MPI locator remains available to CECE.
+
+
+### Nearest cell centers
+
+Install `axis-regrid[nearest]` and use `axis.NearestCellLocator(mesh, cell_ids)`
+for repeated, batched nearest-center lookup on one host. Supply
+`centers=` to use authoritative centers or Voronoi generating sites in the
+mesh coordinate system. Each point keeps its input ID and receives one cell ID
+and local cell index. Equal distances resolve to the smallest cell ID.
+Nearest-center queries always map to a cell, including outside a regional
+mesh. Use containment when outside points must remain unmapped.

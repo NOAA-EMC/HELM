@@ -16,6 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+nearest = ["scipy"]
 netcdf = [
     "netCDF4",
 ]

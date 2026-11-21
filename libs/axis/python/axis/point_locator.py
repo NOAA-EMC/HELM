@@ -552,3 +552,55 @@ class DistributedPointLocator:
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
         self.close()
+
+
+@dataclass(frozen=True)
+class NearestCellResult:
+    """One nearest-center match per input point, in input order."""
+
+    point_ids: np.ndarray
+    cell_ids: np.ndarray
+    cell_indices: np.ndarray
+
+
+class NearestCellLocator:
+    """Reuse a spatial index for nearest-center queries on an arbitrary mesh.
+
+    For spherical meshes, centers and queries are indexed on the unit sphere.
+    An optional center array supplies authoritative center coordinates in the
+    mesh's coordinate system. By default, centers come from mesh vertices.
+    """
+
+    def __init__(self, mesh: axis_py.Mesh, cell_ids: Any, *, centers: Any = None) -> None:
+        try:
+            from scipy.spatial import cKDTree
+        except ImportError as exc:
+            raise RuntimeError("NearestCellLocator requires scipy") from exc
+
+        ids = _integer_ids(cell_ids, "cell_ids")
+        if ids.size != mesh.n_cells or not ids.size or np.any(ids < 0) or np.unique(ids).size != ids.size:
+            raise ValueError("cell_ids must match a nonempty mesh and be unique and nonnegative")
+        self._ids = ids.copy()
+        self._system = mesh.coordinate_system
+        if centers is None:
+            xyz = axis_py._mesh_cell_centroids(mesh)  # type: ignore[attr-defined]
+        else:
+            xyz = _canonical_points(_coordinates(ids, centers), self._system)
+        self._tree = cKDTree(xyz, copy_data=True)
+
+    def locate(self, point_ids: Any, coordinates: Any, *, coordinate_system: Any = None) -> NearestCellResult:
+        ids = _integer_ids(point_ids, "point_ids")
+        if np.any(ids < 0) or np.unique(ids).size != ids.size:
+            raise ValueError("point_ids must be nonnegative and globally unique")
+        system = self._system if coordinate_system is None else coordinate_system
+        if (system == axis_py.CoordinateSystem.Cartesian3D) != (self._system == axis_py.CoordinateSystem.Cartesian3D):
+            raise ValueError("coordinate_system must use the same coordinate family as the mesh")
+        xyz = _canonical_points(_coordinates(ids, coordinates), system)
+        distances, indices = self._tree.query(xyz, k=[1, 2])
+        rows = indices[:, 0].copy()
+        # Query all tied centers only when the second neighbor ties the first.
+        radius = np.nextafter(distances[:, 0], np.inf)
+        for i in np.flatnonzero(distances[:, 1] <= radius):
+            candidates = self._tree.query_ball_point(xyz[i], radius[i])
+            rows[i] = min(candidates, key=self._ids.__getitem__)
+        return NearestCellResult(ids.copy(), self._ids[rows], rows)

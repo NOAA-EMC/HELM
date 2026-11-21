@@ -52,7 +52,14 @@ from .axis_py import (
     reconstruct_gradient,
     write_gmsh,
 )
-from .point_locator import DistributedPointLocator, PointLocationResult, PointLocationStatus, PointLocator
+from .point_locator import (
+    DistributedPointLocator,
+    NearestCellLocator,
+    NearestCellResult,
+    PointLocationResult,
+    PointLocationStatus,
+    PointLocator,
+)
 
 __all__ = [
     "Regridder",
@@ -71,6 +78,8 @@ __all__ = [
     "Mesh",
     "Matrix",
     "PointLocator",
+    "NearestCellLocator",
+    "NearestCellResult",
     "DistributedPointLocator",
     "PointLocationResult",
     "PointLocationStatus",
