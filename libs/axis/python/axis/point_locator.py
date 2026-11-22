@@ -267,6 +267,18 @@ def _storage_ids(result: tuple[np.ndarray, np.ndarray], buckets: int) -> tuple[n
     return _split_id_buckets(result[1], buckets)
 
 
+def _storage_lifetime(token: str, active: bool | None = None, *, dask_scheduler: Any) -> bool:
+    # Scheduler state survives worker restarts without keeping closed tokens.
+    tokens = getattr(dask_scheduler, "_axis_storage_locators", None)
+    if tokens is None:
+        tokens = dask_scheduler._axis_storage_locators = set()
+    if active is True:
+        tokens.add(token)
+    elif active is False:
+        tokens.discard(token)
+    return bool(token in tokens)
+
+
 def _release_worker_locators(token: str) -> None:
     for key in [key for key in _WORKER_LOCATORS if key[0] == token]:
         del _WORKER_LOCATORS[key]
@@ -283,7 +295,15 @@ def _worker_locate(
     key = (token, partition_id)
     locator = _WORKER_LOCATORS.get(key)
     if locator is None and storage is not None:
+        from distributed import get_client
+
+        client = get_client()
+        if not client.run_on_scheduler(_storage_lifetime, token):
+            raise RuntimeError("DistributedPointLocator is closed")
         _initialize_storage_locator(token, partition_id, storage)
+        if not client.run_on_scheduler(_storage_lifetime, token):
+            _WORKER_LOCATORS.pop(key, None)
+            raise RuntimeError("DistributedPointLocator is closed")
         locator = _WORKER_LOCATORS[key]
     if locator is None:
         raise RuntimeError(f"point locator worker cache is missing partition {partition_id}")
@@ -327,6 +347,8 @@ def _query_chunk(
         return ids, cell_ids, statuses, owner_partitions, owner_local_indices
 
     with worker_client() as client:
+        if storage is not None and not client.run_on_scheduler(_storage_lifetime, token):
+            raise RuntimeError("DistributedPointLocator is closed")
         for batch_start in range(0, ids.size, query_batch_size):
             batch_end = min(batch_start + query_batch_size, ids.size)
             batch_candidates = _candidate_partitions(canonical[batch_start:batch_end], bounds_by_partition)
@@ -559,6 +581,7 @@ class DistributedPointLocator:
             ]
             client.gather(checks)
             self._bounds_by_partition = np.asarray(client.gather(bounds))
+            client.run_on_scheduler(_storage_lifetime, self._token, True)
         except Exception:
             self.close()
             raise
@@ -629,13 +652,25 @@ class DistributedPointLocator:
 
     def close(self) -> None:
         if not self._closed:
-            try:
-                self._client.run(_release_worker_locators, self._token)
-            except Exception:
-                # A closed client has already lost access to its worker cache.
-                pass
-            self._closed = True
-            _live_distributed_locators.discard(self)
+            if self._storage is not None:
+                try:
+                    self._client.run_on_scheduler(_storage_lifetime, self._token, False)
+                except Exception:
+                    if self._client.status != "closed":
+                        raise
+                finally:
+                    self._close_worker_caches()
+            else:
+                self._close_worker_caches()
+
+    def _close_worker_caches(self) -> None:
+        try:
+            self._client.run(_release_worker_locators, self._token)
+        except Exception:
+            # A closed client has already lost access to its worker cache.
+            pass
+        self._closed = True
+        _live_distributed_locators.discard(self)
 
     def __enter__(self) -> DistributedPointLocator:
         if self._closed:

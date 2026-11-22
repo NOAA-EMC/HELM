@@ -61,6 +61,9 @@ def test_worker_shards_recover_after_cache_loss(tmp_path):
             client.run(_release_worker_locators, locator._token)
             result = locator.locate(da.from_array([2], chunks=1), da.from_array([[0.5, 0.5]], chunks=(1, 2)))
             np.testing.assert_array_equal(result.cell_ids.compute(), [10])
+            pending = locator.locate(da.from_array([3], chunks=1), da.from_array([[0.5, 0.5]], chunks=(1, 2)))
+        with pytest.raises(RuntimeError, match="closed"):
+            pending.cell_ids.compute()
         with pytest.raises(ValueError, match="globally unique"):
             axis.DistributedPointLocator.from_shards(
                 [load, load],
