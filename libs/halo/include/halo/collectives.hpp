@@ -232,6 +232,11 @@ template <typename T>
     return output;
 }
 
+/// Collective precondition: all ranks throw together, before the next exchange.
+inline void collective_require(const Communicator &comm, bool valid, const char *message) {
+    if (allreduce<int>(comm, {valid ? 1 : 0}, MPI_MIN)[0] == 0) throw std::invalid_argument(message);
+}
+
 }  // namespace halo
 
 #endif  // HALO_COLLECTIVES_HPP

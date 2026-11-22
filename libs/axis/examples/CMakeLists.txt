@@ -46,3 +46,9 @@ set_tests_properties(
         LABELS "examples;documentation"
         TIMEOUT 30
 )
+
+add_executable(example_cece_point_mapping example_cece_point_mapping.cpp)
+target_link_libraries(example_cece_point_mapping PRIVATE axis)
+add_test(NAME ExampleCecePointMapping COMMAND example_cece_point_mapping)
+set_tests_properties(ExampleCecePointMapping PROPERTIES LABELS "examples;documentation"
+    ENVIRONMENT "OMP_NUM_THREADS=1;OMP_PROC_BIND=false" TIMEOUT 30)

@@ -14,6 +14,11 @@
 
 namespace halo::detail {
 
+template <typename T>
+inline constexpr bool has_native_mpi_type_v =
+    std::is_same_v<T, double> || std::is_same_v<T, float> || std::is_same_v<T, int> || std::is_same_v<T, long> || std::is_same_v<T, long long> ||
+    std::is_same_v<T, unsigned int> || std::is_same_v<T, unsigned long> || std::is_same_v<T, unsigned long long> || std::is_same_v<T, char>;
+
 /// @brief Resolve the MPI_Datatype for a given C++ value type.
 ///
 /// Maps common arithmetic types to their MPI equivalents. Falls back to
@@ -36,6 +41,10 @@ inline MPI_Datatype mpi_datatype_for() noexcept {
         return MPI_LONG_LONG;
     } else if constexpr (std::is_same_v<T, unsigned int>) {
         return MPI_UNSIGNED;
+    } else if constexpr (std::is_same_v<T, unsigned long>) {
+        return MPI_UNSIGNED_LONG;
+    } else if constexpr (std::is_same_v<T, unsigned long long>) {
+        return MPI_UNSIGNED_LONG_LONG;
     } else if constexpr (std::is_same_v<T, char>) {
         return MPI_CHAR;
     } else {

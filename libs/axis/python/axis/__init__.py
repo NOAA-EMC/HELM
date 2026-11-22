@@ -27,6 +27,7 @@ from .vertical import VerticalRegridder, regrid_3d
 # Expose C++ Mesh construction and Matrix serialization APIs directly on the axis package
 from .axis_py import (
     LineType,
+    BoundaryModel,
     CoordinateSystem,
     CornerPolicy,
     LongitudePeriodicity,
@@ -51,6 +52,15 @@ from .axis_py import (
     reconstruct_gradient,
     write_gmsh,
 )
+from .point_registration import PointRegistration, index_cubed_sphere, index_latlon_grid
+from .point_locator import (
+    DistributedPointLocator,
+    NearestCellLocator,
+    NearestCellResult,
+    PointLocationResult,
+    PointLocationStatus,
+    PointLocator,
+)
 
 __all__ = [
     "Regridder",
@@ -68,6 +78,15 @@ __all__ = [
     "regrid_3d",
     "Mesh",
     "Matrix",
+    "PointLocator",
+    "NearestCellLocator",
+    "NearestCellResult",
+    "PointRegistration",
+    "index_cubed_sphere",
+    "index_latlon_grid",
+    "DistributedPointLocator",
+    "PointLocationResult",
+    "PointLocationStatus",
     "make_regular_mesh",
     "make_projected_mesh",
     "make_ugrid_mesh",
@@ -88,6 +107,7 @@ __all__ = [
     "UnmappedAction",
     "LineType",
     "CoordinateSystem",
+    "BoundaryModel",
     "CornerPolicy",
     "LongitudePeriodicity",
 ]

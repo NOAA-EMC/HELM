@@ -214,6 +214,8 @@ set(AXIS_SOURCES
     src/topology/rule_generator.cpp
     src/topology/projection_builder.cpp
     src/topology/gmsh_writer.cpp
+    src/solver/point_locator.cpp
+    src/distributed/point_locator.cpp
     src/solver/weight_generator.cpp
     src/solver/weight_generator_conservative_rect.cpp
     src/solver/weight_generator_conservative_rect_nonuniform.cpp

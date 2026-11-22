@@ -41,6 +41,7 @@
 #include <axis/solver/conservation.hpp>
 #include <axis/solver/halo_pattern.hpp>
 #include <axis/solver/interpolation_matrix.hpp>
+#include <axis/solver/point_locator.hpp>
 #include <axis/solver/regrid_config.hpp>
 #include <axis/solver/weight_generator.hpp>
 
