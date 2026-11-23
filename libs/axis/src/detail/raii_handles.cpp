@@ -7,6 +7,10 @@
 
 #include "axis/detail/raii_handles.hpp"
 
+#ifdef AXIS_ENABLE_PROJ
+#include <proj.h>
+#endif
+
 #include <string>
 #include <utility>  // std::exchange
 

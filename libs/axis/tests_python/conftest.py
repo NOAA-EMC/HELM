@@ -41,3 +41,29 @@ def bilinear_matrix(small_src_mesh, small_dst_mesh):
     from axis import axis_py
 
     return axis_py.generate_weights(small_src_mesh, small_dst_mesh, axis_py.Method.Bilinear)
+
+
+@pytest.fixture
+def dask_regrid_case():
+    """Return a small source/target grid and a lazy field for optional Dask tests."""
+    import numpy as np
+    import xarray as xr
+
+    da = pytest.importorskip("dask.array")
+
+    src_lons = np.linspace(0.0, 360.0, 8, endpoint=False)
+    src_lats = np.linspace(-60.0, 60.0, 5)
+    dst_lons = np.linspace(0.0, 360.0, 12, endpoint=False)
+    dst_lats = np.linspace(-60.0, 60.0, 7)
+
+    source_grid = xr.Dataset({"lon": ("lon", src_lons), "lat": ("lat", src_lats)})
+    target_grid = xr.Dataset({"lon": ("lon", dst_lons), "lat": ("lat", dst_lats)})
+    values = da.ones((2, src_lats.size, src_lons.size), chunks=(1, src_lats.size, src_lons.size))
+    field = xr.DataArray(
+        values,
+        dims=("time", "lat", "lon"),
+        coords={"time": [0, 1], "lat": src_lats, "lon": src_lons},
+        name="temperature",
+        attrs={"units": "K", "long_name": "test temperature"},
+    )
+    return source_grid, target_grid, field

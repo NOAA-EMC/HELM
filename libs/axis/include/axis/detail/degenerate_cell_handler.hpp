@@ -102,11 +102,14 @@ struct DegenerateCellHandler {
 
         double nx = 0.0, ny = 0.0, nz = 0.0;
         int unique_vertices = 0;
+        // Compact two-column Cartesian3D meshes carry an implied z == 0; only
+        // read column 2 when the coordinate table actually stores it.
+        const bool coords_have_z = coords.extent(1) > 2;
         for (int vi = 0; vi < n_verts; ++vi) {
             const std::size_t node = static_cast<std::size_t>(indices[start + vi]);
             const std::size_t next_node = static_cast<std::size_t>(indices[start + (vi + 1) % n_verts]);
-            const double x = coords(node, 0), y = coords(node, 1), z = coords(node, 2);
-            const double xn = coords(next_node, 0), yn = coords(next_node, 1), zn = coords(next_node, 2);
+            const double x = coords(node, 0), y = coords(node, 1), z = coords_have_z ? coords(node, 2) : 0.0;
+            const double xn = coords(next_node, 0), yn = coords(next_node, 1), zn = coords_have_z ? coords(next_node, 2) : 0.0;
             nx += y * zn - z * yn;
             ny += z * xn - x * zn;
             nz += x * yn - y * xn;
@@ -116,7 +119,7 @@ struct DegenerateCellHandler {
                 const std::size_t prior_node = static_cast<std::size_t>(indices[start + previous]);
                 const double dx = x - coords(prior_node, 0);
                 const double dy = y - coords(prior_node, 1);
-                const double dz = z - coords(prior_node, 2);
+                const double dz = z - (coords_have_z ? coords(prior_node, 2) : 0.0);
                 if (dx * dx + dy * dy + dz * dz < edge_threshold * edge_threshold) {
                     duplicate = true;
                     break;
