@@ -681,8 +681,9 @@ set_tests_properties(pbt.p23_driver_failure_recorded PROPERTIES LABELS "pbt;p23;
 #
 # Validates: R9.4, R9.5
 # ####################################################################################################################################################
-add_executable(pbt_p24_grib2_contiguity_gating test_p24_grib2_contiguity_gating.cpp ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
-                                               ${AMIO_SOURCE_DIR}/src/factory/backend_factory.cpp)
+add_executable(
+    pbt_p24_grib2_contiguity_gating test_p24_grib2_contiguity_gating.cpp ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
+                                    ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp ${AMIO_SOURCE_DIR}/src/factory/backend_factory.cpp)
 
 target_link_libraries(pbt_p24_grib2_contiguity_gating PRIVATE AMIO::pbt_common)
 
@@ -697,8 +698,9 @@ set_tests_properties(pbt.p24_grib2_contiguity_gating PROPERTIES LABELS "pbt;p24;
 #
 # Validates: R9.3, R9.6, R9.7, R9.8
 # ####################################################################################################################################################
-add_executable(pbt_p25_grib2_metadata_invariant test_p25_grib2_metadata_invariant.cpp ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
-                                                ${AMIO_SOURCE_DIR}/src/factory/backend_factory.cpp)
+add_executable(
+    pbt_p25_grib2_metadata_invariant test_p25_grib2_metadata_invariant.cpp ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
+                                     ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp ${AMIO_SOURCE_DIR}/src/factory/backend_factory.cpp)
 
 target_link_libraries(pbt_p25_grib2_metadata_invariant PRIVATE AMIO::pbt_common)
 
@@ -713,8 +715,9 @@ set_tests_properties(pbt.p25_grib2_metadata_invariant PROPERTIES LABELS "pbt;p25
 #
 # Validates: R9.1, R9.2, R9.3
 # ####################################################################################################################################################
-add_executable(pbt_p30_gdt_builder_correctness test_p30_gdt_builder_correctness.cpp ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
-                                               ${AMIO_SOURCE_DIR}/src/factory/backend_factory.cpp)
+add_executable(
+    pbt_p30_gdt_builder_correctness test_p30_gdt_builder_correctness.cpp ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
+                                    ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp ${AMIO_SOURCE_DIR}/src/factory/backend_factory.cpp)
 
 target_link_libraries(pbt_p30_gdt_builder_correctness PRIVATE AMIO::pbt_common)
 
@@ -893,8 +896,9 @@ set_tests_properties(pbt.rp8_no_write_past_capacity PROPERTIES LABELS "pbt;rp8;c
 #
 # Validates: Requirements 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4, 4.1, 4.2, 4.3, 5.1, 5.2, 5.3, 6.1, 6.2, 6.3, 7.1, 7.2, 8.1, 8.2, 8.3
 # ####################################################################################################################################################
-add_executable(pbt_p29_pdt_builder_correctness test_p29_pdt_builder_correctness.cpp ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
-                                               ${AMIO_SOURCE_DIR}/src/factory/backend_factory.cpp)
+add_executable(
+    pbt_p29_pdt_builder_correctness test_p29_pdt_builder_correctness.cpp ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
+                                    ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp ${AMIO_SOURCE_DIR}/src/factory/backend_factory.cpp)
 
 target_link_libraries(pbt_p29_pdt_builder_correctness PRIVATE AMIO::pbt_common)
 
@@ -911,7 +915,7 @@ set_tests_properties(pbt.p29_pdt_builder_correctness PROPERTIES LABELS "pbt;p29;
 # Validates: Requirements 2.5, 3.5, 4.4, 5.4, 6.4, 7.3, 8.4, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.8, 13.1, 13.2, 13.3, 13.4, 13.5, 14.3
 # ####################################################################################################################################################
 add_executable(test_p31_identity_roundtrip test_p31_identity_roundtrip.cpp ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
-                                           ${AMIO_SOURCE_DIR}/src/factory/backend_factory.cpp)
+                                           ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp ${AMIO_SOURCE_DIR}/src/factory/backend_factory.cpp)
 
 target_link_libraries(test_p31_identity_roundtrip PRIVATE AMIO::pbt_common)
 
@@ -959,6 +963,7 @@ add_executable(
     ${AMIO_SOURCE_DIR}/src/drivers/zarr/zarr_driver.cpp
     ${AMIO_SOURCE_DIR}/src/drivers/zarr/zarr_nczarr_fallback.cpp
     ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_driver.cpp
+    ${AMIO_SOURCE_DIR}/src/drivers/grib2/grib2_steps.cpp
     ${AMIO_SOURCE_DIR}/src/drivers/common/var_attributes.cpp)
 
 target_link_libraries(pbt_dp2_inmem_open_equals_file PRIVATE AMIO::pbt_common)

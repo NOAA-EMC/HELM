@@ -3,6 +3,13 @@
 AMIO is configured through YAML manifest files that specify the backend driver,
 staging pool parameters, worker pool settings, and output paths.
 
+The legacy `amio_init` and `amio_init_from_string` entry points reject
+`persistent_aggregated` evolution manifests with `AMIO_ERR_UNSUPPORTED`.
+They do not provide the collective initialization contract needed to agree
+on producer and writer roles after a rank-local parse failure. The collective
+`amio_init_ex` interface can create a role context; aggregated dataset and
+service execution remain subject to their separate capability support.
+
 ## Manifest Structure
 
 ```yaml
@@ -14,7 +21,7 @@ amio:
     buffer_size_bytes: 52428800  # Per-buffer capacity in bytes [1, 1 GiB]
 
   workers:
-    thread_count: 2              # Worker threads [1, 256]
+    thread_count: 2              # Worker threads [0, 256]; 0 runs writes synchronously
     pin_threads: false           # CPU/NUMA pinning
 
   backend:
@@ -48,6 +55,57 @@ synchronous data snapshots during writes.
 |-------|------|-------|---------|-------------|
 | `thread_count` | integer | [1, 256] | 1 | Number of background I/O threads |
 | `pin_threads` | boolean | — | false | Pin threads to CPU cores |
+
+## Queue Admission
+
+The current manifest parser accepts a top-level `backpressure` mapping. Write
+submissions can wait for a bounded interval before returning
+`AMIO_ERR_QUEUE_FULL`; background read-ahead uses immediate bounded admission
+and reports saturation to the read request.
+
+```yaml
+backpressure:
+  low_watermark: 32
+  high_watermark: 64
+  queue_capacity: 128
+  prefetch_capacity: 32
+  timeout_ms: 5000
+```
+
+`low_watermark` must be less than `high_watermark`, and the high watermark
+cannot exceed `queue_capacity`. `prefetch_capacity` is independently limited
+to 1–1,000,000 queued read-ahead operations. The finite prefetch setting bounds
+queued descriptors; staging payload capacity is governed separately by the
+staging pool budget.
+
+## Evolution Diagnostics
+
+`amio_init_ex` enables bounded standard diagnostics by default. Qualification
+and carefully controlled deployments can disable instrumentation with
+`diagnostics.enabled: false` in the canonical configuration. When disabled,
+local and collective diagnostic queries return `AMIO_ERR_UNSUPPORTED` and the
+runtime skips diagnostic counters and histograms. Keep diagnostics enabled for
+normal operation when failure attribution and resource high-water reporting
+are needed.
+
+```yaml
+diagnostics:
+  enabled: true
+```
+
+## Evolution API qualification limits
+
+The evolution entry points are additive and do not change the legacy
+`amio_init` behavior. Use the capability query before selecting an evolution
+mode. In the NCZarr fallback build, collection output is unsupported; public
+GRIB2 collection publication is not connected; and MPI aggregation fixtures
+qualify bounded transport, not persistent aggregated output. Device snapshot
+execution requires a Kokkos device backend and an actual supported device.
+Catalog durability and object enumeration are destination-specific; an
+`UNSUPPORTED` result does not establish shared-object-store durability or a
+complete orphan scan. See the
+[release qualification guide](../development/qualification.md)
+for current qualification results and remaining platform gates.
 
 ## Backend: NetCDF-4
 

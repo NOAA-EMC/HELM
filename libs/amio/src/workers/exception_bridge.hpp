@@ -132,6 +132,10 @@ std::string emit_parallel_stacktrace(const IOCommunicator &io_comm, amio_err_t e
 // released on finalization.
 class OutcomeRegistry {
    public:
+    static constexpr std::size_t kMaxOutcomesPerHandle = 32;
+    static constexpr std::size_t kMaxTrackedHandles = 4096;
+    static constexpr std::size_t kMaxMessageBytes = 4096;
+    static constexpr std::size_t kMaxStackTraceBytes = 16384;
     // Record a task outcome against a handle identifier.
     //
     // If the handle already has a recorded failure, the new outcome
@@ -158,9 +162,13 @@ class OutcomeRegistry {
     // Count of handles with at least one recorded failure.
     std::size_t failure_count() const;
 
+    /** Return the cumulative number of failure samples omitted by per-handle caps. */
+    std::uint64_t dropped_outcome_count() const noexcept;
+
    private:
     mutable std::mutex mu_;
     std::unordered_map<std::uint64_t, std::vector<TaskOutcome>> outcomes_;
+    std::uint64_t dropped_outcomes_ = 0;
 };
 
 // execute_with_exception_cordon -- wraps a task callback in the

@@ -5,7 +5,7 @@
 # a small, self-contained CMake `-P` script so that the tests are portable across CI agents and produce actionable error messages without an external
 # test runner.
 #
-# 1. amio_header_c99_isolation     - R10.1, R10.2, R13.6
+# 1. amio_header_c99_isolation     - R10.1, R10.2, R13.6 (legacy and evolution headers via amio.h)
 # 2. amio_header_cxx_inclusion     - R10.3
 # 3. amio_symbol_mangling          - R10.5, R10.8
 # 4. amio_spack_no_rust_cargo_go   - R13.2
@@ -30,7 +30,7 @@ add_test(
     NAME amio_header_c99_isolation
     COMMAND ${CMAKE_COMMAND} -DAMIO_C_COMPILER=${CMAKE_C_COMPILER} -DAMIO_PUBLIC_HEADER=${_amio_public_header}
             -DAMIO_INCLUDE_DIR=${CMAKE_SOURCE_DIR}/include -DAMIO_WORK_DIR=${_amio_test_workdir}/c99 -P ${_amio_scripts}/check_c99_isolation.cmake)
-set_tests_properties(amio_header_c99_isolation PROPERTIES LABELS "header_isolation;c99" TIMEOUT 60)
+set_tests_properties(amio_header_c99_isolation PROPERTIES LABELS "header_isolation;c99;amio_compatibility" TIMEOUT 60)
 
 # ####################################################################################################################################################
 # 1. C++ inclusion compile (R10.3)
@@ -42,7 +42,7 @@ add_test(
     NAME amio_header_cxx_inclusion
     COMMAND ${CMAKE_COMMAND} -DAMIO_CXX_COMPILER=${CMAKE_CXX_COMPILER} -DAMIO_PUBLIC_HEADER=${_amio_public_header}
             -DAMIO_INCLUDE_DIR=${CMAKE_SOURCE_DIR}/include -DAMIO_WORK_DIR=${_amio_test_workdir}/cxx -P ${_amio_scripts}/check_cxx_inclusion.cmake)
-set_tests_properties(amio_header_cxx_inclusion PROPERTIES LABELS "header_isolation;cxx" TIMEOUT 60)
+set_tests_properties(amio_header_cxx_inclusion PROPERTIES LABELS "header_isolation;cxx;amio_compatibility" TIMEOUT 60)
 
 # ####################################################################################################################################################
 # 1. Symbol mangling check (R10.5, R10.8)
@@ -59,7 +59,13 @@ endif()
 
 add_test(NAME amio_symbol_mangling COMMAND ${CMAKE_COMMAND} -DAMIO_NM_EXECUTABLE=${AMIO_NM_EXECUTABLE} -DAMIO_LIBRARY_FILE=$<TARGET_FILE:amio_core>
                                            -P ${_amio_scripts}/check_symbol_mangling.cmake)
-set_tests_properties(amio_symbol_mangling PROPERTIES LABELS "header_isolation;symbols" TIMEOUT 60 SKIP_REGULAR_EXPRESSION "SKIPPED:")
+set_tests_properties(amio_symbol_mangling PROPERTIES LABELS "header_isolation;symbols;amio_compatibility" TIMEOUT 60 SKIP_REGULAR_EXPRESSION
+                                                     "SKIPPED:")
+
+add_test(NAME amio_legacy_abi_symbols
+         COMMAND ${CMAKE_COMMAND} -DAMIO_NM_EXECUTABLE=${AMIO_NM_EXECUTABLE} -DAMIO_LIBRARY_FILE=$<TARGET_FILE:amio_core>
+                 -DAMIO_ABI_FIXTURE=${CMAKE_SOURCE_DIR}/tests/fixtures/legacy_abi.json -P ${_amio_scripts}/check_legacy_abi_symbols.cmake)
+set_tests_properties(amio_legacy_abi_symbols PROPERTIES LABELS "header_isolation;amio_compatibility" TIMEOUT 60 SKIP_REGULAR_EXPRESSION "SKIPPED:")
 
 # ####################################################################################################################################################
 # 1. No-Rust / Cargo / Go dependency closure check (R13.2)

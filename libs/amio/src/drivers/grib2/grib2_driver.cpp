@@ -36,6 +36,12 @@
 
 #include <algorithm>
 #include <cstring>
+#include <exception>
+#include <limits>
+#include <mutex>
+#ifdef AMIO_HAS_MPI
+#include <halo/collectives.hpp>
+#endif
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -62,6 +68,54 @@ extern "C" {
 #include <conf/error.hpp>
 
 namespace amio::detail {
+namespace {
+/** @brief Guard process-local codec state; never held across MPI collectives. */
+std::mutex g2c_mutex;
+}  // namespace
+
+#ifdef AMIO_HAS_MPI
+void GRIB2_Driver::set_communicator(MPI_Comm comm) {
+    int initialized = 0;
+    MPI_Initialized(&initialized);
+    if (!initialized || comm == MPI_COMM_NULL) return;
+    halo::Environment::initialize();
+    MPI_Comm duplicate = MPI_COMM_NULL;
+    if (MPI_Comm_dup(comm, &duplicate) != MPI_SUCCESS) throw std::runtime_error("GRIB2_Driver: cannot duplicate I/O communicator");
+    io_comm_.emplace(duplicate);
+    parallel_mode_ = io_comm_->size() > 1;
+}
+
+void GRIB2_Driver::check_collective_failure(bool failed, const char *operation) {
+    if (halo::allreduce(*io_comm_, std::vector<int>{failed ? 1 : 0}, MPI_MAX).front()) {
+        parallel_failed_ = true;
+        throw std::runtime_error(std::string("GRIB2_Driver: collective failure during ") + operation);
+    }
+}
+
+void GRIB2_Driver::write_parallel_message(const std::vector<unsigned char> &message) {
+    check_collective_failure(message.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()), "message size validation");
+    // HALO maps signed long long to MPI_LONG_LONG; unsigned 64-bit types are
+    // not universally mapped by its datatype adapter.
+    const long long local_size = static_cast<long long>(message.size());
+    const auto lengths = halo::allgather(*io_comm_, &local_size, 1);
+    const int local_rank = io_comm_->rank();
+    MPI_Offset end = next_message_offset_, offset = end;
+    for (int rank = 0; rank < io_comm_->size(); ++rank) {
+        if (lengths[rank] < 0 || lengths[rank] > std::numeric_limits<MPI_Offset>::max() - end) {
+            parallel_failed_ = true;
+            throw std::runtime_error("GRIB2_Driver: shared file offset overflow");
+        }
+        if (rank == local_rank) offset = end;
+        end += static_cast<MPI_Offset>(lengths[rank]);
+    }
+    MPI_Status status{};
+    const int rc = MPI_File_write_at_all(message_file_, offset, message.data(), static_cast<int>(message.size()), MPI_BYTE, &status);
+    int written = -1;
+    if (rc == MPI_SUCCESS) MPI_Get_count(&status, MPI_BYTE, &written);
+    check_collective_failure(rc != MPI_SUCCESS || written != static_cast<int>(message.size()), "message commit");
+    next_message_offset_ = end;
+}
+#endif
 
 // ---------------------------------------------------------------
 // Static factory registration
@@ -194,8 +248,59 @@ Grib2Settings GRIB2_Driver::read_settings(const conf::Config &config) {
 // ---------------------------------------------------------------
 
 void GRIB2_Driver::open_write(const conf::Config &config) {
+#ifdef AMIO_HAS_MPI
+    if (parallel_mode_) {
+        bool opened_collectively = false;
+        try {
+            std::exception_ptr configuration_error;
+            try {
+                active_drt_ = validate_drt(config);
+                initialize(config);  // Parses settings but does not open a stdio file.
+            } catch (...) {
+                configuration_error = std::current_exception();
+            }
+            try {
+                check_collective_failure(configuration_error != nullptr, "output configuration");
+            } catch (...) {
+                if (configuration_error) std::rethrow_exception(configuration_error);
+                throw;
+            }
+            const long long length = static_cast<long long>(output_path_.size());
+            const auto lengths = halo::allgather(*io_comm_, &length, 1);
+            bool mismatch = length <= 0 || length > std::numeric_limits<int>::max();
+            for (auto value : lengths) mismatch = mismatch || value != length;
+            check_collective_failure(mismatch, "shared output path length validation");
+            const auto paths = halo::allgather(*io_comm_, output_path_.data(), static_cast<int>(length));
+            for (int rank = 0; rank < io_comm_->size(); ++rank)
+                mismatch = mismatch || !std::equal(output_path_.begin(), output_path_.end(), paths.begin() + rank * length);
+            check_collective_failure(mismatch, "shared output path agreement");
+            const int rc = MPI_File_open(io_comm_->handle(), output_path_.c_str(), MPI_MODE_WRONLY | MPI_MODE_CREATE, MPI_INFO_NULL, &message_file_);
+            check_collective_failure(rc != MPI_SUCCESS, "shared file open");
+            opened_collectively = true;
+            check_collective_failure(MPI_File_set_errhandler(message_file_, MPI_ERRORS_RETURN) != MPI_SUCCESS, "file error handler setup");
+            check_collective_failure(MPI_File_set_size(message_file_, 0) != MPI_SUCCESS, "shared file truncation");
+            next_message_offset_ = 0;
+            parallel_failed_ = false;
+            return;
+        } catch (...) {
+            // Only a collectively successful open permits a collective close.
+            // After setup/truncation errors, all ranks release the same file.
+            if (opened_collectively) MPI_File_close(&message_file_);
+            initialized_ = false;
+            throw;
+        }
+    }
+#endif
     active_drt_ = validate_drt(config);
     initialize(config);
+}
+
+void GRIB2_Driver::open_step_encoder(const conf::Config &config) {
+    if (initialized_) throw std::runtime_error("GRIB2_Driver: step encoder is already initialized");
+    active_drt_ = validate_drt(config);
+    settings_ = read_settings(config);
+    read_mode_ = false;
+    initialized_ = true;
 }
 
 void GRIB2_Driver::open_read(const conf::Config &config) {
@@ -462,6 +567,7 @@ int pdt_surface_value_index(std::int64_t pdt_number) {
 #endif  // AMIO_HAS_G2C
 
 void GRIB2_Driver::build_record_index(const conf::Config &config) {
+    std::lock_guard<std::mutex> codec_lock(g2c_mutex);
 #ifndef AMIO_HAS_G2C
     (void)config;
     throw std::runtime_error("GRIB2_Driver::build_record_index: nceplibs-g2c not available");
@@ -659,6 +765,12 @@ void GRIB2_Driver::initialize(const conf::Config &config) {
         output_path_ = config.get_string("output_path");
     }
 
+#ifdef AMIO_HAS_MPI
+    if (parallel_mode_) {
+        initialized_ = true;
+        return;
+    }
+#endif
     if (!output_path_.empty()) {
         out_file_ = std::fopen(output_path_.c_str(), "wb");
         if (out_file_ == nullptr) {
@@ -1076,8 +1188,82 @@ std::vector<std::int64_t> GRIB2_Driver::build_drs_template(GRIB2_DRT drt, const 
 // write -- encode a GRIB2 record (R9.3, R9.4, R9.5, R9.6, R9.7, R9.8)
 // ---------------------------------------------------------------
 
+std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta, std::size_t encoded_buffer_budget,
+                                                             std::size_t codec_scratch_budget) {
+    require_complete_grib2_message(meta.write_region.rank == 0);
+    if (meta.dtype != AMIO_DTYPE_F32) throw std::runtime_error("GRIB2 step messages require F32 fields");
+    const auto elements = total_elements(meta.shape);
+    if (elements == 0 || elements > std::numeric_limits<std::size_t>::max() / sizeof(float))
+        throw std::overflow_error("GRIB2 step field byte size cannot be represented");
+    const auto bytes = elements * sizeof(float);
+    preflight_grib2_message(bytes, !is_contiguous_row_major(meta.shape), encoded_buffer_budget, codec_scratch_budget);
+    auto message = encode_message(src, meta);
+    validate_complete_grib2_message(message);
+    return message;
+}
+
+std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta, std::size_t encoded_buffer_budget,
+                                                             std::size_t codec_scratch_budget, const Grib2Settings &settings) {
+    return encode_step_message(src, meta, encoded_buffer_budget, codec_scratch_budget, settings, active_drt_);
+}
+
+std::vector<unsigned char> GRIB2_Driver::encode_step_message(const StagingBuffer &src, const VarMeta &meta, std::size_t encoded_buffer_budget,
+                                                             std::size_t codec_scratch_budget, const Grib2Settings &settings, GRIB2_DRT drt) {
+    const auto saved = settings_;
+    settings_ = settings;
+    try {
+        require_complete_grib2_message(meta.write_region.rank == 0);
+        if (meta.dtype != AMIO_DTYPE_F32) throw std::runtime_error("GRIB2 step messages require F32 fields");
+        const auto elements = total_elements(meta.shape);
+        if (elements == 0 || elements > std::numeric_limits<std::size_t>::max() / sizeof(float))
+            throw std::overflow_error("GRIB2 step field byte size cannot be represented");
+        const auto bytes = elements * sizeof(float);
+        preflight_grib2_message(bytes, !is_contiguous_row_major(meta.shape), encoded_buffer_budget, codec_scratch_budget);
+        auto message = encode_message_with_drt(src, meta, drt);
+        validate_complete_grib2_message(message);
+        settings_ = saved;
+        return message;
+    } catch (...) {
+        settings_ = saved;
+        throw;
+    }
+}
+
 void GRIB2_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
-    if (!initialized_) {
+#ifdef AMIO_HAS_MPI
+    if (parallel_mode_) {
+        if (parallel_failed_) throw std::runtime_error("GRIB2_Driver: appends disabled after a collective failure");
+        std::vector<unsigned char> message;
+        std::exception_ptr encoding_error;
+        try {
+            message = encode_message(src, meta);
+        } catch (...) {
+            encoding_error = std::current_exception();
+        }
+        try {
+            check_collective_failure(encoding_error != nullptr, "message encoding (no bytes emitted for this round)");
+        } catch (...) {
+            // Preserve the originating codec diagnostic on the failing rank;
+            // the other ranks report the coordinated failure through LOGS.
+            if (encoding_error) std::rethrow_exception(encoding_error);
+            throw;
+        }
+        write_parallel_message(message);
+        return;
+    }
+#endif
+    const auto message = encode_message(src, meta);
+    if (out_file_ && std::fwrite(message.data(), 1, message.size(), out_file_) != message.size())
+        throw std::runtime_error("GRIB2_Driver: short write committing a GRIB2 message");
+}
+
+std::vector<unsigned char> GRIB2_Driver::encode_message(const StagingBuffer &src, const VarMeta &meta) {
+    return encode_message_with_drt(src, meta, active_drt_);
+}
+
+std::vector<unsigned char> GRIB2_Driver::encode_message_with_drt(const StagingBuffer &src, const VarMeta &meta, GRIB2_DRT selected_drt) {
+    std::lock_guard<std::mutex> codec_lock(g2c_mutex);
+    if (!initialized_ || read_mode_ || meta.write_region.rank) {
         throw std::runtime_error("GRIB2_Driver::write called before successful initialization");
     }
 
@@ -1121,6 +1307,7 @@ void GRIB2_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
         nj = 1;
         ni = static_cast<std::int64_t>(num_elements);
     }
+    validate_grib2_representability(settings_, ni, nj);
 
     // Section 0 (indicator): [discipline, edition].
     g2int listsec0[2];
@@ -1225,14 +1412,14 @@ void GRIB2_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
     // (test_p31_identity_roundtrip).  No explicit field_identity_name call
     // is needed here since the write path does not log or return the identity.
 
-    auto drs = build_drs_template(active_drt_, settings_);
+    auto drs = build_drs_template(selected_drt, settings_);
     std::vector<g2int> idrstmpl(drs.begin(), drs.end());
 
     // Copy the (already row-major) payload into a float field array.
     std::vector<float> fld(num_elements);
     std::memcpy(fld.data(), encode_ptr, num_elements * sizeof(float));
 
-    g2int idrsnum = static_cast<g2int>(active_drt_);  // 40 or 42
+    g2int idrsnum = static_cast<g2int>(selected_drt);  // 40 or 42
     ierr = g2_addfield(cgrib.data(),
                        static_cast<g2int>(settings_.pdt_number),  // Product Definition Template number
                        ipdstmpl.data(),
@@ -1250,13 +1437,8 @@ void GRIB2_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
         throw std::runtime_error("GRIB2_Driver::write: g2_gribend failed (Section 8). Zero record bytes emitted.");
     }
 
-    // Commit the complete GRIB2 message to the output file.
-    if (out_file_ != nullptr) {
-        std::size_t written = std::fwrite(cgrib.data(), 1, static_cast<std::size_t>(msglen), out_file_);
-        if (written != static_cast<std::size_t>(msglen)) {
-            throw std::runtime_error("GRIB2_Driver::write: short write committing GRIB2 message to disk.");
-        }
-    }
+    cgrib.resize(static_cast<std::size_t>(msglen));
+    return cgrib;
 #else
     (void)encode_ptr;
     throw std::runtime_error("GRIB2_Driver::write: nceplibs-g2c not available");
@@ -1268,6 +1450,7 @@ void GRIB2_Driver::write(const StagingBuffer &src, const VarMeta &meta) {
 // ---------------------------------------------------------------
 
 void GRIB2_Driver::read(StagingBuffer &dst, const VarMeta &meta, std::int64_t timestep, const std::optional<BoundingBox> &bbox) {
+    std::lock_guard<std::mutex> codec_lock(g2c_mutex);
     if (!initialized_) {
         throw std::runtime_error("GRIB2_Driver::read called before successful initialization");
     }
@@ -1443,9 +1626,15 @@ void GRIB2_Driver::read(StagingBuffer &dst, const VarMeta &meta, std::int64_t ti
 // ---------------------------------------------------------------
 
 void GRIB2_Driver::flush() {
+#ifdef AMIO_HAS_MPI
+    if (message_file_ != MPI_FILE_NULL) {
+        check_collective_failure(MPI_File_sync(message_file_) != MPI_SUCCESS, "shared file sync");
+        return;
+    }
+#endif
 #ifdef AMIO_HAS_G2C
     if (out_file_ != nullptr) {
-        std::fflush(out_file_);
+        if (std::fflush(out_file_) != 0) throw std::runtime_error("GRIB2_Driver: flush failed");
     }
 #endif
 }
@@ -1456,8 +1645,31 @@ void GRIB2_Driver::flush() {
 
 void GRIB2_Driver::close() {
     if (!initialized_) {
+#ifdef AMIO_HAS_MPI
+        io_comm_.reset();
+        parallel_mode_ = false;
+#endif
         return;
     }
+#ifdef AMIO_HAS_MPI
+    if (message_file_ != MPI_FILE_NULL) {
+        const int rc = MPI_File_close(&message_file_);
+        initialized_ = false;
+        next_message_offset_ = 0;
+        // Keep the communicator for the final status collective, but release
+        // it even when that collective reports a close failure.
+        try {
+            check_collective_failure(rc != MPI_SUCCESS, "shared file close");
+        } catch (...) {
+            io_comm_.reset();
+            parallel_mode_ = false;
+            throw;
+        }
+        io_comm_.reset();
+        parallel_mode_ = false;
+        return;
+    }
+#endif
 
 #ifdef AMIO_HAS_G2C
     if (out_file_ != nullptr) {
@@ -1472,6 +1684,10 @@ void GRIB2_Driver::close() {
     read_mode_ = false;
     input_path_.clear();
 
+#ifdef AMIO_HAS_MPI
+    io_comm_.reset();
+    parallel_mode_ = false;
+#endif
     initialized_ = false;
 }
 

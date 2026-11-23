@@ -245,7 +245,7 @@ class DistributedRegridder:
         offsets = np.cumsum([0, *(tile.size for tile in source)], dtype=np.int64)
         k = _STENCIL_SIZES.get(self._method)
         source_points = self._client.map(_source_points, source, method=self._method, pure=False) if k is not None else ()
-        plans = []
+        plans: list[tuple[MeshTile, tuple[tuple[int, np.ndarray | None], ...]]] = []
         pending = deque((str(i), tile, meta) for i, (tile, meta) in enumerate(zip(destination, target_meta, strict=True)))
 
         def split_target(index: str, target: MeshTile) -> bool:
@@ -264,6 +264,7 @@ class DistributedRegridder:
         while pending:
             index, target, (bounds, cost, _) = pending.popleft()
 
+            selected: tuple[tuple[int, np.ndarray | None], ...]
             if k is None:
                 selected = tuple((i, None) for i, (box, _, _) in enumerate(source_meta) if _overlaps(box, bounds))
             else:
@@ -300,13 +301,14 @@ class DistributedRegridder:
                     nodes = np.unique(np.concatenate(node_parts))
                     if not nodes.size:
                         break
-                    hits = self._client.gather(self._client.map(_ring_rows, source, frontier=nodes, pure=False))
-                    frontier = tuple((i, rows) for i, rows in enumerate(hits) if rows.size)
-                    for i, rows in frontier:
+                    hits: list[np.ndarray] = self._client.gather(self._client.map(_ring_rows, source, frontier=nodes, pure=False))
+                    ring = tuple((i, ring_rows) for i, ring_rows in enumerate(hits) if ring_rows.size)
+                    frontier = ring
+                    for i, ring_rows in ring:
                         if i not in closure:
-                            closure[i] = rows
-                        elif closure[i] is not None:
-                            closure[i] = np.union1d(closure[i], rows)
+                            closure[i] = ring_rows
+                        elif (existing_rows := closure[i]) is not None:
+                            closure[i] = np.union1d(existing_rows, ring_rows)
                 selected = tuple(sorted(closure.items()))
             estimate = cost + sum(
                 source_meta[i][1] if rows is None else len(rows) * (256 + 96 * source_meta[i][2]) for i, rows in selected
