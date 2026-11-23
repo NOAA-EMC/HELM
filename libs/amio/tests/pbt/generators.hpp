@@ -150,8 +150,8 @@ struct Arbitrary<amio::detail::Config> {
             // max >= count so the pool can always hold its provisioned slots).
             cfg.staging_pool.max_buffer_count = *gen::inRange<std::size_t>(cfg.staging_pool.buffer_count, 4097);
 
-            // Worker pool: threads [1, 256]
-            cfg.worker_pool.threads = *gen::inRange<std::size_t>(1, 257);
+            // Worker pool: threads [0, 256]
+            cfg.worker_pool.threads = *gen::inRange<std::size_t>(0, 257);
 
             // Optional CPU cores (empty or small list)
             bool has_cores = *gen::arbitrary<bool>();
@@ -318,7 +318,7 @@ inline rc::Gen<amio::detail::Config> genInvalidManifest() {
                 break;
             case 2: {
                 // threads out of range
-                static const std::vector<std::size_t> bad_threads = {0, 257, 1000};
+                static const std::vector<std::size_t> bad_threads = {257, 1000};
                 cfg.worker_pool.threads = *rc::gen::elementOf(bad_threads);
                 break;
             }

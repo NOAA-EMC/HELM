@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "amio_version": "0.1.0",
+  "workload": {
+    "steps": 8,
+    "fields": 2,
+    "cells_per_field": 65536,
+    "seed": 1729,
+    "manifest_source": "qualification-manifest.txt",
+    "value_type": "float32",
+    "logical_layout": "steps-fields-cells-1d",
+    "payload_bytes": 4194304
+  },
+  "modes": ["direct-reference", "amio-direct", "amio-aggregated"],
+  "completion_boundaries": {
+    "direct-reference": "netCDF close",
+    "amio-direct": "reader-visible step publication",
+    "amio-aggregated": "MPI transport completion; no persistent storage"
+  },
+  "measured_repeats": 5,
+  "warmup_repeats": 1,
+  "required_reports": [
+    "raw_samples",
+    "median_throughput",
+    "diagnostics_enabled_and_disabled",
+    "independent_correctness",
+    "persistent_storage_exercised",
+    "software_versions",
+    "hardware_and_storage_identity"
+  ],
+  "routine_rank_counts": [1, 2, 4, 8],
+  "scheduled_scale_rank_counts": [64, 256, 1024],
+  "acceptance_thresholds": {
+    "matched_reference_throughput_fraction": 0.8,
+    "weak_scaling_per_participant_retention_fraction": 0.5,
+    "diagnostics_median_overhead_fraction": 0.05
+  },
+  "notes": "The checked-in workload freezes payload shape and seed only. Scale, storage, placement, dependency versions and machine identity must be recorded by each run; no result is qualified from this manifest alone."
+}

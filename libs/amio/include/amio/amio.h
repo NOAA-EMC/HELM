@@ -28,6 +28,7 @@
 #include <stdint.h>
 
 #include "amio/amio_errors.h"
+#include "amio/amio_evolution.h"
 #include "amio/amio_export.h"
 #include "amio/amio_mdspan_fwd.h"
 #include "amio/amio_types.h"
@@ -45,7 +46,7 @@ extern "C" {
  *  @{
  */
 #define AMIO_ABI_VERSION_MAJOR 0 /**< ABI major version */
-#define AMIO_ABI_VERSION_MINOR 2 /**< ABI minor version */
+#define AMIO_ABI_VERSION_MINOR 4 /**< ABI minor version */
 #define AMIO_ABI_VERSION_PATCH 0 /**< ABI patch version */
 /** @} */
 
@@ -113,6 +114,7 @@ AMIO_API amio_status_t amio_finalize(amio_core_handle core);
  *   - AMIO_ERR_NULL_HANDLE — core is NULL
  *   - AMIO_ERR_INVALID_HANDLE — core stale or wrong kind
  *   - AMIO_ERR_INVALID_INPUT — NULL arguments or invalid mode
+ *   - AMIO_ERR_INVALID_POLICY — write requested on a rank outside the configured I/O group
  *   - AMIO_ERR_UNKNOWN_BACKEND — backend name not in registry (R4.6)
  *   - AMIO_ERR_BACKEND_FAILURE — driver open failed
  */
@@ -162,6 +164,7 @@ AMIO_API amio_status_t amio_init_from_string(const char *manifest_content, const
  *   - AMIO_ERR_INVALID_HANDLE — core stale or wrong kind
  *   - AMIO_ERR_INVALID_INPUT — NULL config_content/format/out_dataset, or invalid mode
  *   - AMIO_ERR_MANIFEST_INVALID — config parse/validation error
+ *   - AMIO_ERR_INVALID_POLICY — write requested on a rank outside the configured I/O group
  *   - AMIO_ERR_UNKNOWN_BACKEND — backend name not in registry (R4.6)
  *   - AMIO_ERR_BACKEND_FAILURE — driver open failed
  */
@@ -191,6 +194,14 @@ AMIO_API amio_status_t amio_close_dataset(amio_dataset_handle dataset);
  * caller may safely modify or free `host_data` after this call returns.
  * The actual I/O to the backend proceeds asynchronously.
  *
+ * For shared-file GRIB2, each call encodes one complete F32 field per rank.
+ * All participating ranks must submit the same number of calls in the same
+ * collective dataset order. Messages are ordered by submission round, then
+ * communicator rank; grids and compressed lengths may differ across ranks.
+ * Background shared-file GRIB2 writes require MPI_THREAD_MULTIPLE. A failure
+ * on any rank fails the round everywhere and disables later dataset appends.
+ * Wait for pending operations before collectively flushing or closing output.
+ *
  * @param[in]  dataset    A write dataset handle from amio_open_dataset().
  * @param[in]  var_name   NUL-terminated variable identifier.
  * @param[in]  host_data  Pointer to the host-side payload.
@@ -208,6 +219,94 @@ AMIO_API amio_status_t amio_close_dataset(amio_dataset_handle dataset);
  */
 AMIO_API amio_status_t amio_write(amio_dataset_handle dataset, const char *var_name, const void *host_data, amio_dtype_t dtype,
                                   const amio_shape_t *shape, amio_io_handle *out_io);
+
+/**
+ * @brief Collectively define a fixed schema before writing shared NetCDF arrays.
+ *
+ * Every rank must call this before the first write, with the same ordered
+ * descriptors. AMIO defines all dimensions and variables in one metadata
+ * phase and configures collective access once. Subsequent amio_write_region()
+ * calls must match a declared name, dtype, rank, and global shape.
+ *
+ * This currently supports the NetCDF-4 backend. For multi-rank datasets the
+ * call is collective over the dataset communicator. Datasets without a
+ * prepared schema retain the existing lazy-definition behavior.
+ *
+ * @param[in] dataset Write-mode dataset from amio_open_dataset().
+ * @param[in] variables Ordered fixed-shape variable definitions; names must
+ *                      fit in 255 bytes and unused extents/reserved fields
+ *                      must be zero.
+ * @param[in] variable_count Number of definitions; must be between 1 and 4096.
+ * @return AMIO_OK on success, AMIO_ERR_SCHEMA_MISMATCH when rank schemas
+ *         differ, AMIO_ERR_INVALID_POLICY if writes have already started,
+ *         AMIO_ERR_UNSUPPORTED for an unsupported backend, or another
+ *         AMIO_ERR_* status on validation/NetCDF failure.
+ */
+AMIO_API amio_status_t amio_prepare_write_schema(amio_dataset_handle dataset, const amio_write_variable_t *variables, size_t variable_count);
+
+/**
+ * @brief Snapshot and asynchronously write a rank-local region of a shared array.
+ *
+ * Payload is contiguous row-major; shape describes the local payload, region
+ * describes its global destination. Supports NetCDF and TensorStore Zarr.
+ * All ranks must submit NetCDF variables in the same order with matching global
+ * shapes/types, and collectively open/flush/close in the same order. MPI must
+ * provide MPI_THREAD_MULTIPLE for background NetCDF I/O. Zarr stores one array
+ * per dataset; its manifest array_shape must match region.global_extents.
+ * Callers assign disjoint regions; overlapping cross-rank writes are undefined.
+ * Same snapshot ownership, wait, and admission errors as amio_write().
+ * Collective lifecycle operations must follow completion of previously queued
+ * operations on every rank. Multiple application threads must externally order
+ * collective submissions identically across ranks. Metadata creation and the
+ * initial snapshot may block; backend transfer runs on AMIO workers. Setting
+ * worker_pool.threads to zero performs the transfer synchronously.
+ *
+ * @param[in] dataset Write-mode dataset from a collective open.
+ * @param[in] var_name NUL-terminated variable identifier (one array per Zarr dataset).
+ * @param[in] host_data Contiguous row-major local payload; safe to reuse after return.
+ * @param[in] dtype Element type, identical across ranks for a NetCDF variable.
+ * @param[in] shape Local positive extents and contiguous element strides (zero derives strides).
+ * @param[in] region Global extents and local offsets; descriptor copied before return.
+ * @param[out] out_io Pending operation handle, or NULL on rejected admission.
+ * @return AMIO_OK on admission; completion/failure is reported by amio_wait()
+ * and amio_flush(). Invalid bounds, strides, or an unsupported backend return
+ * AMIO_ERR_INVALID_INPUT; other admission errors match amio_write().
+ *
+ * Unsupported backends (including NCZarr fallback and GRIB2) return
+ * AMIO_ERR_INVALID_INPUT before enqueueing.
+ */
+AMIO_API amio_status_t amio_write_region(amio_dataset_handle dataset, const char *var_name, const void *host_data, amio_dtype_t dtype,
+                                         const amio_shape_t *shape, const amio_write_region_t *region, amio_io_handle *out_io);
+
+/**
+ * @brief Snapshot and asynchronously write multiple rank-local regions as one operation.
+ *
+ * Requires a write-mode NetCDF-4 dataset with a schema prepared by
+ * amio_prepare_write_schema(). For multi-rank datasets, every rank must call
+ * this function with the same write count and ordered variable names, types,
+ * and global extents. Local shapes and offsets may differ by rank. Callers
+ * must assign disjoint regions and order collective submissions identically.
+ *
+ * All payloads are snapshotted before a successful return, so the caller may
+ * reuse both payloads and descriptors immediately afterward. One I/O handle
+ * represents the whole batch; amio_wait() and amio_flush() report completion
+ * or failure. The batch is limited to 4096 writes and requires staging
+ * capacity for the sum of its local payload sizes.
+ *
+ * @param[in] dataset Write-mode dataset with a prepared schema.
+ * @param[in] writes Ordered array of region-write descriptors.
+ * @param[in] write_count Number of descriptors; must be between 1 and 4096.
+ * @param[out] out_io Receives one pending handle, or NULL if admission fails.
+ * @return AMIO_OK on admission; AMIO_ERR_INVALID_INPUT for malformed
+ *         descriptors; AMIO_ERR_INVALID_POLICY if schema preparation has not
+ *         completed; AMIO_ERR_SCHEMA_MISMATCH for disagreement with the
+ *         prepared schema or other ranks; AMIO_ERR_UNSUPPORTED for an
+ *         unsupported backend; AMIO_ERR_STAGING_BACKPRESSURE or
+ *         AMIO_ERR_QUEUE_FULL when resources are unavailable; another
+ *         AMIO_ERR_* status on backend or communicator failure.
+ */
+AMIO_API amio_status_t amio_write_region_batch(amio_dataset_handle dataset, const amio_region_write_t *writes, size_t write_count,
+                                               amio_io_handle *out_io);
 
 /**
  * @brief Return a Memory_View for a prefetched variable/timestep.

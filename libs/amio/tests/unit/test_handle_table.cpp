@@ -118,6 +118,22 @@ void test_lookup_wrong_kind_returns_invalid_handle() {
     EXPECT_TRUE(out == &payload, "correct-kind lookup returned wrong payload");
 }
 
+void test_evolution_handle_kinds_are_not_interchangeable() {
+    HandleTable table;
+    int step_payload = 1;
+    int lease_payload = 2;
+    const auto step = table.insert(HandleKind::ProducerStep, &step_payload);
+    const auto lease = table.insert(HandleKind::ConsumerLease, &lease_payload);
+    void *out = nullptr;
+    EXPECT_TRUE(table.lookup(step, HandleKind::ConsumerLease, &out) == AMIO_ERR_INVALID_HANDLE,
+                "producer step token was accepted as a consumer lease");
+    EXPECT_TRUE(out == nullptr, "cross-kind lookup exposed a producer step payload");
+    EXPECT_TRUE(table.lookup(lease, HandleKind::ProducerStep, &out) == AMIO_ERR_INVALID_HANDLE,
+                "consumer lease token was accepted as a producer step");
+    EXPECT_TRUE(table.release(step, HandleKind::ProducerStep) == AMIO_OK, "producer step release failed");
+    EXPECT_TRUE(table.release(lease, HandleKind::ConsumerLease) == AMIO_OK, "consumer lease release failed");
+}
+
 void test_release_then_lookup_returns_invalid_handle() {
     HandleTable t;
     int payload = 7;
@@ -264,6 +280,7 @@ int main() {
     test_insert_returns_nonzero_token_with_correct_payload();
     test_lookup_null_handle_returns_null_handle_error();
     test_lookup_wrong_kind_returns_invalid_handle();
+    test_evolution_handle_kinds_are_not_interchangeable();
     test_release_then_lookup_returns_invalid_handle();
     test_reuse_after_free_old_token_stays_invalid();
     test_garbage_token_with_oob_slot_index_is_rejected();

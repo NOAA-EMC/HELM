@@ -136,7 +136,19 @@ std::string emit_parallel_stacktrace(const IOCommunicator &io_comm, amio_err_t e
 
 void OutcomeRegistry::record(std::uint64_t handle_id, TaskOutcome outcome) {
     std::lock_guard<std::mutex> lock(mu_);
-    outcomes_[handle_id].push_back(std::move(outcome));
+    if (outcome.message.size() > kMaxMessageBytes) outcome.message.resize(kMaxMessageBytes);
+    if (outcome.stack_trace.size() > kMaxStackTraceBytes) outcome.stack_trace.resize(kMaxStackTraceBytes);
+    if (outcomes_.find(handle_id) == outcomes_.end() && outcomes_.size() >= kMaxTrackedHandles) {
+        ++dropped_outcomes_;
+        return;
+    }
+    auto &history = outcomes_[handle_id];
+    if (history.size() == kMaxOutcomesPerHandle) {
+        // Keep the first causal failure and the newest bounded samples.
+        history.erase(history.begin() + 1);
+        ++dropped_outcomes_;
+    }
+    history.push_back(std::move(outcome));
 }
 
 bool OutcomeRegistry::has_failure(std::uint64_t handle_id) const {
@@ -174,6 +186,7 @@ void OutcomeRegistry::clear(std::uint64_t handle_id) {
 void OutcomeRegistry::clear_all() {
     std::lock_guard<std::mutex> lock(mu_);
     outcomes_.clear();
+    dropped_outcomes_ = 0;
 }
 
 std::size_t OutcomeRegistry::failure_count() const {
@@ -188,6 +201,11 @@ std::size_t OutcomeRegistry::failure_count() const {
         }
     }
     return count;
+}
+
+std::uint64_t OutcomeRegistry::dropped_outcome_count() const noexcept {
+    std::lock_guard<std::mutex> lock(mu_);
+    return dropped_outcomes_;
 }
 
 // ---- Exception cordon execution ----

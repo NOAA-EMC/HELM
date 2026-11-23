@@ -148,7 +148,7 @@ if(NOT _amio_cfg_rc EQUAL 0)
 else()
     # Build + install AMIO.
     execute_process(
-        COMMAND "${AMIO_TEST_CMAKE}" --build "${_amio_build}" ${_config_args} --target install
+        COMMAND "${AMIO_TEST_CMAKE}" --build "${_amio_build}" ${_config_args} --parallel 2 --target install
         OUTPUT_VARIABLE _build_stdout
         ERROR_VARIABLE _build_stderr
         RESULT_VARIABLE _build_rc)
@@ -179,7 +179,7 @@ else()
             # Configure proves package resolution; compiling/linking proves the installed target is usable, without private include/link flags or
             # source-tree providers in the consumer.
             execute_process(
-                COMMAND "${AMIO_TEST_CMAKE}" --build "${_consumer_build}" ${_config_args}
+                COMMAND "${AMIO_TEST_CMAKE}" --build "${_consumer_build}" ${_config_args} --parallel 2
                 OUTPUT_VARIABLE _cons_build_stdout
                 ERROR_VARIABLE _cons_build_stderr
                 RESULT_VARIABLE _cons_build_rc)

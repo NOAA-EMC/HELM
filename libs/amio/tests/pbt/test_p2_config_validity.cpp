@@ -41,8 +41,8 @@ static bool is_config_expected_valid(const Config &cfg) {
         return false;
     }
 
-    // worker_pool.threads [1, 256]
-    if (cfg.worker_pool.threads < 1 || cfg.worker_pool.threads > 256) {
+    // worker_pool.threads [0, 256]
+    if (cfg.worker_pool.threads > 256) {
         return false;
     }
 
@@ -258,17 +258,24 @@ TEST_CASE("Property P2d: Valid manifests round-trip through file parse + validat
 }
 
 // ===================================================================
-// Property Test P2e: Valid manifests via amio_init succeed with a
+// Property Test P2e: Valid serial manifests via amio_init succeed with a
 // non-null core handle.
 //
 // **Validates: Requirements R1.3, R1.5, R11.1**
 // ===================================================================
 
-TEST_CASE("Property P2e: Valid manifests via amio_init succeed with non-null core handle", "[pbt][config][validity][P2]") {
-    auto result = rc::check("For any valid Config: amio_init returns AMIO_OK with non-null core handle", []() {
+TEST_CASE("Property P2e: Valid serial manifests via amio_init succeed with non-null core handle", "[pbt][config][validity][P2]") {
+    auto result = rc::check("For any valid serial Config: amio_init returns AMIO_OK with non-null core handle", []() {
         // Generate a valid config
         auto cfg = *rc::gen::arbitrary<Config>();
         RC_PRE(is_config_expected_valid(cfg));
+
+        // This property does not initialize MPI or require host-specific
+        // worker placement, so exercise the serial, unpinned init path.
+        cfg.io_ranks.clear();
+        cfg.worker_pool.threads = 0;
+        cfg.worker_pool.cpu_cores.clear();
+        cfg.worker_pool.numa_domain.reset();
 
         // Serialize to YAML and write to temp file
         std::string yaml = ConfigLoader::serialize(cfg);

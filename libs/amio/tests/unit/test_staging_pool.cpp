@@ -478,6 +478,21 @@ void test_concurrent_acquire_release() {
     EXPECT_TRUE(pool.free_buffer_count() == count, "all buffers should be free after concurrent test");
 }
 
+void test_retained_byte_ceiling_bounds_and_reclaims_free_capacity() {
+    StagingPool pool(2, 512, 10, 2, StagingPool::GrowMode::Grow, 768);
+    StagingBuffer *active = pool.acquire(512);
+    EXPECT_TRUE(active != nullptr, "first buffer fits retained byte budget");
+    EXPECT_TRUE(pool.acquire(512) == nullptr, "active capacity prevents exceeding aggregate retained-byte ceiling");
+    EXPECT_TRUE(pool.committed_bytes() == 512, "failed admission does not commit over-budget capacity");
+    pool.release(active);
+
+    StagingBuffer *grown = pool.acquire(768);
+    EXPECT_TRUE(grown != nullptr, "free cached capacity can be reclaimed for a larger bounded buffer");
+    EXPECT_TRUE(pool.committed_bytes() == 768, "retained capacity remains at or below configured ceiling");
+    EXPECT_TRUE(pool.acquire(769) == nullptr, "a request larger than the entire budget is rejected");
+    pool.release(grown);
+}
+
 }  // namespace
 
 int main() {
@@ -496,6 +511,7 @@ int main() {
     test_auto_grow_stops_at_ceiling();
     test_growth_preserves_outstanding_pointers();
     test_concurrent_acquire_release();
+    test_retained_byte_ceiling_bounds_and_reclaims_free_capacity();
 
     std::fprintf(stdout, "test_staging_pool: passed=%d failed=%d\n", g_result.passed, g_result.failed);
 
