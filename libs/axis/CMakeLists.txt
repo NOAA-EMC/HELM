@@ -47,6 +47,7 @@ include(CMakePackageConfigHelpers)
 
 option(AXIS_ENABLE_PROJ      "Enable PROJ (libproj) for coordinate projection transforms" ON)
 option(AXIS_ENABLE_NETCDF    "Enable NetCDF I/O and ESMF weight egress support"           ON)
+option(AXIS_ENABLE_MPI       "Build MPI-distributed AXIS functionality"                  ON)
 option(AXIS_BUILD_TESTING    "Build the AXIS test suite (GTest + RapidCheck)"             OFF)
 option(AXIS_BUILD_FORTRAN    "Build the Fortran iso_c_binding interop layer"              OFF)
 option(AXIS_BUILD_PYTHON     "Build the nanobind Python bindings"                         OFF)
@@ -67,6 +68,7 @@ elseif(DEFINED ENV{VIRTUAL_ENV})
 endif()
 
 # Kokkos — the ONLY required third-party dependency (HELM Law #2).
+option(AXIS_KOKKOS_OPENMP "Enable OpenMP in fetched Kokkos (OFF for portable wheels)" ON)
 option(AXIS_FETCH_KOKKOS "Fetch and build Kokkos automatically if not found on system" ON)
 
 find_package(Kokkos QUIET)
@@ -81,7 +83,7 @@ if(NOT TARGET Kokkos::kokkos AND AXIS_FETCH_KOKKOS)
 
     # Ensure Kokkos builds with position independent code and suitable default backend
     if(NOT DEFINED Kokkos_ENABLE_OPENMP)
-        set(Kokkos_ENABLE_OPENMP ON CACHE BOOL "Enable OpenMP backend")
+        set(Kokkos_ENABLE_OPENMP ${AXIS_KOKKOS_OPENMP} CACHE BOOL "Enable OpenMP backend")
     endif()
     if(NOT DEFINED Kokkos_ENABLE_SERIAL)
         set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend")
@@ -109,7 +111,9 @@ if(NOT TARGET Kokkos::kokkos)
 endif()
 
 # MPI — REQUIRED for distributed weights generation
-find_package(MPI REQUIRED COMPONENTS CXX)
+if(AXIS_ENABLE_MPI)
+    find_package(MPI REQUIRED COMPONENTS CXX)
+endif()
 
 # KokkosKernels — REQUIRED accelerator for sparse linear algebra (SpMV, sort).
 # AXIS uses KokkosSparse::spmv for CSR apply. It is a hard dependency so every
@@ -230,10 +234,13 @@ set(AXIS_SOURCES
     src/solver/vertical_regridder.cpp
     src/solver/vertical_conservative.cpp
     src/solver/vector_regridder.cpp
-    src/distributed/distributed_weight_generator.cpp
-    src/distributed/regridder.cpp
-    src/distributed/selective_geometry.cpp
 )
+if(AXIS_ENABLE_MPI)
+    list(APPEND AXIS_SOURCES
+        src/distributed/distributed_weight_generator.cpp
+        src/distributed/regridder.cpp
+        src/distributed/selective_geometry.cpp)
+endif()
 
 # ##############################################################################
 # Target: axis (STATIC library)
@@ -267,7 +274,9 @@ target_compile_features(axis PUBLIC cxx_std_20)
 target_link_libraries(axis PUBLIC Kokkos::kokkos)
 
 # MPI — PUBLIC so downstream consumers get MPI include paths and libraries transitively.
-target_link_libraries(axis PUBLIC MPI::MPI_CXX)
+if(AXIS_ENABLE_MPI)
+    target_link_libraries(axis PUBLIC MPI::MPI_CXX)
+endif()
 
 # KokkosKernels — PUBLIC for KokkosSparse::spmv in apply.hpp (header-only).
 # Hard dependency (found or fetched above), so link unconditionally. No feature
@@ -279,12 +288,14 @@ target_link_libraries(axis PUBLIC Kokkos::kokkoskernels)
 target_link_libraries(axis PRIVATE ArborX::ArborX)
 
 # HALO — PRIVATE boundary exchange library for MPI-distributed weight generation
-if(NOT TARGET halo)
+set(AXIS_HAVE_HALO OFF)
+if(AXIS_ENABLE_MPI AND NOT TARGET halo)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../halo/CMakeLists.txt")
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../halo" "${CMAKE_CURRENT_BINARY_DIR}/halo_build")
     endif()
 endif()
-if(TARGET halo)
+if(AXIS_ENABLE_MPI AND TARGET halo)
+    set(AXIS_HAVE_HALO ON)
     target_link_libraries(axis PRIVATE halo)
     target_compile_definitions(axis PUBLIC AXIS_HAVE_HALO=1)
 endif()
