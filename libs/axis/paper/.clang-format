@@ -1,5 +1,0 @@
-BasedOnStyle: InheritParentConfig
-ColumnLimit: 100
-AllowShortFunctionsOnASingleLine: Empty
-AllowShortIfStatementsOnASingleLine: Never
-AllowShortLoopsOnASingleLine: false

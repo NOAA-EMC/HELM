@@ -321,11 +321,31 @@ axis::solver::RegridConfig parse_regrid_config(const nb::dict &config) {
         }
     }
 
+    if (config.contains("extrap_method")) {
+        auto em = config["extrap_method"];
+        if (nb::isinstance<nb::str>(em)) {
+            std::string s = nb::cast<std::string>(em);
+            if (s == "none" || s == "None")
+                cfg.extrap_method = axis::solver::ExtrapolationAction::None;
+            else if (s == "nearest_wet" || s == "NearestWet")
+                cfg.extrap_method = axis::solver::ExtrapolationAction::NearestWet;
+            else
+                throw std::invalid_argument("Unknown extrap_method: " + s);
+        } else {
+            throw std::invalid_argument("extrap_method must be a string ('none' or 'nearest_wet')");
+        }
+    }
+
     if (config.contains("use_limiter")) {
         cfg.use_limiter = nb::cast<bool>(config["use_limiter"]);
     }
 
-    if (cfg.method == axis::solver::InterpolationMethod::Conservative2ndOrder) cfg.extrap_method = axis::solver::ExtrapolationAction::None;
+    // Default Conservative2ndOrder to no extrapolation (RegridConfig's default
+    // is NearestWet), but never override an explicit user choice — the native
+    // generator rejects unsupported combinations instead of silently ignoring them.
+    if (cfg.method == axis::solver::InterpolationMethod::Conservative2ndOrder && !config.contains("extrap_method")) {
+        cfg.extrap_method = axis::solver::ExtrapolationAction::None;
+    }
     return cfg;
 }
 

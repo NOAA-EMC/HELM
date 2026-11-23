@@ -52,11 +52,6 @@ option(AXIS_BUILD_TESTING    "Build the AXIS test suite (GTest + RapidCheck)"   
 option(AXIS_BUILD_FORTRAN    "Build the Fortran iso_c_binding interop layer"              OFF)
 option(AXIS_BUILD_PYTHON     "Build the nanobind Python bindings"                         OFF)
 option(AXIS_BUILD_EXAMPLES   "Build runnable documentation examples"                      OFF)
-option(AXIS_BUILD_PAPER "Build the native paper evidence tools" OFF)
-if(AXIS_BUILD_PAPER AND NOT AXIS_ENABLE_MPI)
-    message(FATAL_ERROR "AXIS_BUILD_PAPER requires AXIS_ENABLE_MPI=ON")
-endif()
-option(AXIS_PAPER_ENABLE_ESMF "Build the paper ESMC worker" OFF)
 option(AXIS_BUILD_BENCHMARKS "Build the AXIS performance benchmark harness"               OFF)
 
 # ##############################################################################
@@ -507,9 +502,6 @@ endif()
 # Benchmarks
 # ##############################################################################
 
-if(AXIS_BUILD_PAPER)
-    add_subdirectory(paper)
-endif()
 
 if(AXIS_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)

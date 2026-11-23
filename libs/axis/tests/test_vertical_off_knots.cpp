@@ -8,17 +8,11 @@
 #include <iostream>
 #include <limits>
 #include <numbers>
+
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 using Space = Kokkos::HostSpace;
-class VerticalEnvironment : public testing::Environment {
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) Kokkos::initialize();
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) Kokkos::finalize();
-    }
-};
-auto *const env = testing::AddGlobalTestEnvironment(new VerticalEnvironment);
 TEST(VerticalOffKnots, AffineUniformAndVaryingDescending) {
     for (double sigma : {0., 1e-8, .05, 2., 50., 1000.})
         for (bool descending : {false, true}) {

@@ -79,6 +79,23 @@ class TestGenerateAndApply:
         assert matrix.n_dst > 0
         assert matrix.nnz > 0
 
+    def test_conservative2nd_extrap_method_not_silently_overridden(self, small_src_mesh: Any, small_dst_mesh: Any) -> None:
+        """An explicit extrap_method is honored (and rejected natively), not dropped."""
+        # Omitted extrap_method defaults to None for Conservative2ndOrder.
+        matrix: Any = axis_py.generate_weights(small_src_mesh, small_dst_mesh, {"method": "conservative2nd"})
+        assert matrix.has_linear_reconstruction
+
+        # Explicit "none" is accepted.
+        axis_py.generate_weights(small_src_mesh, small_dst_mesh, {"method": "conservative2nd", "extrap_method": "none"})
+
+        # Explicit "nearest_wet" must fail fast in the native generator rather
+        # than being silently replaced with None.
+        with pytest.raises(ValueError, match="extrap_method"):
+            axis_py.generate_weights(small_src_mesh, small_dst_mesh, {"method": "conservative2nd", "extrap_method": "nearest_wet"})
+
+        with pytest.raises(ValueError, match="extrap_method"):
+            axis_py.generate_weights(small_src_mesh, small_dst_mesh, {"method": "conservative2nd", "extrap_method": "bogus"})
+
 
 # ─── Test: batch_apply with 2-D numpy arrays (Req 12.6) ──────────────────────
 

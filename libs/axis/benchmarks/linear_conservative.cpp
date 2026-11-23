@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Focused CPU diagnostic, separate from the paper acceptance timing protocol.
+// Focused CPU diagnostic, not an acceptance timing benchmark.
 #include <algorithm>
 #include <array>
 #include <axis/solver/apply.hpp>

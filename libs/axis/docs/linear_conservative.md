@@ -1,8 +1,9 @@
 # Linear conservative reconstruction
 
-This implementation replaces the previous synthetic-coordinate correction in
-`Conservative2ndOrder`. `Conservative1stOrder` is unchanged. No new runtime or
-library dependencies are introduced.
+`Conservative2ndOrder` computes first-order conservative overlap weights and
+adds a bounded, field-dependent linear reconstruction on the source mesh.
+`Conservative1stOrder` is unchanged. No new runtime or library dependencies are
+introduced.
 
 ## Use
 
@@ -24,7 +25,8 @@ fields. Each apply computes that field's gradients and, when requested, its
 limiter. `batch_apply` handles each variable independently, including strided
 LayoutRight views. The masked apply overload preserves inactive output values.
 Python's existing `use_limiter` configuration selects the two modes; its
-second-order configuration disables extrapolation automatically.
+second-order configuration defaults extrapolation to `none` when omitted, while
+an explicit `extrap_method` is passed through and rejected by the generator.
 
 ## Reconstruction and conservation
 
@@ -120,7 +122,7 @@ OMP_NUM_THREADS=1 OMP_PROC_BIND=false ./axis_linear_benchmark 64
 
 It measures seven fresh setup-plus-CSR samples and 101 application samples
 following five warmups. It outputs median milliseconds and a checksum. This is
-an engineering diagnostic, separate from the paper's acceptance protocol.
+an engineering diagnostic, not an acceptance benchmark.
 Single-field apply allocates an uninitialized two-component gradient workspace
 and overwrites every element. `apply_linear_with_workspace<MemorySpace>` accepts
 a caller-owned Kokkos View with shape `[n_src,2]` for explicit reuse. Concurrent

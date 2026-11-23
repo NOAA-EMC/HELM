@@ -1,4 +1,3 @@
-#include <axis/solver/paper_diagnostics.hpp>
 // SPDX-License-Identifier: Apache-2.0
 // AXIS — Arbitrary eXgrid Interpolation Solver
 // Copyright (c) HELM Project Contributors
@@ -46,9 +45,16 @@
 #include <utility>
 #include <vector>
 
+#include "distributed/search_geometry.hpp"
+
 namespace axis::solver {
 
 namespace {
+
+// Empirical host-parallelism grain size: below this many destination cells,
+// OpenMP dispatch and allocating/merging per-row buffers cost more than
+// filling the weight vectors directly on one thread.
+constexpr std::size_t kMinParallelDstCells = 256;
 
 topology::UnstructuredMesh<Kokkos::HostSpace> make_sample_point_mesh(const SampleGrid &samples, topology::CoordinateSystem coordinate_system) {
     const std::size_t n = samples.positions.extent(0);
@@ -670,8 +676,6 @@ std::vector<ConstantLatitudeOverlap> find_constant_latitude_overlaps(const std::
             std::map<std::pair<index_t, index_t>, double> band_overlaps;
             while (si < source.size() && di < destination.size()) {
                 const double lon_width = std::min(source[si].east, destination[di].east) - std::max(source[si].west, destination[di].west);
-                // Opt-in evidence instrumentation: classify the candidate overlap before the tolerance filter drops it.
-                paper_overlap_observation(std::max(0.0, lon_width) * radians * lat_factor, tolerance * radians * lat_factor);
                 if (lon_width > tolerance) {
                     band_overlaps[{destination[di].cell, source[si].cell}] += lon_width * radians * lat_factor;
                 }
@@ -694,7 +698,6 @@ template <class MemorySpace>
 InterpolationMatrix<MemorySpace> generate_constant_latitude_conservative(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
                                                                          const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
                                                                          const RegridConfig &config) {
-    paper_overlap_begin();
     const auto src_geometry = src_mesh.geometry_metadata();
     const auto dst_geometry = dst_mesh.geometry_metadata();
     // Longitude is circular for spherical cell geometry even when the overall
@@ -3137,7 +3140,7 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_bilinear(const topolo
     weights_vec.reserve(4 * n_dst);
     rows_vec.reserve(4 * n_dst);
     cols_vec.reserve(4 * n_dst);
-    if (n_dst < 256 || Kokkos::DefaultHostExecutionSpace().concurrency() == 1) {
+    if (n_dst < kMinParallelDstCells || Kokkos::DefaultHostExecutionSpace().concurrency() == 1) {
         // A serial caller needs no intermediate rows or second copy of COO data.
         for (std::size_t j = 0; j < n_dst; ++j) process(j, weights_vec, rows_vec, cols_vec, std::false_type{});
     } else {
@@ -3802,7 +3805,6 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
     // When MemorySpace is a device space (CudaSpace/HIPSpace), route to the
     // fully device-resident pipeline that avoids host round-trips.
     if constexpr (is_device_space_v<MemorySpace>) {
-        paper_path("device_spherical");
         return generate_conservative_device(src_mesh, dst_mesh, config);
     }
 
@@ -3815,7 +3817,6 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
             dst_geometry.boundary_model == topology::BoundaryModel::ConstantLatitude &&
             src_geometry.area_model == topology::AreaModel::ConstantLatitudeStrip &&
             dst_geometry.area_model == topology::AreaModel::ConstantLatitudeStrip) {
-            paper_path("constant_latitude_strip");
             return generate_constant_latitude_conservative(src_mesh, dst_mesh, config);
         }
     }
@@ -3841,7 +3842,6 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
         // the BVH path validates — so keep the stricter nnz()>0 accept there and
         // let an all-zero-coverage matrix fall through to BVH to raise.
         if (result.n_dst() > 0 && (config.unmapped != UnmappedAction::Error || result.nnz() > 0)) {
-            paper_path("regular_rectangle");
             return result;
         }
     }
@@ -3857,16 +3857,13 @@ InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative(const to
         // even a zero-nonzero one; under Error keep the stricter nnz()>0 so an
         // all-zero-coverage matrix falls through to BVH to be diagnosed.
         if (result.n_dst() > 0 && (config.unmapped != UnmappedAction::Error || result.nnz() > 0)) {
-            paper_path("nonuniform_rectangle");
             return result;
         }
     }
 
     if (config.line_type == LineType::GreatCircle) {
-        paper_path("host_spherical_greiner_hormann");
         return generate_conservative_impl<3, MemorySpace>(src_mesh, dst_mesh, config);
     } else {
-        paper_path("host_planar_sutherland_hodgman");
         return generate_conservative_impl<2, MemorySpace>(src_mesh, dst_mesh, config);
     }
 }
@@ -4176,15 +4173,7 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
         // Spherical path: ordered blocks with SphericalClipper + cap filter + trig cache
         // ══════════════════════════════════════════════════════════════════════
 
-        if (paper_diagnostics) {
-            paper_diagnostics->candidates = 0;
-            paper_diagnostics->invalid = 0;
-            paper_diagnostics->zero_overlap = 0;
-            paper_diagnostics->discarded = 0;
-        }
-        auto *diagnostics_target = paper_diagnostics;
-        auto process = [&](std::size_t k, auto &weights_vec, auto &rows_vec, auto &cols_vec, auto record_coverage,
-                           PaperDiagnostics *paper_diagnostics) {
+        auto process = [&](std::size_t k, auto &weights_vec, auto &rows_vec, auto &cols_vec, auto record_coverage) {
             // Process destinations in Morton/Z-curve order for spatial locality (Req 5.2)
             std::size_t j = static_cast<std::size_t>(sorted_dst(k));
             // Skip masked destination cells entirely (Req 8.2)
@@ -4226,7 +4215,6 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
 
             for (int vi = begin; vi < end; ++vi) {
                 auto src_i = static_cast<std::size_t>(values(vi).index);
-                if (paper_diagnostics) ++paper_diagnostics->candidates;
 
                 // Skip masked source cells (Req 8.1)
                 if (has_src_mask && src_mask[src_i] == 0) continue;
@@ -4257,19 +4245,8 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
 
                 double overlap_area = axis::detail::SphericalClipper::overlap_area<32>(src_sp, dst_sp);
 
-                if (!std::isfinite(overlap_area)) {
-                    if (paper_diagnostics) ++paper_diagnostics->invalid;
-                    continue;
-                }
-                if (overlap_area <= 0.0) {
-                    if (paper_diagnostics) {
-                        if (overlap_area < 0)
-                            ++paper_diagnostics->discarded;
-                        else
-                            ++paper_diagnostics->zero_overlap;
-                    }
-                    continue;
-                }
+                if (!std::isfinite(overlap_area)) continue;
+                if (overlap_area <= 0.0) continue;
 
                 double w_ij = overlap_area / area_dst;
                 w_ij = std::max(w_ij, 0.0);
@@ -4287,17 +4264,16 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
                 throw std::runtime_error("WeightGenerator::generate_conservative: unmapped destination cell " + std::to_string(j));
             }
         };
-        if (Kokkos::DefaultHostExecutionSpace().concurrency() == 1 || n_dst < 256) {
+        if (Kokkos::DefaultHostExecutionSpace().concurrency() == 1 || n_dst < kMinParallelDstCells) {
             auto record = [&](std::size_t i, std::size_t j, double source_fraction, double destination_fraction) {
                 frac_a_acc[i] += source_fraction;
                 frac_b_acc[j] += destination_fraction;
             };
-            for (std::size_t k = 0; k < n_dst; ++k) process(k, weights_vec, rows_vec, cols_vec, record, diagnostics_target);
+            for (std::size_t k = 0; k < n_dst; ++k) process(k, weights_vec, rows_vec, cols_vec, record);
         } else {
             struct SphericalRow {
                 std::vector<double> weights, source_fractions, destination_fractions;
                 std::vector<index_t> rows, cols;
-                PaperDiagnostics diagnostics;
             };
             constexpr std::size_t block_size = 128;
             const auto n_blocks = (n_dst + block_size - 1) / block_size;
@@ -4306,19 +4282,12 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
                 "axis::conservative::spherical_overlaps", n_blocks,
                 [&](std::size_t block) {
                     auto &row = work[block];
-                    auto *diagnostics = diagnostics_target ? &row.diagnostics : nullptr;
-                    if (diagnostics) {
-                        diagnostics->candidates = 0;
-                        diagnostics->invalid = 0;
-                        diagnostics->zero_overlap = 0;
-                        diagnostics->discarded = 0;
-                    }
                     auto record = [&](std::size_t, std::size_t, double source_fraction, double destination_fraction) {
                         row.source_fractions.push_back(source_fraction);
                         row.destination_fractions.push_back(destination_fraction);
                     };
                     const auto last = std::min(n_dst, (block + 1) * block_size);
-                    for (auto k = block * block_size; k < last; ++k) process(k, row.weights, row.rows, row.cols, record, diagnostics);
+                    for (auto k = block * block_size; k < last; ++k) process(k, row.weights, row.rows, row.cols, record);
                 },
                 1);
             std::size_t total = 0;
@@ -4333,12 +4302,6 @@ InterpolationMatrix<MemorySpace> generate_conservative_impl(const topology::Unst
                     cols_vec.push_back(row.cols[p]);
                     frac_a_acc[row.cols[p]] += row.source_fractions[p];
                     frac_b_acc[row.rows[p]] += row.destination_fractions[p];
-                }
-                if (diagnostics_target) {
-                    diagnostics_target->candidates += row.diagnostics.candidates;
-                    diagnostics_target->invalid += row.diagnostics.invalid;
-                    diagnostics_target->zero_overlap += row.diagnostics.zero_overlap;
-                    diagnostics_target->discarded += row.diagnostics.discarded;
                 }
             }
         }
@@ -4699,7 +4662,6 @@ template <class MemorySpace>
 InterpolationMatrix<MemorySpace> WeightGenerator::generate_conservative_2nd_order(const topology::UnstructuredMesh<MemorySpace> &src_mesh,
                                                                                   const topology::UnstructuredMesh<MemorySpace> &dst_mesh,
                                                                                   const RegridConfig &config) {
-    paper_path("host_linear_conservative");
     if (config.line_type == LineType::GreatCircle) return generate_conservative_2nd_order_impl<3, MemorySpace>(src_mesh, dst_mesh, config);
     return generate_conservative_2nd_order_impl<2, MemorySpace>(src_mesh, dst_mesh, config);
 }
@@ -4875,7 +4837,6 @@ template std::pair<InterpolationMatrix<Kokkos::HostSpace>, HaloPattern> WeightGe
 
 }  // namespace axis::solver
 
-#include "../distributed/search_geometry.hpp"
 namespace axis::distributed::detail {
 SearchGeometry search_geometry(const HostMesh &mesh, const solver::RegridConfig &config, bool wet_search) {
     SearchGeometry out;

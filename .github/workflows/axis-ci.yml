@@ -22,6 +22,9 @@ on:
       - ".github/workflows/axis-ci.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   python-no-mpi:
     name: Python source installs without MPI
@@ -50,7 +53,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Bring up HELM container
         run: docker compose up -d --build
@@ -154,12 +157,12 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Bring up HELM container
         run: docker compose up -d --build
 
-      - name: "Sanitizer build and property tests"
+      - name: "Sanitizer build, unit, property and MPI tests"
         run: |
           docker compose exec -T helm-dev bash -lc '
             set -e
@@ -171,7 +174,11 @@ jobs:
             cmake --build build-asan --parallel $(nproc)
             cd build-asan
             ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
-              ctest -L property --output-on-failure
+              OMPI_MCA_rmaps_base_oversubscribe=1 \
+              OMPI_MCA_mpi_yield_when_idle=1 \
+              OMPI_MCA_hwloc_base_binding_policy=none \
+              OMP_WAIT_POLICY=PASSIVE \
+              ctest -L "unit|property|mpi" --output-on-failure
           '
 
       - name: Tear down container
@@ -184,7 +191,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Bring up HELM container
         run: docker compose up -d --build

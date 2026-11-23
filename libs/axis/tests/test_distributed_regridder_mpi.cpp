@@ -220,17 +220,21 @@ void scalar_test(const halo::Communicator &comm, InterpolationMethod method, boo
 }
 // Sparse destination ownership must not accidentally supply a bicubic stencil
 // through the union of other destination queries on the same rank.
-void bicubic_stencil_test(const halo::Communicator &comm) {
+void bicubic_stencil_test(const halo::Communicator &comm, ExtrapolationAction extrap = ExtrapolationAction::None) {
     using axis::distributed::DistributedOptions;
     using axis::distributed::DistributedRegridder;
     for (int sx : {7, 13})
         for (bool masked : {false, true}) {
             const int sy = sx == 7 ? 6 : 9;
-            if (comm.rank() == 0) std::cout << "Bicubic stencil: " << sx * sy << " sources, masked=" << masked << std::endl;
+            if (comm.rank() == 0)
+                std::cout << "Bicubic stencil: " << sx * sy << " sources, masked=" << masked
+                          << ", nearest-wet=" << (extrap == ExtrapolationAction::NearestWet) << std::endl;
             auto src = grid(sx, sy, comm.rank(), comm.size(), false, false, true);
-            auto dst = grid(3, 3, comm.rank(), comm.size(), false, false, false, true);
+            // Mask destination zero too, so NearestWet exercises a dry-row
+            // fallback rather than only the already-populated bicubic rows.
+            auto dst = grid(3, 3, comm.rank(), comm.size(), false, masked, false, true);
             auto all_src = grid(sx, sy, -1, comm.size(), false, false, true);
-            auto all_dst = grid(3, 3, -1, comm.size(), false, false, false, true);
+            auto all_dst = grid(3, 3, -1, comm.size(), false, masked, false, true);
             for (auto *p : {&src, &all_src}) {
                 auto xy = p->mesh.node_coords_view();
                 // Break distance ties at the 64-neighbor cutoff without changing
@@ -245,7 +249,7 @@ void bicubic_stencil_test(const halo::Communicator &comm) {
             RegridConfig config;
             config.method = InterpolationMethod::Bicubic;
             config.line_type = LineType::Cartesian;
-            config.extrap_method = ExtrapolationAction::None;
+            config.extrap_method = extrap;
             config.use_structured_fast_paths = false;
             auto serial = WeightGenerator::generate(all_src.mesh, all_dst.mesh, config);
             serial.to_csr();
@@ -261,6 +265,8 @@ void bicubic_stencil_test(const halo::Communicator &comm) {
                                  axis::field_view<double, 1>(reference_values.data(), reference_values.size()));
                 axis::solver::apply(serial, axis::field_view<const double, 1>(global_q.data(), global_q.size()),
                                     axis::field_view<double, 1>(expected.data(), expected.size()));
+                if (masked && extrap == ExtrapolationAction::NearestWet && which == 2)
+                    check(expected.front() == 2.0, "bicubic nearest-wet fixture did not exercise dry-row fallback");
                 compare(reference_values, expected, dst.cells, all_dst.cells);
                 compare(actual, expected, dst.cells, all_dst.cells);
             }
@@ -449,6 +455,7 @@ int distributed_test_suite() {
                 }
             }
     bicubic_stencil_test(comm);
+    bicubic_stencil_test(comm, ExtrapolationAction::NearestWet);
     scalar_test(comm, InterpolationMethod::Conservative1stOrder, false, false, false, NormType::DstArea, true);
     scalar_test(comm, InterpolationMethod::Conservative2ndOrder, true, false, false, NormType::DstArea, true);
     if (comm.rank() == 0)

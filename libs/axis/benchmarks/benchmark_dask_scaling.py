@@ -37,6 +37,18 @@ from dask import delayed
 from distributed import Client, LocalCluster, wait
 
 
+def native_extension_id() -> str:
+    """Provenance identifier for the loaded extension, without workstation paths."""
+    path = Path(axis.__file__).resolve()
+    try:
+        return path.relative_to(Path(__file__).resolve().parents[3]).as_posix()
+    except ValueError:
+        parts = path.parts
+        if "site-packages" in parts:
+            return "site-packages/" + "/".join(parts[parts.index("site-packages") + 1 :])
+        return path.name
+
+
 def summarize(samples: list[float]) -> dict[str, float]:
     """Return robust timing statistics for a series of positive observations."""
     return {
@@ -278,7 +290,7 @@ def main() -> None:
             "xarray": xr.__version__,
             "omp_num_threads": os.environ.get("OMP_NUM_THREADS"),
             "omp_proc_bind": os.environ.get("OMP_PROC_BIND"),
-            "native_extension": str(axis.__file__),
+            "native_extension": native_extension_id(),
         },
         "methodology": {
             "method": "bilinear",

@@ -404,7 +404,8 @@ std::set<long long> discover(const HostMesh &src, const HostMesh &dst, const sol
     // source cells. A union of smaller stencils only hides missing dependencies
     // when a rank happens to own enough nearby destinations.
     const int k = cfg.method == M::NearestNeighbor ? 1 : cfg.method == M::Bilinear ? 8 : cfg.method == M::Bicubic ? 64 : 16;
-    const bool extrap = cfg.extrap_method == solver::ExtrapolationAction::NearestWet;
+    // Bicubic's active stencil already includes the nearest wet candidate.
+    const bool extrap = cfg.extrap_method == solver::ExtrapolationAction::NearestWet && cfg.method != M::Bicubic;
     SearchIndex index(src, cfg, comm);
     auto target = search_geometry(dst, cfg), wet_target = search_geometry(dst, cfg, true);
     std::set<long long> seeds;

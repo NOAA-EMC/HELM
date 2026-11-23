@@ -7,20 +7,14 @@
 #include <iostream>
 #include <limits>
 #include <vector>
+
+#include "common/test_kokkos_env.hpp"
+
 namespace {
 using Space = Kokkos::HostSpace;
 using Op = axis::solver::VerticalConservativeRegridder<Space>;
 using Order = axis::solver::VerticalConservativeOrder;
 using Norm = axis::solver::VerticalConservativeNorm;
-class Env : public testing::Environment {
-    void SetUp() override {
-        if (!Kokkos::is_initialized()) Kokkos::initialize();
-    }
-    void TearDown() override {
-        if (Kokkos::is_initialized()) Kokkos::finalize();
-    }
-};
-auto *const env = testing::AddGlobalTestEnvironment(new Env);
 Op::Field edges(const std::vector<double> &v, int rows = 1) {
     Op::Field x("edges", rows, v.size());
     for (int c = 0; c < rows; ++c)
