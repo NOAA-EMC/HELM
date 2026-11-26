@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-#include <axis/detail/spherical_clipper.hpp>
 #include <gtest/gtest.h>
+
+#include <axis/detail/spherical_clipper.hpp>
 #include <cmath>
 
 namespace {
@@ -47,4 +48,4 @@ TEST(SphericalSharedBoundary, SharedVertexWithRealOverlap) {
     EXPECT_GT(SphericalClipper::overlap_area(a, b), 0.0);
     EXPECT_GT(SphericalClipper::overlap_area(b, a), 0.0);
 }
-}
+}  // namespace
