@@ -184,6 +184,9 @@ struct SphericalClipper {
             return SphericalPolygon<M>{};
         }
 
+        if (separated_at_shared_vertex(subject, clip_poly) || separated_at_shared_vertex(clip_poly, subject))
+            return SphericalPolygon<M>{};
+
         // We use two buffers to alternate input/output during iterative clipping.
         SphericalPolygon<M> buf_a;
         SphericalPolygon<M> buf_b;
@@ -243,6 +246,40 @@ struct SphericalClipper {
     }
 
    private:
+    // A shared vertex can be excluded from an edge's half-space test exactly.
+    // Require a safely negative signed distance for every other vertex.
+    template <int M>
+    KOKKOS_FUNCTION static bool separated_at_shared_vertex(const SphericalPolygon<M> &subject,
+                                                            const SphericalPolygon<M> &boundary) noexcept {
+        constexpr double roundoff = 16.0 * 2.2204460492503131e-16;
+        for (int i = 0; i < boundary.n; ++i) {
+            const Vec3 &a = boundary.verts[i];
+            const Vec3 &b = boundary.verts[(i + 1) % boundary.n];
+            const Vec3 normal = cross(a, b);
+            if (length_sq(normal) < 1.0e-30) continue;
+            bool shared = false;
+            bool separated = true;
+            for (int j = 0; j < subject.n; ++j) {
+                const Vec3 &v = subject.verts[j];
+                if ((v.x == a.x && v.y == a.y && v.z == a.z) ||
+                    (v.x == b.x && v.y == b.y && v.z == b.z)) {
+                    shared = true;
+                    continue;
+                }
+                const double distance = dot(normal, v);
+                const double scale = (Kokkos::fabs(a.y * b.z) + Kokkos::fabs(a.z * b.y)) * Kokkos::fabs(v.x) +
+                                     (Kokkos::fabs(a.z * b.x) + Kokkos::fabs(a.x * b.z)) * Kokkos::fabs(v.y) +
+                                     (Kokkos::fabs(a.x * b.y) + Kokkos::fabs(a.y * b.x)) * Kokkos::fabs(v.z);
+                if (distance >= -roundoff * scale) {
+                    separated = false;
+                    break;
+                }
+            }
+            if (shared && separated) return true;
+        }
+        return false;
+    }
+
     /// @brief Determine if a point is "inside" a half-sphere defined by a
     ///        great-circle normal.
     ///
