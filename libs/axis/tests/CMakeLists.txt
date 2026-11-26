@@ -90,6 +90,7 @@ set(AXIS_UNIT_TEST_SOURCES
     test_conservation_norm.cpp
     test_raii_handles.cpp
     test_spherical_geometry.cpp
+    test_spherical_shared_boundary.cpp
     test_mesh_builder.cpp
     test_structured_grid_conversion.cpp
     test_reduced_gaussian_grid.cpp
